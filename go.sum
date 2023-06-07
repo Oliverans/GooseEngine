@@ -1,0 +1,9 @@
+github.com/ajstarks/svgo v0.0.0-20200320125537-f189e35d30ca/go.mod h1:K08gAheRH3/J6wwsYMMT4xOr94bZjxIelGM0+d/wbFw=
+github.com/benwebber/bitboard v0.0.0-20141101164733-e30361e88c85 h1:32HEGBYkjceKrfNuBBofmW7rlZlqDBmlFT89YrqVgFs=
+github.com/benwebber/bitboard v0.0.0-20141101164733-e30361e88c85/go.mod h1:1+OC2EoR+DbMQaKgrBJUS/I2leFhxrE5Acz9yIKVbs0=
+github.com/dylhunn/dragontoothmg v0.0.0-20170905201839-b0146de1e275 h1:PDfC81w74XKfP1qDVvKrcL+isYNi7FBunA4zU+eMlME=
+github.com/dylhunn/dragontoothmg v0.0.0-20170905201839-b0146de1e275/go.mod h1:L6ZI7rasNVYqjj/tpfqYRowKPuSQO71UCBBhPxamiDQ=
+github.com/dylhunn/dragontoothmg v0.0.0-20220917014754-e79413b50d93 h1:+seiDwiD3oVmo7Lem5B5sI4feILZDJLgOK6gZYd6g0Y=
+github.com/dylhunn/dragontoothmg v0.0.0-20220917014754-e79413b50d93/go.mod h1:L6ZI7rasNVYqjj/tpfqYRowKPuSQO71UCBBhPxamiDQ=
+github.com/notnil/chess v1.9.0 h1:YMxR5kUVjtwcuFptGU0/3q7eG3MSHQNbg0VUekvRKV0=
+github.com/notnil/chess v1.9.0/go.mod h1:cRuJUIBFq9Xki05TWHJxHYkC+fFpq45IWwk94DdlCrA=
