@@ -251,13 +251,11 @@ func rootsearch(b *dragontoothmg.Board, depth int, useCustomDepth bool) (int, dr
 		}
 
 		/*
-			==========================================================================================================
 			ASPIRATION WINDOW
 			Setting a smaller bound on alpha & beta, means we will cut more nodes initially when searching.
 			It happens since it'll be easier to be above beta (fail high) or below alpha (fail low).
 			If we misjudged our position, and we reach a value better or worse than the window (assumption is we're
 			roughly correct about how we evaluate the position), we will increase set alpha&beta to the full scope instead
-			==========================================================================================================
 		*/
 		if int16(score) <= alpha || int16(score) >= beta {
 			alpha = int16(MinScore)
