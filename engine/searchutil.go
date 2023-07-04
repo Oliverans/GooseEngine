@@ -9,11 +9,25 @@ import (
 
 var nodesChecked = 0
 var cutNodes = 0
-var TTNodes = 0
-var KillerNodes = 0
+var ttNodes = 0
 var counterMove [2][64][64]dragontoothmg.Move
 var historyMove [2][64][64]int
 var historyMaxVal = 10000 // Ensure we stay below the captures, countermoves etc
+
+// To keep track of 3-fold repetition and/or 50 move draw
+type HistoryStruct struct {
+	History             []uint64
+	HalfclockRepetition int
+}
+
+func (History *HistoryStruct) incrementHistory(posHash uint64) {
+	History.HalfclockRepetition++
+	History.History[History.HalfclockRepetition] = posHash
+}
+
+func (History *HistoryStruct) decrementHistory() {
+	History.HalfclockRepetition--
+}
 
 func storeCounter(counterList *[2][64][64]dragontoothmg.Move, sideToMove bool, prevMove dragontoothmg.Move, move dragontoothmg.Move) {
 	from := dragontoothmg.Square(prevMove.From())
@@ -76,6 +90,19 @@ func ClearHistoryTable() {
 	}
 }
 
+func isThreefoldRepetition(board *dragontoothmg.Board, posHash uint64) bool {
+	var repetitionCounter = 1
+	for index := 0; index < (History.HalfclockRepetition); index++ {
+		if History.History[index] == posHash {
+			repetitionCounter++
+		}
+		if repetitionCounter == 3 {
+			return true
+		}
+	}
+	return false
+}
+
 func Min(x, y int) int {
 	if x < y {
 		return x
@@ -101,15 +128,6 @@ const MaxDepth = 100
 
 var LMR = [MaxDepth + 1][100]int{}
 
-func InitSearchTables() {
-	for depth := 3; depth < 100; depth++ {
-		for moveCnt := 3; moveCnt < 100; moveCnt++ {
-			LMR[depth][moveCnt] = max(2, depth/4) + moveCnt/12
-		}
-	}
-
-}
-
 func getPVLineString(pvLine PVLine) (theMoves string) {
 	for _, move := range pvLine.Moves {
 		theMoves += " "
@@ -118,7 +136,7 @@ func getPVLineString(pvLine PVLine) (theMoves string) {
 	return theMoves
 }
 
-// Taken from Blunder chess engine, since I'm very lazy
+// Taken from Blunder chess engine and just slightly modified, since I'm very lazy; works great though :)
 func getMateOrCPScore(score int) string {
 	if int16(score) > (MaxScore - 50) {
 		pliesToMate := int(MaxScore) - score

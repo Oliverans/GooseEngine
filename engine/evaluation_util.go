@@ -22,27 +22,17 @@ var (
 )
 var ClearRank [8]uint64
 var MaskRank [8]uint64
-
-func getRankOfSquare(sq int) uint64 {
-	return onlyRank[sq%8]
-}
+var ranksAbove = [8]uint64{0xffffffffffffffff, 0xffffffffffffff00, 0xffffffffffff0000, 0xffffffffff000000, 0xffffffff00000000, 0xffffff0000000000, 0xffff000000000000, 0xff00000000000000}
+var ranksBelow = [8]uint64{0xff, 0xffff, 0xffffff, 0xffffffff, 0xffffffffff, 0xffffffffffff, 0xffffffffffffff, 0xffffffffffffffff}
 
 func getFileOfSquare(sq int) uint64 {
 	return onlyFile[sq%8]
 }
 
 func getOutpostsBB(b *dragontoothmg.Board) (outpostSquares [2]uint64) {
-	wEast, wWest := PawnCaptureBitboards(b.White.Pawns, true)
-	bEast, bWest := PawnCaptureBitboards(b.Black.Pawns, false)
-	wPawnCaptureBoard := wEast | wWest
-	bPawnCaptureBoard := bEast | bWest
-
 	// Generate allowed ranks & files for outposts to be on
-
-	var wAllowedOutpostMask uint64 = 0xffff7e7e000000
-	var bAllowedOutpostMask uint64 = 0x7e7effff00
-	wPotentialOutposts := wPawnCaptureBoard & wAllowedOutpostMask
-	bPotentialOutposts := bPawnCaptureBoard & bAllowedOutpostMask
+	wPotentialOutposts := wPawnAttackBB & wAllowedOutpostMask
+	bPotentialOutposts := bPawnAttackBB & bAllowedOutpostMask
 
 	var wOutpostBB uint64
 	var bOutpostBB uint64
@@ -50,30 +40,22 @@ func getOutpostsBB(b *dragontoothmg.Board) (outpostSquares [2]uint64) {
 	for x := wPotentialOutposts; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
 		sqBB := PositionBB[sq]
-		// Match potential outpost positions with the square
 		if bits.OnesCount64(sqBB&wPotentialOutposts) > 0 {
-			leftFile := getFileOfSquare(sq-1) &^ bitboardFileH
-			rightFile := getFileOfSquare(sq+1) &^ bitboardFileA
-			if bits.OnesCount64(b.Black.Pawns&(leftFile)) == 0 {
-				wOutpostBB = wOutpostBB | sqBB
-			}
-			if bits.OnesCount64(b.Black.Pawns&(rightFile)) == 0 {
+			filesToCheck := (getFileOfSquare(sq-1) &^ bitboardFileH) | (getFileOfSquare(sq+1) &^ bitboardFileA)
+			var ranksToCheckForEnemyPawns = ranksAbove[(sq/8)+1]
+			if bits.OnesCount64(b.Black.Pawns&(filesToCheck&ranksToCheckForEnemyPawns)) == 0 {
 				wOutpostBB = wOutpostBB | sqBB
 			}
 		}
 	}
 
-	for x := bPawnCaptureBoard; x != 0; x &= x - 1 {
+	for x := bPotentialOutposts; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
 		sqBB := PositionBB[sq]
-		// Match potential outpost positions with the square
 		if bits.OnesCount64(sqBB&bPotentialOutposts) > 0 {
-			leftFile := getFileOfSquare(sq-1) &^ bitboardFileH
-			rightFile := getFileOfSquare(sq+1) &^ bitboardFileA
-			if bits.OnesCount64(b.White.Pawns&(leftFile)) == 0 {
-				bOutpostBB = bOutpostBB | sqBB
-			}
-			if bits.OnesCount64(b.White.Pawns&(rightFile)) == 0 {
+			filesToCheck := (getFileOfSquare(sq-1) &^ bitboardFileH) | (getFileOfSquare(sq+1) &^ bitboardFileA)
+			var ranksToCheckForEnemyPawns = ranksBelow[(sq/8)+1]
+			if bits.OnesCount64(b.White.Pawns&(filesToCheck&ranksToCheckForEnemyPawns)) == 0 {
 				bOutpostBB = bOutpostBB | sqBB
 			}
 		}
@@ -85,56 +67,22 @@ func getOutpostsBB(b *dragontoothmg.Board) (outpostSquares [2]uint64) {
 }
 
 func OutpostBonus(b *dragontoothmg.Board, pieceType dragontoothmg.Piece) (outpostMG, outpostEG int) {
-	var reachableOutpostBonus = 0
 	var onOutpostBonus = 0
-	var wPieceBB uint64
-	var bPieceBB uint64
 	if pieceType == dragontoothmg.Bishop {
-		reachableOutpostBonus = bishopCanReachOutpost
-		onOutpostBonus = bishopOutpost
-		wPieceBB = b.White.Bishops
-		bPieceBB = b.Black.Bishops
+		// White
+		outpostMG += bishopOutpost * bits.OnesCount64(b.White.Bishops&whiteOutposts)
+		outpostEG += bishopOutpost * bits.OnesCount64(b.White.Bishops&whiteOutposts)
+
+		// Black
+		outpostMG -= bishopOutpost * bits.OnesCount64(b.Black.Bishops&blackOutposts)
+		outpostEG -= bishopOutpost * bits.OnesCount64(b.Black.Bishops&blackOutposts)
+
 	} else {
-		reachableOutpostBonus = knightOutpost
-		onOutpostBonus = knightCanReachOutpost
-		wPieceBB = b.White.Knights
-		bPieceBB = b.Black.Knights
-	}
+		outpostMG += knightOutpost * bits.OnesCount64(b.White.Knights&whiteOutposts)
+		outpostEG += knightOutpost * bits.OnesCount64(b.White.Knights&whiteOutposts)
 
-	for x := wPieceBB; x != 0; x &= x - 1 {
-		sqBB := PositionBB[bits.TrailingZeros64(x)]
-		var movementBB uint64
-		if pieceType == dragontoothmg.Bishop {
-			movementBB = dragontoothmg.CalculateBishopMoveBitboard(uint8(bits.TrailingZeros64(x)), (b.White.All|b.Black.All)) & ^b.White.All
-		} else {
-			movementBB = KnightMasks[bits.TrailingZeros64(x)] & ^b.White.All
-		}
-
-		if bits.OnesCount64(sqBB&whiteOutposts) > 0 { // If we are on an outpost, give a bonus
-			outpostMG += onOutpostBonus * bits.OnesCount64(sqBB&whiteOutposts)
-			outpostEG += onOutpostBonus * bits.OnesCount64(sqBB&whiteOutposts)
-		} else if bits.OnesCount64(movementBB&whiteOutposts) > 0 { // else if we can reach it, give a smaller bonus
-			outpostMG += reachableOutpostBonus * bits.OnesCount64(sqBB&whiteOutposts)
-			outpostEG += reachableOutpostBonus * bits.OnesCount64(movementBB&whiteOutposts)
-		}
-	}
-
-	for x := bPieceBB; x != 0; x &= x - 1 {
-		sqBB := PositionBB[bits.TrailingZeros64(x)]
-		var movementBB uint64
-		if pieceType == dragontoothmg.Bishop {
-			movementBB = dragontoothmg.CalculateBishopMoveBitboard(uint8(bits.TrailingZeros64(x)), (b.White.All|b.Black.All)) &^ b.Black.All
-		} else {
-			movementBB = KnightMasks[bits.TrailingZeros64(x)] &^ b.Black.All
-		}
-
-		if bits.OnesCount64(sqBB&blackOutposts) > 0 { // If we are on an outpost, give a bonus
-			outpostMG -= (onOutpostBonus * bits.OnesCount64(sqBB&blackOutposts))
-			outpostEG -= (onOutpostBonus * bits.OnesCount64(sqBB&blackOutposts))
-		} else if bits.OnesCount64(movementBB&blackOutposts) > 0 { // else if we can reach it, give a smaller bonus
-			outpostMG -= (reachableOutpostBonus * bits.OnesCount64(movementBB&blackOutposts))
-			outpostEG -= (reachableOutpostBonus * bits.OnesCount64(movementBB&blackOutposts))
-		}
+		outpostMG -= onOutpostBonus * bits.OnesCount64(b.Black.Knights&blackOutposts)
+		outpostEG -= onOutpostBonus * bits.OnesCount64(b.Black.Knights&blackOutposts)
 	}
 	return outpostMG, outpostEG
 }

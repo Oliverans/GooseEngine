@@ -2,36 +2,15 @@ package engine
 
 import (
 	"math/bits"
-	"time"
 
 	"github.com/dylhunn/dragontoothmg"
 )
 
 var KingMoves [65]uint64
 
-var seeTime time.Duration
-var SeePieceValue = map[dragontoothmg.Piece]int{dragontoothmg.King: 5000, dragontoothmg.Pawn: 100, dragontoothmg.Knight: 300, dragontoothmg.Bishop: 300, dragontoothmg.Rook: 500, dragontoothmg.Queen: 900}
+var SeePieceValue = [7]int{dragontoothmg.King: 5000, dragontoothmg.Pawn: 100, dragontoothmg.Knight: 300, dragontoothmg.Bishop: 300, dragontoothmg.Rook: 500, dragontoothmg.Queen: 900}
 
 func see(b *dragontoothmg.Board, move dragontoothmg.Move, debug bool) int {
-	/*
-		TWO TEST POSITIONS:
-		- test position, white and black pieces shouldn't be able to hit because they're blocked (opponent pieces may decide not to capture ...):
-			3kq3/4r3/2n1R3/4p3/3b4/2B2N2/1Q6/3K4 w - - 0 1
-			Black should end up -4, a rook up after making all trades
-			xraying through enemy pieces shouldn't be possible
-			unsure about ... xraying enemy pieces ... probably not
-
-		- test position, just normal captures...
-			3kq3/4r3/2n2b2/4p3/8/2B2N2/1Q2R3/3K4 w - - 0 1
-			Black should end up -8, a queen up after making all trades
-
-		- test position, uneven material quality
-			3kq3/4r3/2n1r3/4p2r/2N5/2B2NB1/1Q6/3K4 w - - 0 1
-			white should end up +2 when the capturing ends
-			not completing all trades, as black is down too much material
-
-	*/
-
 	gain := [32]int{}
 	depth := uint8(0)
 	sideToMove := b.Wtomove
@@ -52,11 +31,11 @@ func see(b *dragontoothmg.Board, move dragontoothmg.Move, debug bool) int {
 	var targetPiece dragontoothmg.Piece
 	var attacker dragontoothmg.Piece
 	if sideToMove {
-		targetPiece, _ = GetPieceTypeAtPosition(targetSquare, b.Black)
-		attacker, _ = GetPieceTypeAtPosition(initSquare, b.White)
+		targetPiece, _ = GetPieceTypeAtPosition(targetSquare, &b.Black)
+		attacker, _ = GetPieceTypeAtPosition(initSquare, &b.White)
 	} else {
-		targetPiece, _ = GetPieceTypeAtPosition(targetSquare, b.White)
-		attacker, _ = GetPieceTypeAtPosition(initSquare, b.Black)
+		targetPiece, _ = GetPieceTypeAtPosition(targetSquare, &b.White)
+		attacker, _ = GetPieceTypeAtPosition(initSquare, &b.Black)
 	}
 
 	gain[depth] = SeePieceValue[targetPiece]
@@ -90,11 +69,11 @@ func see(b *dragontoothmg.Board, move dragontoothmg.Move, debug bool) int {
 		}
 	}
 
-	for depth = depth; depth > 0; depth-- {
+	for loopDepth := depth; loopDepth > 0; loopDepth-- {
 		if debug {
-			println("Depth: ", depth, "\tscore: ", gain[depth-1])
+			println("Depth: ", depth, "\tscore: ", gain[loopDepth-1])
 		}
-		gain[depth-1] = -max(-gain[depth-1], gain[depth])
+		gain[loopDepth-1] = -max(-gain[loopDepth-1], gain[loopDepth])
 	}
 
 	if debug {
@@ -131,8 +110,13 @@ func getPiecesAttackingSquare(b *dragontoothmg.Board, targetSquare uint8, usBB d
 	diagonalAttacksXray := dragontoothmg.CalculateBishopMoveBitboard(targetSquare, ((usBB.All & ^(usBB.Bishops|usBB.Queens))|enemyBB.All)) & ^(usBB.All & ^(usBB.Bishops | usBB.Queens)) //(^usBB.All & ^(usBB.Bishops | usBB.Queens))
 	orthogonalAttacksXray := dragontoothmg.CalculateRookMoveBitboard(targetSquare, ((usBB.All & ^(usBB.Rooks|usBB.Queens))|enemyBB.All)) & ^(usBB.All & ^(usBB.Rooks | usBB.Queens))
 
-	east, west := PawnCaptureBitboards(PositionBB[targetSquare], !sideToMove)
-	hitPieces := (east | west) & usBB.Pawns
+	var attackBB uint64
+	if b.Wtomove {
+		attackBB = wPawnAttackBB
+	} else {
+		attackBB = bPawnAttackBB
+	}
+	hitPieces := attackBB & usBB.Pawns
 	hitPieces |= orthogonalAttacksXray & (usBB.Rooks | usBB.Queens)
 	hitPieces |= diagonalAttacksXray & (usBB.Bishops | usBB.Queens)
 	hitPieces |= KnightMasks[targetSquare] & usBB.Knights

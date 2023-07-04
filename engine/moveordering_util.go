@@ -1,9 +1,6 @@
 package engine
 
 import (
-	"fmt"
-	"sort"
-
 	"github.com/dylhunn/dragontoothmg"
 )
 
@@ -18,19 +15,12 @@ type PairList []Pair
 // In order: knight on A1, B1, C1, ... F8, G8, H8
 
 func PawnCaptureBitboards(pawnBoard uint64, wToMove bool) (east uint64, west uint64) {
-	//notHFile := uint64(0x7F7F7F7F7F7F7F7F)
-	//notAFile := uint64(0xFEFEFEFEFEFEFEFE)
-	// valid square requirements
-	//var tmpEast uint64
-	//var tmpWest uint64
-	for x := pawnBoard; x != 0; x &= x - 1 {
-		if wToMove {
-			east |= (x << 8 << 1) & ^bitboardFileA
-			west |= (x << 8 >> 1) & ^bitboardFileH
-		} else {
-			east |= (x >> 8 >> 1) & ^bitboardFileA
-			west |= (x >> 8 << 1) & ^bitboardFileH
-		}
+	if wToMove {
+		west = (pawnBoard << 8 << 1) & ^bitboardFileA
+		east = (pawnBoard << 8 >> 1) & ^bitboardFileH
+	} else {
+		west = (pawnBoard >> 8 << 1) & ^bitboardFileA
+		east = (pawnBoard >> 8 >> 1) & ^bitboardFileH
 	}
 	return
 }
@@ -61,24 +51,25 @@ func (p PairList) Len() int           { return len(p) }
 func (p PairList) Swap(j, i int)      { p[i], p[j] = p[j], p[i] }
 func (p PairList) Less(j, i int) bool { return p[i].Value < p[j].Value }
 
-func SortStruct(board *dragontoothmg.Board, moves map[dragontoothmg.Move]int) PairList {
-	p := make(PairList, len(moves))
-	i := len(moves) - 1
-
-	for k, v := range moves {
-		p[i] = Pair{k, v}
-		i--
-	}
-
-	sort.Slice(p[:], func(i, j int) bool {
-		if p[i].Value == p[j].Value {
-			return p[i].Key > p[j].Key
-		} else {
-			return p[i].Value > p[j].Value
-		}
-	})
-	return p
-}
+// TBD; DELETE ONCE I'M SURE I HATE THIS
+//func sortStruct(board *dragontoothmg.Board, moves map[dragontoothmg.Move]int) PairList {
+//	p := make(PairList, len(moves))
+//	i := len(moves) - 1
+//
+//	for k, v := range moves {
+//		p[i] = Pair{k, v}
+//		i--
+//	}
+//
+//	sort.Slice(p[:], func(i, j int) bool {
+//		if p[i].Value == p[j].Value {
+//			return p[i].Key > p[j].Key
+//		} else {
+//			return p[i].Value > p[j].Value
+//		}
+//	})
+//	return p
+//}
 
 ///////////////////////// Drawing board for debug //////////////////////
 
@@ -128,10 +119,4 @@ func (pvLine *PVLine) GetPVMoveAtDepth(depth int) dragontoothmg.Move {
 	}
 	var nullMove dragontoothmg.Move
 	return nullMove
-}
-
-// Convert the principal variation line to a string.
-func (pvLine PVLine) String() string {
-	pv := fmt.Sprintf("%s", pvLine.Moves)
-	return pv[1 : len(pv)-1]
 }

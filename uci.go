@@ -18,6 +18,7 @@ func main() {
 func uciLoop() {
 	scanner := bufio.NewScanner(os.Stdin)
 	board := dragontoothmg.ParseFen(dragontoothmg.Startpos) // the game board
+	engine.History.History = make([]uint64, 500)
 	// used for communicating with search routine
 
 	//haltchannel := make(chan bool)
@@ -178,11 +179,9 @@ func uciLoop() {
 				fmt.Println("info string Malformed position command")
 				continue
 			}
-			engine.HistoryMap = make(map[uint64]int) // reset the history map
 			if strings.ToLower(posScanner.Text()) == "startpos" {
 				board = dragontoothmg.ParseFen(dragontoothmg.Startpos)
-				engine.HistoryMap[board.Hash()]++ // record that this state has occurred
-				posScanner.Scan()                 // advance the scanner to leave it in a consistent state
+				posScanner.Scan() // advance the scanner to leave it in a consistent state
 			} else if strings.ToLower(posScanner.Text()) == "fen" {
 				fenstr := ""
 				for posScanner.Scan() && strings.ToLower(posScanner.Text()) != "moves" {
@@ -193,7 +192,6 @@ func uciLoop() {
 					continue
 				}
 				board = dragontoothmg.ParseFen(fenstr)
-				engine.HistoryMap[board.Hash()]++ // record that this state has occurred
 			} else {
 				fmt.Println("info string Invalid position subcommand")
 				continue
@@ -201,7 +199,8 @@ func uciLoop() {
 			if strings.ToLower(posScanner.Text()) != "moves" {
 				continue
 			}
-			for posScanner.Scan() { // for each move
+			var hashList = make([]uint64, 500) // Nothing should reach this move length...
+			for posScanner.Scan() {            // for each move
 				moveStr := strings.ToLower(posScanner.Text())
 				legalMoves := board.GenerateLegalMoves()
 				var nextMove dragontoothmg.Move
@@ -223,8 +222,19 @@ func uciLoop() {
 					}
 				}
 				board.Apply(nextMove)
-				engine.HistoryMap[board.Hash()]++
+				hashList[board.Halfmoveclock] = board.Hash()
 			}
+			//engine.History.History = make([]uint64, (int(board.Halfmoveclock) + 50))
+			slot := 0
+			for index, hash := range hashList {
+				if hash == 0 {
+					break
+				}
+				engine.History.History[index] = hash
+				slot++
+			}
+			engine.History.HalfclockRepetition = slot
+			//println("FEN: ", board.ToFen())
 		case "setoption":
 			goScanner := bufio.NewScanner(strings.NewReader(line))
 			goScanner.Split(bufio.ScanWords)
