@@ -6,6 +6,25 @@ import (
 	"github.com/dylhunn/dragontoothmg"
 )
 
+var KnightMasks = [64]uint64{
+	0x0000000000020400, 0x0000000000050800, 0x00000000000a1100, 0x0000000000142200,
+	0x0000000000284400, 0x0000000000508800, 0x0000000000a01000, 0x0000000000402000,
+	0x0000000002040004, 0x0000000005080008, 0x000000000a110011, 0x0000000014220022,
+	0x0000000028440044, 0x0000000050880088, 0x00000000a0100010, 0x0000000040200020,
+	0x0000000204000402, 0x0000000508000805, 0x0000000a1100110a, 0x0000001422002214,
+	0x0000002844004428, 0x0000005088008850, 0x000000a0100010a0, 0x0000004020002040,
+	0x0000020400040200, 0x0000050800080500, 0x00000a1100110a00, 0x0000142200221400,
+	0x0000284400442800, 0x0000508800885000, 0x0000a0100010a000, 0x0000402000204000,
+	0x0002040004020000, 0x0005080008050000, 0x000a1100110a0000, 0x0014220022140000,
+	0x0028440044280000, 0x0050880088500000, 0x00a0100010a00000, 0x0040200020400000,
+	0x0204000402000000, 0x0508000805000000, 0x0a1100110a000000, 0x1422002214000000,
+	0x2844004428000000, 0x5088008850000000, 0xa0100010a0000000, 0x4020002040000000,
+	0x0400040200000000, 0x0800080500000000, 0x1100110a00000000, 0x2200221400000000,
+	0x4400442800000000, 0x8800885000000000, 0x100010a000000000, 0x2000204000000000,
+	0x0004020000000000, 0x0008050000000000, 0x00110a0000000000, 0x0022140000000000,
+	0x0044280000000000, 0x0088500000000000, 0x0010a00000000000, 0x0020400000000000,
+}
+
 func InBetween(i, min, max int) bool {
 	if (i >= min) && (i <= max) {
 		return true
@@ -13,8 +32,6 @@ func InBetween(i, min, max int) bool {
 		return false
 	}
 }
-
-var SquareBB [65]uint64
 
 var (
 	bitboardFileA uint64 = 0x0101010101010101
@@ -29,10 +46,61 @@ func getFileOfSquare(sq int) uint64 {
 	return onlyFile[sq%8]
 }
 
+func getKingSafetyTable(b *dragontoothmg.Board, inner bool, wPawnAttackBB uint64, bPawnAttackBB uint64) [2]uint64 {
+	var kingZoneTable [2]uint64
+	kingBoards := [2]uint64{
+		0: b.White.Kings,
+		1: b.Black.Kings,
+	}
+
+	for i, board := range kingBoards {
+		kingZoneBBInner := board
+		kingSquare := bits.TrailingZeros64(kingZoneBBInner)
+		rank := kingSquare / 8
+		file := kingSquare % 8
+
+		// If we're at the bottom or top rank, we should still keep the size of the king zone at a minimum of 3 wide/high
+		if rank == 0 {
+			kingZoneBBInner = kingZoneBBInner | (kingZoneBBInner << 8) | (kingZoneBBInner << 16)
+		} else if rank == 7 {
+			kingZoneBBInner = kingZoneBBInner | (kingZoneBBInner >> 8) | (kingZoneBBInner >> 16)
+		} else {
+			kingZoneBBInner = kingZoneBBInner | (kingZoneBBInner << 8) | (kingZoneBBInner >> 8)
+		}
+
+		if file == 0 {
+			kingZoneBBInner = kingZoneBBInner | (kingZoneBBInner << 1) | (kingZoneBBInner << 2)
+		} else if file == 7 {
+			kingZoneBBInner = kingZoneBBInner | (kingZoneBBInner >> 1) | (kingZoneBBInner >> 2)
+		} else {
+			kingZoneBBInner = kingZoneBBInner | (((kingZoneBBInner & ^bitboardFileA) >> 1) | ((kingZoneBBInner & ^bitboardFileH) << 1))
+		}
+
+		if i == 0 {
+			kingZoneBBInner &^= wPawnAttackBB
+		} else {
+			kingZoneBBInner &^= bPawnAttackBB
+		}
+
+		kingZoneTable[i] = kingZoneBBInner
+	}
+
+	if !inner {
+		for i, board := range kingZoneTable {
+			kingZoneBBOuter := board
+			kingZoneBBOuter = kingZoneBBOuter | (kingZoneBBOuter << 8) | (kingZoneBBOuter >> 8)
+			kingZoneBBOuter = kingZoneBBOuter | (((kingZoneBBOuter & ^bitboardFileA) >> 1) | ((kingZoneBBOuter & ^bitboardFileH) << 1))
+			kingZoneBBOuter = kingZoneBBOuter &^ kingZoneTable[i]
+			kingZoneTable[i] = kingZoneBBOuter
+		}
+	}
+	return kingZoneTable
+}
+
 func getOutpostsBB(b *dragontoothmg.Board) (outpostSquares [2]uint64) {
 	// Generate allowed ranks & files for outposts to be on
-	wPotentialOutposts := wPawnAttackBB & wAllowedOutpostMask
-	bPotentialOutposts := bPawnAttackBB & bAllowedOutpostMask
+	wPotentialOutposts := (wPawnAttackBB & wAllowedOutpostMask) &^ b.White.Pawns
+	bPotentialOutposts := (bPawnAttackBB & bAllowedOutpostMask) &^ b.Black.Pawns
 
 	var wOutpostBB uint64
 	var bOutpostBB uint64
@@ -54,7 +122,7 @@ func getOutpostsBB(b *dragontoothmg.Board) (outpostSquares [2]uint64) {
 		sqBB := PositionBB[sq]
 		if bits.OnesCount64(sqBB&bPotentialOutposts) > 0 {
 			filesToCheck := (getFileOfSquare(sq-1) &^ bitboardFileH) | (getFileOfSquare(sq+1) &^ bitboardFileA)
-			var ranksToCheckForEnemyPawns = ranksBelow[(sq/8)+1]
+			var ranksToCheckForEnemyPawns = ranksBelow[(sq/8)-1]
 			if bits.OnesCount64(b.White.Pawns&(filesToCheck&ranksToCheckForEnemyPawns)) == 0 {
 				bOutpostBB = bOutpostBB | sqBB
 			}
@@ -66,42 +134,24 @@ func getOutpostsBB(b *dragontoothmg.Board) (outpostSquares [2]uint64) {
 	return
 }
 
-func OutpostBonus(b *dragontoothmg.Board, pieceType dragontoothmg.Piece) (outpostMG, outpostEG int) {
-	var onOutpostBonus = 0
-	if pieceType == dragontoothmg.Bishop {
-		// White
-		outpostMG += bishopOutpost * bits.OnesCount64(b.White.Bishops&whiteOutposts)
-		outpostEG += bishopOutpost * bits.OnesCount64(b.White.Bishops&whiteOutposts)
-
-		// Black
-		outpostMG -= bishopOutpost * bits.OnesCount64(b.Black.Bishops&blackOutposts)
-		outpostEG -= bishopOutpost * bits.OnesCount64(b.Black.Bishops&blackOutposts)
-
+func calculatePawnFileFill(pawnBitboard uint64, isWhite bool) uint64 {
+	if isWhite {
+		pawnBitboard |= calculatePawnNorthFill(pawnBitboard)
 	} else {
-		outpostMG += knightOutpost * bits.OnesCount64(b.White.Knights&whiteOutposts)
-		outpostEG += knightOutpost * bits.OnesCount64(b.White.Knights&whiteOutposts)
-
-		outpostMG -= onOutpostBonus * bits.OnesCount64(b.Black.Knights&blackOutposts)
-		outpostEG -= onOutpostBonus * bits.OnesCount64(b.Black.Knights&blackOutposts)
+		pawnBitboard |= calculatePawnSouthFill(pawnBitboard)
 	}
-	return outpostMG, outpostEG
-}
-
-func calculatePawnFileFill(pawnBitboard uint64) uint64 {
-	pawnBitboard |= calculatePawnNorthFill(pawnBitboard)
-	pawnBitboard |= calculatePawnSouthFill(pawnBitboard)
 	return pawnBitboard
 }
 
 func calculatePawnNorthFill(pawnBitboard uint64) uint64 {
-	pawnBitboard |= (pawnBitboard << 8)
+	pawnBitboard = (pawnBitboard << 8)
 	pawnBitboard |= (pawnBitboard << 16)
 	pawnBitboard |= (pawnBitboard << 32)
 	return pawnBitboard
 }
 
 func calculatePawnSouthFill(pawnBitboard uint64) uint64 {
-	pawnBitboard |= (pawnBitboard >> 8)
+	pawnBitboard = (pawnBitboard >> 8)
 	pawnBitboard |= (pawnBitboard >> 16)
 	pawnBitboard |= (pawnBitboard >> 32)
 	return pawnBitboard
@@ -146,7 +196,7 @@ func isTheoreticalDraw(board *dragontoothmg.Board, debug bool) bool {
 				return true
 			}
 		} else if allPieces == 2 { // Draws with only two major/minor pieces (where it generally is a draw)
-			if (wKnights == 2 || bKnights == 2) || ((wBishops == 1 || wKnights == 1) && (bBishops == 1 || bKnights == 1)) {
+			if (wKnights == 2 || bKnights == 2) || ((wBishops+wKnights > 0 && wBishops+wKnights < 2) && (bBishops+bKnights > 0 && bBishops+bKnights < 2)) {
 				return true
 			} else if (wRooks == 1 && (bBishops == 1 || bKnights == 1 || bRooks == 1)) || (bRooks == 1 && (wBishops == 1 || wKnights == 1 || wRooks == 1)) {
 				return true

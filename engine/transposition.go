@@ -13,17 +13,19 @@ const (
 	ExactFlag
 
 	// In MB
-	TTSize = 64
+	TTSize = 256
 
 	// Unusable score
-	UnusableScore int16 = -32500
+	UnusableScore = -32500
+
+	// Max moves ago before we simply replace an entry
+	ageLimit = 15
 )
 
 type TransTable struct {
 	isInitialized bool
-	entries       map[uint64]TTEntry
+	entries       []TTEntry
 	size          uint64
-	GlobalAge     uint8
 }
 
 type TTEntry struct {
@@ -37,30 +39,38 @@ type TTEntry struct {
 
 var TranspositionTime time.Duration
 
+func (TT *TransTable) clearTT() {
+	TT.entries = nil
+	TT.isInitialized = false
+	//TT.init()
+}
+
+func (TT *TransTable) init() {
+	// Set up transposition table
+	TT.size = (TTSize * 1024 * 1024) / 16
+	TT.entries = make([]TTEntry, TT.size)
+	TT.isInitialized = true
+}
+
 func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha int16, beta int16) (usable bool, score int16) {
-	score = 0
+	score = UnusableScore
 	usable = false
 	if ttEntry.Hash == hash {
-		var ttScore = ttEntry.Score
-		if ttEntry.Depth >= depth {
-
-			if ttScore > MaxScore-50 {
-				ttScore = MaxScore - int16(ttEntry.Depth)
-			} else if ttScore < MinScore+50 {
-				ttScore = MinScore + int16(ttEntry.Depth)
-			}
+		score = ttEntry.Score
+		if ttEntry.Depth > depth {
+			var ttScore = ttEntry.Score
 
 			if ttEntry.Flag == ExactFlag {
 				score = ttScore
 				usable = true
 			}
 
-			if ttEntry.Flag == AlphaFlag && ttScore <= alpha {
+			if ttEntry.Flag == AlphaFlag && ttScore < alpha {
 				score = alpha
 				usable = true
 			}
 
-			if ttEntry.Flag == BetaFlag && ttScore >= beta {
+			if ttEntry.Flag == BetaFlag && ttScore > beta {
 				score = beta
 				usable = true
 			}
@@ -70,60 +80,48 @@ func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha 
 	return usable, score
 }
 
-func (TT *TransTable) getEntry(hash uint64) (entry TTEntry) {
-	index := hash % TT.size
-	firstEntry := TT.entries[index]
-
-	if index+1 == TT.size {
-		return firstEntry
-	}
-	if firstEntry.Hash == hash {
-		return firstEntry
-	}
-	return TT.entries[index+1]
+func (TT *TransTable) getEntry(hash uint64) (entry *TTEntry) {
+	return &TT.entries[hash%TT.size]
 }
 
-func (TT *TransTable) storeEntry(hash uint64, depth int8, move dragontoothmg.Move, score int16, flag int8) {
+/*
+	If there's a spot to improve searching and data storing, here is where it'd happen!
+	This is an "always replace"-approach; I've fiddled with depth comparisons and gotten weird/buggy results
+
+*/
+func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move dragontoothmg.Move, score int16, flag int8, age uint8) {
 	// Create entry
 	entrySlot := hash % TT.size
-	prevEntry := TT.entries[entrySlot]
 
-	/*
-		TWO BUCKET; the "extra bucket" is just allowing for multiple storings of the same hash, so we don't necessarily
-		have to replace another entry.
-		The storing of "multiple entries" for a hash, is simply just entry-slot increments; +1 for each. Or in our case,
-		we'll just use two, so we use a "two-bucket". It could increase and become more complex.
-	*/
+	// Check if we got an entry already
+	//prevEntry := TT.entries[entrySlot]
+	//shouldReplace := prevEntry.Depth < depth // || prevEntry.Age+ageLimit < age
 
-	// If we hit the length of the map, we can't store another entry.
+	// Replace
+	//if shouldReplace && move != 0000 && flag == ExactFlag {
+	//if depth < prevEntry.Depth { // || move == 0 {
+	//	return
+	//}
+
+	if score == 0 {
+		return
+	}
+
 	var entry TTEntry
 	entry.Hash = hash
 	entry.Depth = depth
 	entry.Move = move
-	entry.Score = score
 	entry.Flag = flag
+	entry.Age = age
 
-	// Then we just store it.
-	if entrySlot+1 == TT.size {
-		TT.entries[entrySlot] = entry
+	// If we have a mate score, we add the ply
+	if score > Checkmate {
+		score += int16(ply) //MaxScore - int16(depth)
 	}
-
-	// Check whether we should store the new one
-	if prevEntry.Depth < depth {
-		TT.entries[entrySlot] = entry
-	} else { // Otherwise we store it in our "other bucket" ##### TWO BUCKET OMG
-		TT.entries[entrySlot+1] = entry
+	if score < -Checkmate {
+		score -= int16(ply) //= -MaxScore + int16(depth)
 	}
-}
-
-func (TT *TransTable) clearTT() {
-	TT.entries = nil
-	TT.isInitialized = false
-}
-
-func (TT *TransTable) init() {
-	// Set up transposition table
-	TT.entries = make(map[uint64]TTEntry, ((TTSize * 1024 * 1024) / TTSize))
-	TT.size = ((TTSize * 1024 * 1024) / TTSize)
-	TT.isInitialized = true
+	entry.Score = score
+	TT.entries[entrySlot] = entry
+	//}
 }

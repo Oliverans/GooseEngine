@@ -27,7 +27,7 @@ func (th *TimeHandler) StartTime(madeMoveCount int) {
 
 	var moveTime = 0
 	if th.increment > 0 {
-		moveTime = th.remainingTime/max(40, 60-madeMoveCount) + th.increment
+		moveTime = th.remainingTime/max(60, 40-madeMoveCount) + th.increment
 	} else {
 		moveTime = (th.remainingTime / 40)
 	}
@@ -37,6 +37,12 @@ func (th *TimeHandler) StartTime(madeMoveCount int) {
 	} else {
 		th.timeForMove = time.Now().Add(time.Duration(moveTime) * time.Millisecond)
 	}
+}
+
+func (th *TimeHandler) Update(extraTime int64) {
+
+	// Set the new time for the current search.
+	th.timeForMove = time.Now().Add(time.Duration(extraTime) * time.Millisecond)
 }
 
 func (th *TimeHandler) TimeStatus() bool {

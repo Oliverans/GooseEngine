@@ -8,8 +8,8 @@ import (
 	"github.com/dylhunn/dragontoothmg"
 )
 
-var MinScore int16 = -32000
-var MaxScore int16 = 32000
+var MaxScore int16 = 20000
+var Checkmate int16 = 9000
 
 var killerMoveTable KillerStruct
 
@@ -33,25 +33,20 @@ var FutilityMargins = [10]int16{
 	290, // depth 9
 }
 
-var RazoringMargins = [10]int{
+var RazoringMargins = [10]int16{
 	0,   // depth 0
-	120, // depth 1
-	150, // depth 2
-	180, // depth 3
-	210, // depth 4
-	220, // depth 5
-	240, // depth 6
-	270, // depth 7
-	300, // depth 8
-	320, // depth 9
+	100, // depth 1
+	125, // depth 2
+	150, // depth 3
+	175, // depth 3
+	200, // depth 3
+	225, // depth 3
+	250, // depth 3
+	275, // depth 3
 }
 
 // Late move pruning
-//var LateMovePruningMargins = [6]int{0, 16, 20, 24, 28, 36}
-
-var LateMovePruningMargins = [6]int{0, 8, 16, 24, 28, 32}
-
-//var LateMovePruningMargins = [6]int{14, 16, 18, 22, 24, 34}
+var LateMovePruningMargins = [6]int{0, 8, 12, 16, 20, 24}
 
 var LMRLegalMovesLimit = 4
 var LMRDepthLimit = 3
@@ -59,27 +54,15 @@ var LMRDepthLimit = 3
 // Aspiration window variable
 // TBD: Tinker until its "better"; 35 seems to give the best results, although I've
 // not verified this at all other than testing out the values in 4-5 (wild) test-positions
-var aspiratinoWindowSize int16 = 30
-
-var lateMovePruningCounter = 0
-var lateMoveReductionCounter = 0
-var lateMoveReductionFullSearch = 0
-var futilityPruningCounter = 0
-var razoringCounter = 0
-var staticNullMovePruneCount = 0
-var nullMovePruneCount = 0
-var IIDCounter = 0
-var ttMoveCounter = 0
-
-var HistoryMap map[uint64]int = make(map[uint64]int, 5000)
-var History HistoryStruct
+var aspirationWindowSize int16 = 35
 
 var TT TransTable
+var halfMoveCounter uint8 = 0
 var prevSearchScore int16 = 0
 var timeHandler TimeHandler
 var GlobalStop = false
 
-func StartSearch(board *dragontoothmg.Board, depth int, gameTime int, increment int, useCustomDepth bool, evalOnly bool) string {
+func StartSearch(board *dragontoothmg.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool) string {
 	initVariables(board)
 
 	/*
@@ -88,81 +71,106 @@ func StartSearch(board *dragontoothmg.Board, depth int, gameTime int, increment 
 			- prints out all important evaluation variables, such as
 				- both midgame & endgame values
 				- the difference in score between mid & endgame
+					- all individual piece evaluation scores and their components
+				- helper variables (outpost squares etc)
 			- whether we consider this position moving towards a theoretical draw
 	*/
-	if evalOnly {
-		Evaluation(board, true)
-		println("Is this a theoretical draw: ", isTheoreticalDraw(board, true))
-		os.Exit(0)
-	}
 
 	// Just some test stuff for SEE; Will remove later
 	//var tempMove dragontoothmg.Move
+	//*board = dragontoothmg.ParseFen("1k1r3q/1ppn3p/p4b2/4p3/8/P2N2P1/1PP1R1BP/2K1Q3 w - - 0 1")
+	//tempMove.Setfrom(dragontoothmg.Square(19))
+	//tempMove.Setto(dragontoothmg.Square(36))
+	//see(board, tempMove, true)
+	//return "LMAO"
+	////
+	//*board = dragontoothmg.ParseFen("5rk1/1pp2q1p/p1pb4/8/3P1NP1/2P5/1P1BQ1P1/5RK1 b - -")
+	//tempMove.Setfrom(dragontoothmg.Square(43))
+	//tempMove.Setto(dragontoothmg.Square(29))
+	//see(board, tempMove, true)
+	////
+	//*board = dragontoothmg.ParseFen("3r3k/3r4/2n1n3/8/3p4/2PR4/1B1Q4/3R3K w - -")
+	//tempMove.Setfrom(dragontoothmg.Square(18))
+	//tempMove.Setto(dragontoothmg.Square(27))
+	//see(board, tempMove, true)
+	////
+	//*board = dragontoothmg.ParseFen("rnbqk2r/pp3ppp/2p1pn2/3p4/3P4/N1P1BN2/PPB1PPPb/R2Q1RK1 w kq -")
+	//tempMove.Setfrom(dragontoothmg.Square(6))
+	//tempMove.Setto(dragontoothmg.Square(15))
+	//see(board, tempMove, true)
+	//*board = dragontoothmg.ParseFen("7k/p7/1p6/8/8/1Q6/8/7K w - - 0 1")
 	//tempMove.Setfrom(dragontoothmg.Square(17))
 	//tempMove.Setto(dragontoothmg.Square(41))
-	//see(b, tempMove, true)
+	//see(board, tempMove, true)
 	//os.Exit(0)
 
-	GlobalStop = false
-	if !timeHandler.isInitialized {
-		timeHandler.initTimemanagement(gameTime, increment, int(board.Halfmoveclock), useCustomDepth)
-		timeHandler.StartTime(int(board.Halfmoveclock))
-	} else {
-		timeHandler.initTimemanagement(gameTime, increment, int(board.Halfmoveclock), useCustomDepth)
-		timeHandler.StartTime(int(board.Halfmoveclock))
-	}
+	//var strToInt = map[string]int{
+	//	"a1": 0, "a2": 8, "a3": 16, "a4": 24, "a5": 32, "a6": 40, "a7": 48, "a8": 56,
+	//	"b1": 1, "b2": 9, "b3": 17, "b4": 25, "b5": 33, "b6": 41, "b7": 49, "b8": 57,
+	//	"c1": 2, "c2": 10, "c3": 18, "c4": 26, "c5": 34, "c6": 42, "c7": 50, "c8": 58,
+	//	"d1": 3, "d2": 11, "d3": 19, "d4": 27, "d5": 35, "d6": 43, "d7": 51, "d8": 59,
+	//	"e1": 4, "e2": 12, "e3": 20, "e4": 28, "e5": 36, "e6": 44, "e7": 52, "e8": 60,
+	//	"f1": 5, "f2": 13, "f3": 21, "f4": 29, "f5": 37, "f6": 45, "f7": 53, "f8": 61,
+	//	"g1": 6, "g2": 14, "g3": 22, "g4": 30, "g5": 38, "g6": 46, "g7": 54, "g8": 62,
+	//	"h1": 7, "h2": 15, "h3": 23, "h4": 31, "h5": 39, "h6": 47, "h7": 55, "h8": 63,
+	//}
 
-	var nilMove dragontoothmg.Move
-	for i := 0; i < 64; i++ {
-		for z := 0; z < 64; z++ {
-			counterMove[0][i][z] = nilMove
-			counterMove[1][i][z] = nilMove
-		}
-	}
-
-	for i := 0; i < 64; i++ {
-		for z := 0; z < 64; z++ {
-			historyMove[0][i][z] = 0
-			historyMove[1][i][z] = 0
-		}
-	}
+	//file, _ := os.OpenFile("/Users/olivernylander/Dropbox/chess_game_improved/tuner/tuning_positions.epd", os.O_RDONLY, 0600)
+	//file, _ := os.OpenFile("E:\\Programs\\Dropbox\\Dropbox\\chess_game_improved\\engine\\test_suite.txt", os.O_RDONLY, 0600)
+	//sc := bufio.NewScanner(file)
+	//for sc.Scan() {
+	//	var tempMove dragontoothmg.Move
+	//	// Split string - we get fen & score here
+	//	epd_split := strings.Split(sc.Text(), ";")
+	//	position := epd_split[0]
+	//	move := epd_split[1]
+	//	move = strings.ReplaceAll(move, " ", "")
+	//	score := epd_split[2]
+	//
+	//	from := move[0:2]
+	//	fromNumber := strToInt[from]
+	//	to := move[2:4]
+	//	toNumber := strToInt[to]
+	//
+	//	*board = dragontoothmg.ParseFen(position)
+	//	tempMove.Setfrom(dragontoothmg.Square(fromNumber))
+	//	tempMove.Setto(dragontoothmg.Square(toNumber))
+	//	see(board, tempMove, false)
+	//	println("Expected score: ", score, "\tTrades: ", epd_split[3])
+	//}
+	//os.Exit(0)
 
 	if !TT.isInitialized {
 		TT.init()
 	}
 
+	GlobalStop = false
+	timeHandler.initTimemanagement(gameTime, increment, int(board.Halfmoveclock), useCustomDepth)
+	timeHandler.StartTime(int(board.Halfmoveclock))
+
 	var bestMove dragontoothmg.Move
 
+	if evalOnly {
+		Evaluation(board, true, false)
+		println("Is this a theoretical draw: ", isTheoreticalDraw(board, true))
+		os.Exit(0)
+	}
+
 	_, bestMove = rootsearch(board, depth, useCustomDepth)
-
-	//NodesChecked = 0
-
-	GlobalStop = false
-
-	ttNodes = 0
-	cutNodes = 0
-	lateMoveReductionCounter = 0
-	lateMoveReductionFullSearch = 0
-	nullMovePruneCount = 0
-	lateMovePruningCounter = 0
-	razoringCounter = 0
-	quiescenceNodes = 0
-	nodesChecked = 0
 
 	return bestMove.String()
 }
 
-func rootsearch(b *dragontoothmg.Board, depth int, useCustomDepth bool) (int, dragontoothmg.Move) {
-	var repeatSearchCounter uint8
-	var totalRepeatSearches uint8
+func rootsearch(b *dragontoothmg.Board, depth uint8, useCustomDepth bool) (int, dragontoothmg.Move) {
+	halfMoveCounter = b.Halfmoveclock
 	var timeSpent int64
-	var alpha int16 = int16(prevSearchScore - aspiratinoWindowSize)
-	var beta int16 = int16(prevSearchScore + aspiratinoWindowSize)
-	var bestScore = MinScore
+	var alpha int16 = int16(prevSearchScore - aspirationWindowSize)
+	var beta int16 = int16(prevSearchScore + aspirationWindowSize)
+	var bestScore = -MaxScore
 
 	if prevSearchScore != 0 {
-		alpha = int16(prevSearchScore - aspiratinoWindowSize)
-		beta = int16(prevSearchScore + aspiratinoWindowSize)
+		alpha = int16(prevSearchScore - aspirationWindowSize)
+		beta = int16(prevSearchScore + aspirationWindowSize)
 	}
 	var nullMove dragontoothmg.Move
 	var bestMove dragontoothmg.Move
@@ -170,13 +178,13 @@ func rootsearch(b *dragontoothmg.Board, depth int, useCustomDepth bool) (int, dr
 	var prevPVLine PVLine
 	var mateFound bool
 
-	for i := 1; i <= depth && !mateFound && !timeHandler.TimeStatus(); i++ {
+	for i := uint8(1); i <= depth && !timeHandler.TimeStatus(); i++ {
 		// Clear PV line for next search
 		pvLine.Clear()
 
 		// Search & and update search time
 		var startTime = time.Now()
-		var score = alphabeta(b, alpha, beta, int8(i), 0, &pvLine, nullMove, false)
+		var score = alphabeta(b, alpha, beta, int8(i), 0, &pvLine, nullMove, false, false)
 		timeSpent += time.Since(startTime).Milliseconds()
 
 		// Calculate some numbers for INFO & debugging
@@ -187,78 +195,61 @@ func rootsearch(b *dragontoothmg.Board, depth int, useCustomDepth bool) (int, dr
 
 		// Get the PV-line string! Thx
 		var theMoves = getPVLineString(pvLine)
-
-		if (score > MaxScore-50 || score < MinScore+50) && len(pvLine.Moves) > 0 {
+		if (score > Checkmate || score < -Checkmate) && len(pvLine.Moves) > 0 {
 			mateFound = true
 		}
 
 		/*
-			==========================================================================================================
+			#################################################################################
 			ASPIRATION WINDOW
 			Setting a smaller bound on alpha & beta, means we will cut more nodes initially when searching.
 			It happens since it'll be easier to be above beta (fail high) or below alpha (fail low).
 			If we misjudged our position, and we reach a value better or worse than the window (assumption is we're
 			roughly correct about how we evaluate the position), we will increase set alpha&beta to the full scope instead
-			==========================================================================================================
+			#################################################################################
 		*/
-		if int16(score) <= alpha || int16(score) >= beta {
-			if repeatSearchCounter == 6 {
-				alpha = MinScore
-				beta = MaxScore
-				repeatSearchCounter = 0
-			} else {
-				alpha = prevSearchScore - (aspiratinoWindowSize * int16(repeatSearchCounter+1))
-				beta = prevSearchScore + (aspiratinoWindowSize * int16(repeatSearchCounter+1))
-			}
-			//alpha = MinScore
-			//beta = MaxScore
+		if (score <= alpha || score >= beta) && !timeHandler.TimeStatus() {
+			alpha = -MaxScore
+			beta = MaxScore
 			i--
-			repeatSearchCounter++
-			totalRepeatSearches++
 			continue
 		}
 
 		// Apply the window size!
-		alpha = score - aspiratinoWindowSize
-		beta = score + aspiratinoWindowSize
-		bestScore = int16(score)
+		alpha = score - aspirationWindowSize
+		beta = score + aspirationWindowSize
+		bestScore = score
 
 		if timeHandler.TimeStatus() && len(prevPVLine.Moves) >= 1 && !useCustomDepth {
 			break
 		}
+
 		prevSearchScore = bestScore
 		prevPVLine = pvLine
+
 		_ = nps
 		_ = theMoves
 		fmt.Println("info depth ", i, "\tscore ", getMateOrCPScore(int(score)), "\tnodes ", nodesChecked, "\ttime ", timeSpent, "\tnps ", nps, "\tpv", theMoves)
+		if mateFound {
+			break
+		}
 	}
 
 	ttNodes = 0
-	cutNodes = 0
-	lateMovePruningCounter = 0
-	lateMoveReductionCounter = 0
-	lateMoveReductionFullSearch = 0
-	futilityPruningCounter = 0
-	nullMovePruneCount = 0
-	razoringCounter = 0
-	quiescenceNodes = 0
 	nodesChecked = 0
 
 	searchShouldStop = false
+	timeHandler.stopSearch = false
 
 	bestMove = prevPVLine.GetPVMove()
-	prevSearchScore = bestScore
-	//TT.clearTT()
+
 	return int(bestScore), bestMove
 }
 
-var pvNodesCount int
-var nonPVNodesCount int
-
-func alphabeta(b *dragontoothmg.Board, alpha int16, beta int16, depth int8, ply int8, pvLine *PVLine, prevMove dragontoothmg.Move, didNull bool) int16 {
+func alphabeta(b *dragontoothmg.Board, alpha int16, beta int16, depth int8, ply int8, pvLine *PVLine, prevMove dragontoothmg.Move, didNull bool, isExtended bool) int16 {
 	nodesChecked++
 
-	if nodesChecked&2048 == 0 {
+	if nodesChecked&2047 == 0 {
 		if timeHandler.TimeStatus() {
 			searchShouldStop = true
 		}
@@ -272,87 +263,111 @@ func alphabeta(b *dragontoothmg.Board, alpha int16, beta int16, depth int8, ply 
 	var bestMove dragontoothmg.Move
 	var childPVLine = PVLine{}
 	var isPVNode = (beta - alpha) > 1
-	var isRoot = depth == 0
-
-	if isPVNode {
-		pvNodesCount++
-	} else {
-		nonPVNodesCount++
-	}
-	posHash := b.Hash()
-	// Draw check
-	if HistoryMap[posHash] == 3 {
-		return 0
-	}
+	var isRoot = ply == 0
+	var futilityPruning = false
 
 	inCheck := b.OurKingInCheck()
 
 	// Generate legal moves
 	allMoves := b.GenerateLegalMoves()
 
-	// CHECKMATE
-	if len(allMoves) == 0 {
-		if inCheck {
-			return MinScore + int16(ply) // Checkmate
-		} else {
-			return 0 // Draw ...
-		}
+	posHash := b.Hash()
+	posRepeats := HistoryMap[posHash]
+
+	// 3-fold repition draw
+	if posRepeats == 2 && !isRoot { // Draw
+		return 0
 	}
 
-	// Make sure we extend our search by 1, if we're in check (so we don't get stuck / end search while in mate and miss something)
+	// Make sure we extend our search by 1 so we don't end our search while in check ...
 	if inCheck {
 		depth++
 	}
 
 	// If we reach our target depth, do a quiescene search and return the score
 	if depth <= 0 {
-		score := quiescence(b, alpha, beta, &childPVLine, 10)
-		TT.storeEntry(posHash, depth, bestMove, score, ExactFlag)
+		score := quiescence(b, alpha, beta, &childPVLine, 30)
 		return score
 	}
-	// Look for moves in the transposition table
+
+	/*
+		#################################################################################
+		TRANSPOSITION TABLE:
+		We save the results from our previous searches, and check whether we can use it
+		to determine if it was a good or bad search result.
+
+		if we found a previously searched position that was searched at a higher depth, it is "usable"
+		Then we don't have to re-search the same position, and can return the previous search's result
+		#################################################################################
+	*/
 	ttEntry := TT.getEntry(posHash)
-	_ = isRoot
-	usable, ttScore := TT.useEntry(&ttEntry, posHash, depth, alpha, beta)
-	if usable && !isRoot && ttScore != UnusableScore && !isPVNode {
+	usable, ttScore := TT.useEntry(ttEntry, posHash, depth, alpha, beta)
+	if usable && !isRoot {
 		ttNodes++
-		return int16(ttScore)
-	} else if ttScore != UnusableScore {
-		bestMove = ttEntry.Move
-		ttMoveCounter++
+		return ttScore
+	}
+	bestMove = ttEntry.Move
+
+	var staticScore = Evaluation(b, false, false)
+
+	/*
+		#################################################################################
+		NULL MOVE PRUNING:
+		If we're in a position where, even if the opponent gets a free move (we do "null move"),
+		and we're still above beta, we're most likely in a fail-high node; so we prune.
+		#################################################################################
+	*/
+
+	var wCount, bCount = hasMinorOrMajorPiece(b)
+	var anyMinorsOrMajors = (wCount > 0 || bCount > 0)
+	if !inCheck && !isPVNode && !didNull && anyMinorsOrMajors && depth >= 2 {
+		unApplyfunc := b.ApplyNullMove()
+		nullHash := b.Hash()
+		HistoryMap[nullHash]++
+		var R int8 = 3 + (6 / depth)
+		score := -alphabeta(b, -beta, -beta+1, (depth - 1 - R), ply+1, &childPVLine, bestMove, true, isExtended)
+		unApplyfunc()
+		HistoryMap[nullHash]--
+		if score >= beta && score < Checkmate {
+			return beta
+		}
 	}
 
-	staticScore := Evaluation(b, false)
 	/*
+		#################################################################################
+		STATIC NULL MOVE PRUNING:
+		If we raise beta even after giving a large penalty to our score, we're most likely in a FAIL HIGH node
+		So we return
+		#################################################################################
+	*/
+	if !inCheck && !isPVNode && beta < Checkmate {
+		var staticFutilityPruneScore int16 = (85 * int16(depth))
+		if (int16(staticScore) - staticFutilityPruneScore) >= beta {
+			return beta
+		}
+	}
+
+	/*
+		#################################################################################
 		RAZORING:
 		If we're in a pre-pre-frontier node (3 steps away from the horizon - our maxDepth - and our current evaluation
 		is bad as-is, we do a quick quiescence search - and if we don't beat alpha (i.e. fail low), we can return early
 		and not search any more moves in this branch
+		If we extend this logic, the same thing applies at other nodes than pre-pre-frontier nodes; so we make it a bit more dynamic.
+		#################################################################################
 	*/
-	if depth < int8(len(RazoringMargins)) && !inCheck && !isPVNode && depth <= 2 {
+	if !inCheck && !isPVNode && int(depth) < len(RazoringMargins) {
 		staticFutilityPruneScore := RazoringMargins[depth] * 3
-		if staticScore+staticFutilityPruneScore < int(alpha) {
-			razoringCounter += 1
-			return alpha
+		if int16(staticScore)+staticFutilityPruneScore < alpha {
+			score := quiescence(b, alpha, beta, &childPVLine, 30)
+			if score < alpha {
+				return alpha
+			}
 		}
 	}
 
 	/*
-		STATIC NULL MOVE PRUNING:
-		If we raise beta even after giving a large penalty to our score, we're most likely going to fail high regardless
-		So we return
-	*/
-
-	if !inCheck && !isPVNode && beta < MaxScore-50 {
-		//staticScore := quiescence(b, alpha, beta, &childPVLine, 10)
-		var staticFutilityPruneScore int16 = 15 * int16(depth)
-		if int16(staticScore)-staticFutilityPruneScore >= beta {
-			staticNullMovePruneCount++
-			return beta //staticScore - staticFutilityPruneScore
-		}
-	}
-
-	/*
+		#################################################################################
 		FUTILITY PRUNING:
 		If we're 1 step away from our max depth (a 'frontier node'), we make a static evaluation.
 		If (evaluation + minor piece margin) does not beat alpha, we'll most likely fail low.
@@ -361,161 +376,150 @@ func alphabeta(b *dragontoothmg.Board, alpha int16, beta int16, depth int8, ply 
 
 		We will instead only check tactical moves (i.e. capture, check or promotion)
 		in order to make sure we don't miss anything important.
+		#################################################################################
 	*/
 
-	var futilityPruning = false
-	if !inCheck && !isPVNode && int(depth) < len(FutilityMargins) {
+	if !inCheck && !isPVNode && int(depth) < len(FutilityMargins) && alpha < Checkmate && beta < Checkmate {
 		futilityPruneScore := FutilityMargins[depth]
 		if int16(staticScore)+futilityPruneScore <= alpha {
 			futilityPruning = true
 		}
 	}
 
-	/*
-		NULL MOVE PRUNING:
-		If we're in a position where, even if the opponent gets a free move (we do "null move"),
-		and we're still above beta, we're most likely in a fail-high node; so we prune.
-	*/
-
-	var wCount, bCount = hasMinorOrMajorPiece(b)
-	var anyMinorsOrMajors = (wCount > 0) || (bCount > 0)
-	if !inCheck && !didNull && anyMinorsOrMajors && !isPVNode && depth > 2 {
-		unApplyfunc := b.ApplyNullMove()
-		R := 3 + (depth / 6) // Roughly, "you-me-you" order; I think... Maybe I should create a pre-defined index instead?
-		score := -alphabeta(b, -beta, -beta+1, (depth - 1 - R), ply, &childPVLine, bestMove, true)
-		unApplyfunc()
-		if score >= beta {
-			nullMovePruneCount += 1
-			return beta
-		}
-	}
-
-	var movesChecked = 0
-	var score = MinScore
+	var score = -MaxScore
 
 	/*
+		#################################################################################
 		INTERNAL ITERATIVE DEEPENING:
 		If we didn't find any move in the transposition table, for the sake of move ordering, it's faster to make a shallow search
 		and get the PV move from that
+		#################################################################################
 	*/
 
-	if ttEntry.Move == 0000 && depth >= 4 && isPVNode { //&& (isPVNode || ttEntry.Flag == BetaFlag) && depth >= 4 {
-		IIDCounter++
-		alphabeta(b, -beta, -alpha, (depth - 3), ply, &childPVLine, prevMove, didNull)
+	if ttEntry.Move == 0 && depth >= 4 && !didNull {
+		score := -alphabeta(b, -beta, -alpha, (depth - 2), ply+1, &childPVLine, prevMove, didNull, isExtended)
+		_ = score
 		if len(childPVLine.Moves) > 0 {
 			bestMove = childPVLine.GetPVMove()
 			childPVLine.Clear()
 		}
 	}
-	var bestScore = MinScore
 
-	//var theMoveList = scoreMoves(allMoves, b, depth, alpha, beta, prevMove, *pvLine, bestMove)
-	//var theMoveList PairList = SortStruct(b, scoreMoves(allMoves, b, depth, alpha, beta, prevMove, *pvLine, bestMove))
+	if depth > 6 && (ttEntry.Move == 0 || ttEntry.Depth+4 < depth) && (isPVNode || (alpha+1 != beta)) {
+		depth--
+	}
 
+	var bestScore = -MaxScore
 	var moveList moveList = scoreMovesList(b, allMoves, depth, bestMove, prevMove)
 
 	var ttFlag int8 = AlphaFlag
-	bestMove = 0000
+	bestMove = 0
 
 	for index := uint8(0); index < uint8(len(moveList.moves)); index++ {
-		movesChecked += 1
-
 		// Get the next move
 		orderNextMove(index, &moveList)
 		move := moveList.moves[index].move
 
-		var isCapture bool = dragontoothmg.IsCapture(move, b) // Get capture before moving :)
-		unapplyFunc := b.Apply(move)
+		// Prepare variables for move search
+		var isCapture bool = dragontoothmg.IsCapture(move, b) // Get whether move is a capture, before moving
 
-		inCheck := b.OurKingInCheck()
-
-		ply++
-		HistoryMap[posHash]++
+		var unapplyFunc = b.Apply(move)
+		var inCheck = b.OurKingInCheck()
+		var posHash = b.Hash()
 
 		// Tactical moves - if we're capturing, checking or promoting a pawn
 		tactical := (isCapture || inCheck || move.Promote() > 0)
 
 		/*
+			#################################################################################
 			LATE MOVE PRUNING:
 			Assuming our move ordering is good, we're not interested in searching most moves at the bottom of the move ordering
 			We're most likely interested in the full depth for the first 1 or 2 moves
+			#################################################################################
 		*/
-		if depth <= 3 && !isPVNode && !tactical && movesChecked > LateMovePruningMargins[depth] {
-			lateMovePruningCounter++
-			HistoryMap[posHash]--
+		if depth < int8(len(LateMovePruningMargins)) && !isPVNode && !tactical && int(index) > LateMovePruningMargins[depth] {
 			unapplyFunc()
 			continue
 		}
 
+		// Futility pruning
 		if futilityPruning && !tactical && !isPVNode {
-			futilityPruningCounter++
-			HistoryMap[posHash]--
 			unapplyFunc()
 			continue
 		}
 
-		if movesChecked == 1 { // Check the first move fully, no matter what, so we guarantee ourselves a PV-line
-			score = -alphabeta(b, -beta, -alpha, (depth - 1), ply, &childPVLine, move, didNull)
-		} else {
-			/*
-				LATE MOVE REDUCTION:
-				Assuming good move ordering, the first move is <most likely> the best move.
-				We will therefor spend less time searching moves further down in the move ordering.
+		HistoryMap[posHash]++
 
-				If we didn't already get a beta cut-off (Cut-node), most likely we're in an All-node
-				So we want to avoid spending time here, so we do a reduced search hoping it will fail low.
-				However, if we manage to raise alpha after doing a reduced search, we will do a full search of that node.
-				We validate by doing a reduced search on the rest of the nodes
+		/*
+			#################################################################################
+			LATE MOVE REDUCTION:
+			Assuming good move ordering, the first move is <most likely> the best move.
+			We will therefor spend less time searching moves further down in the move ordering.
 
-				Great blog-post that helped me wrap my head around this:
-				http://macechess.blogspot.com/2010/08/implementing-late-move-reductions.html
-			*/
+			If we didn't already get a beta cut-off (Cut-node), most likely we're in an All-node (where we
+			have actually search and not cut ...)! Meaning we want to avoid spending time here.
 
-			var reduct int8 = 0
-			if !isPVNode && int(depth) >= LMRDepthLimit && !tactical {
-				reduct = int8(LMR[depth][movesChecked])
-				lateMoveReductionCounter++
-			}
+			We do a reduced search hoping it will fail low. However, if we manage to raise alpha after
+			doing a reduced search, we will do a full search of that node as that note has the potential to be
+			an interesting path to take in the tree.
 
-			if reduct > 0 {
-				score = -alphabeta(b, -(alpha + 1), -alpha, (depth - 1 - reduct), ply, &childPVLine, move, didNull)
-			} else {
-				score = -alphabeta(b, -(alpha + 1), -alpha, (depth - 3), ply, &childPVLine, move, didNull)
-			}
+			Great blog-post that helped me wrap my head around this:
+			http://macechess.blogspot.com/2010/08/implementing-late-move-reductions.html
+			#################################################################################
+		*/
 
-			if score > alpha && reduct > 0 && !isPVNode {
-				score = -alphabeta(b, -(alpha + 1), -alpha, (depth - 1), ply, &childPVLine, move, didNull)
-				if score > alpha {
-					score = -alphabeta(b, -beta, -alpha, (depth - 1), ply, &childPVLine, move, didNull)
+		// Do the PV node full search - we should get one valid PVline even if we miss a bunch of search optimization
+		if index == 0 {
+			extensionDepth := depth
+			if !isExtended && depth >= 4 && (move == ttEntry.Move && (ttEntry.Flag == ExactFlag || ttEntry.Flag == BetaFlag) && isPVNode) {
+				unapplyFunc()
+				tmpScore := ttEntry.Score - 125
+				R := 3 + depth/6
+				// We don't reverse the score because this is like we've "taken a step back"
+				potentialScore := alphabeta(b, tmpScore, tmpScore+1, (extensionDepth - 1 - R), ply+1, &childPVLine, move, didNull, true)
+				if potentialScore <= tmpScore {
+					extensionDepth += 2
 				}
-				lateMoveReductionFullSearch++
-			} else if score > alpha && score <= beta {
-				score = -alphabeta(b, -beta, -alpha, (depth - 1), ply, &childPVLine, move, didNull)
-				lateMoveReductionFullSearch++
+				unapplyFunc = b.Apply(move)
+			}
+			score = -alphabeta(b, -beta, -alpha, (extensionDepth - 1), ply+1, &childPVLine, move, didNull, isExtended)
+		} else {
+			var reduct int8 = 0
+			if !isPVNode && !tactical && int(depth) >= LMRDepthLimit {
+				reduct = int8(LMR[depth][index])
+			}
+
+			score = -alphabeta(b, -(alpha + 1), -alpha, (depth - 1 - reduct), ply+1, &childPVLine, move, didNull, isExtended)
+
+			if score > alpha && reduct > 0 { // If our search was good at a reduced search
+				score = -alphabeta(b, -(alpha + 1), -alpha, (depth - 1), ply+1, &childPVLine, move, didNull, isExtended)
+				if score > alpha {
+					score = -alphabeta(b, -beta, -alpha, (depth - 1), ply+1, &childPVLine, move, didNull, isExtended)
+				}
+			} else if score > alpha && score < beta { // If our search was in range
+				score = -alphabeta(b, -beta, -alpha, (depth - 1), ply+1, &childPVLine, move, didNull, isExtended)
 			}
 		}
 
-		if score > bestScore { // Catches both >alpha and >beta, so we always get a move in the TT if this move was the cause of the drop
+		// Catches both the first <alpha and >beta, so we always get a move in the
+		// transposition table if this move was the cause of the cut or raising of alpha
+		if score > bestScore {
 			bestScore = score
 			bestMove = move
 		}
 
+		HistoryMap[posHash]--
+
 		if score >= beta {
-			cutNodes += 1
-			bestMove = move
-			bestScore = beta
 			ttFlag = BetaFlag
 			if !isCapture {
 				InsertKiller(move, depth, &killerMoveTable)
-				storeCounter(&counterMove, !b.Wtomove, prevMove, move)
+				storeCounter(!b.Wtomove, prevMove, move)
 				incrementHistoryScore(b, move, depth)
 			}
-			HistoryMap[posHash]--
 			childPVLine.Clear()
 			unapplyFunc()
 			break
-		} else {
-			decrementHistoryScore(b, move)
 		}
 
 		if score > alpha {
@@ -529,13 +533,22 @@ func alphabeta(b *dragontoothmg.Board, alpha int16, beta int16, depth int8, ply 
 			decrementHistoryScore(b, move)
 		}
 
-		HistoryMap[posHash]--
 		unapplyFunc()
-		ply--
 		childPVLine.Clear()
 	}
 
-	TT.storeEntry(posHash, depth, bestMove, bestScore, ttFlag)
+	// Checkmate or stalemate
+	if len(allMoves) == 0 {
+		if inCheck {
+			return -MaxScore + int16(ply) // Checkmate
+		}
+		return 0 // ... Draw
+	}
+
+	if !timeHandler.stopSearch && !GlobalStop && bestMove != 0 {
+		TT.storeEntry(posHash, depth, ply, bestMove, bestScore, ttFlag, halfMoveCounter)
+	}
+
 	return bestScore
 }
 
@@ -556,36 +569,31 @@ func quiescence(b *dragontoothmg.Board, alpha int16, beta int16, pvLine *PVLine,
 	inCheck := b.OurKingInCheck()
 	var childPVLine = PVLine{}
 
-	var standpat int16 = int16(Evaluation(b, false))
+	var standpat int16 = int16(Evaluation(b, false, false))
 
 	if inCheck {
 		depth++
 	}
 
-	alpha = int16(Max(int(alpha), int(standpat)))
+	alpha = max(alpha, standpat)
+
+	if alpha >= beta && !inCheck {
+		return alpha
+	}
 
 	if depth <= 0 {
 		return standpat
 	}
 
-	if alpha >= beta {
-		return beta
-	}
-
 	var bestScore = alpha
-
 	var moves = b.GenerateLegalMoves()
+	var moveList, hasAnyCapture = scoreMovesListCaptures(b, moves)
 
-	var moveList, anyCaptures = scoreMovesListCaptures(b, moves)
-
-	if anyCaptures {
+	if hasAnyCapture {
 		for index := uint8(0); index < uint8(len(moveList.moves)); index++ {
+
 			orderNextMove(index, &moveList)
 			move := moveList.moves[index].move
-			if move == 0000 {
-				continue
-			}
-
 			see := see(b, move, false)
 			if see < 0 {
 				continue
@@ -593,23 +601,24 @@ func quiescence(b *dragontoothmg.Board, alpha int16, beta int16, pvLine *PVLine,
 
 			unapplyFunc := b.Apply(move)
 
-			eval := -quiescence(b, -beta, -alpha, &childPVLine, depth-1)
+			score := -quiescence(b, -beta, -alpha, &childPVLine, depth-1)
 			unapplyFunc()
 
-			if eval >= beta {
-				cutNodes += 1
+			if score > bestScore {
+				bestScore = score
+			}
+
+			if score >= beta {
 				return beta
 			}
 
-			if eval > alpha {
-				alpha = eval
-				bestScore = eval
+			if score > alpha {
+				alpha = score
 				pvLine.Update(move, childPVLine)
 			}
 			childPVLine.Clear()
 		}
-	} else {
-		return bestScore
 	}
+
 	return bestScore
 }

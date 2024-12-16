@@ -10,9 +10,21 @@ import (
 var nodesChecked = 0
 var cutNodes = 0
 var ttNodes = 0
+var LMR = [MaxDepth + 1][100]int8{}
 var counterMove [2][64][64]dragontoothmg.Move
 var historyMove [2][64][64]int
 var historyMaxVal = 10000 // Ensure we stay below the captures, countermoves etc
+
+// God damn it Golang, why do I need to write my own Clamp function :(
+func Clamp(f, low, high int8) int8 {
+	if f < low {
+		return low
+	}
+	if f > high {
+		return high
+	}
+	return f
+}
 
 // To keep track of 3-fold repetition and/or 50 move draw
 type HistoryStruct struct {
@@ -20,16 +32,13 @@ type HistoryStruct struct {
 	HalfclockRepetition int
 }
 
-func (History *HistoryStruct) incrementHistory(posHash uint64) {
-	History.HalfclockRepetition++
-	History.History[History.HalfclockRepetition] = posHash
-}
-
-func (History *HistoryStruct) decrementHistory() {
-	History.HalfclockRepetition--
-}
-
-func storeCounter(counterList *[2][64][64]dragontoothmg.Move, sideToMove bool, prevMove dragontoothmg.Move, move dragontoothmg.Move) {
+/*
+	HISTORY/COUNTER MOVES
+	If a move was a cut-node (above beta), and not a capture, we keep track of two things:
+	The move that countered us (previous move made) - a counter move
+	A historical score of the move - since we know it was a good move to keep track of, we make sure we can use this for move ordering later
+*/
+func storeCounter(sideToMove bool, prevMove dragontoothmg.Move, move dragontoothmg.Move) {
 	from := dragontoothmg.Square(prevMove.From())
 	to := dragontoothmg.Square(prevMove.To())
 	if sideToMove {
@@ -90,19 +99,6 @@ func ClearHistoryTable() {
 	}
 }
 
-func isThreefoldRepetition(board *dragontoothmg.Board, posHash uint64) bool {
-	var repetitionCounter = 1
-	for index := 0; index < (History.HalfclockRepetition); index++ {
-		if History.History[index] == posHash {
-			repetitionCounter++
-		}
-		if repetitionCounter == 3 {
-			return true
-		}
-	}
-	return false
-}
-
 func Min(x, y int) int {
 	if x < y {
 		return x
@@ -126,8 +122,6 @@ func hasMinorOrMajorPiece(b *dragontoothmg.Board) (wCount int, bCount int) {
 // Precomputed reductions
 const MaxDepth = 100
 
-var LMR = [MaxDepth + 1][100]int{}
-
 func getPVLineString(pvLine PVLine) (theMoves string) {
 	for _, move := range pvLine.Moves {
 		theMoves += " "
@@ -138,17 +132,34 @@ func getPVLineString(pvLine PVLine) (theMoves string) {
 
 // Taken from Blunder chess engine and just slightly modified, since I'm very lazy; works great though :)
 func getMateOrCPScore(score int) string {
-	if int16(score) > (MaxScore - 50) {
+	if int16(score) > Checkmate {
 		pliesToMate := int(MaxScore) - score
 		mateInN := (pliesToMate / 2) + (pliesToMate % 2)
 		return fmt.Sprintf("mate %d", mateInN)
-	}
-
-	if int16(score) < (MinScore + 50) {
-		pliesToMate := int(MinScore) - score
+	} else if int16(score) < -Checkmate {
+		pliesToMate := -int(MaxScore) - score
 		mateInN := (pliesToMate / 2) + (pliesToMate % 2)
-		return fmt.Sprintf("mate %d", mateInN)
+		return fmt.Sprintf("mate %d", -mateInN)
 	}
 
 	return fmt.Sprintf("cp %d", score)
+}
+
+func ResetForNewGame() {
+	TT.clearTT()
+	var nilMove dragontoothmg.Move
+	for i := 0; i < 64; i++ {
+		for z := 0; z < 64; z++ {
+			counterMove[0][i][z] = nilMove
+			counterMove[1][i][z] = nilMove
+		}
+	}
+
+	for i := 0; i < 64; i++ {
+		for z := 0; z < 64; z++ {
+			historyMove[0][i][z] = 0
+			historyMove[1][i][z] = 0
+		}
+	}
+	prevSearchScore = 0
 }

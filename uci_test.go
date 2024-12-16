@@ -2,6 +2,7 @@ package main
 
 import (
 	"chess-engine/engine"
+	"fmt"
 	"testing"
 
 	"github.com/dylhunn/dragontoothmg"
@@ -10,6 +11,6 @@ import (
 func BenchmarkMain(b *testing.B) {
 	board := dragontoothmg.ParseFen(dragontoothmg.Startpos) // the game board
 	var bestmove = engine.StartSearch(&board, 50, 1000, 500, false, false)
-	_ = bestmove
-	//fmt.Println("bestmove ", bestmove)
+	engine.ResetForNewGame()
+	fmt.Println("bestmove ", bestmove)
 }

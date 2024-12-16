@@ -8,26 +8,30 @@ import (
 
 var KingMoves [65]uint64
 
-var SeePieceValue = [7]int{dragontoothmg.King: 5000, dragontoothmg.Pawn: 100, dragontoothmg.Knight: 300, dragontoothmg.Bishop: 300, dragontoothmg.Rook: 500, dragontoothmg.Queen: 900}
+var SeePieceValue = [7]int{
+	dragontoothmg.King:   5000,
+	dragontoothmg.Pawn:   100,
+	dragontoothmg.Knight: 300,
+	dragontoothmg.Bishop: 300,
+	dragontoothmg.Rook:   500,
+	dragontoothmg.Queen:  900}
 
 func see(b *dragontoothmg.Board, move dragontoothmg.Move, debug bool) int {
-	gain := [32]int{}
-	depth := uint8(0)
+	// Prepare values
+	var gain = [32]int{}
+	var depth uint8 = 0
 	sideToMove := b.Wtomove
+
+	// Get initial squares of capture move
 	initSquare := move.From()
 	targetSquare := move.To()
 
-	whitePieceAttackers := getPiecesAttackingSquare(b, targetSquare, b.White, b.Black, true)
-	blackPieceAttackers := getPiecesAttackingSquare(b, targetSquare, b.Black, b.White, false)
+	// Get bitboard of all pieces attacking square
+	whitePieceAttackers := getPiecesAttackingSquare(targetSquare, b.White, b.Black, true)
+	blackPieceAttackers := getPiecesAttackingSquare(targetSquare, b.Black, b.White, false)
 	attadef := (whitePieceAttackers | blackPieceAttackers)
-	if attadef == 0 {
-		return 0
-	}
 
-	if debug {
-		println("fen: ", b.ToFen(), "\tboard: ", b.White.All|b.Black.All, "\tfrom: ", initSquare, "\tto: ", targetSquare)
-		println("Attadef: ", attadef)
-	}
+	// Get initial pieces captured
 	var targetPiece dragontoothmg.Piece
 	var attacker dragontoothmg.Piece
 	if sideToMove {
@@ -38,86 +42,89 @@ func see(b *dragontoothmg.Board, move dragontoothmg.Move, debug bool) int {
 		attacker, _ = GetPieceTypeAtPosition(initSquare, &b.Black)
 	}
 
-	gain[depth] = SeePieceValue[targetPiece]
-	var attackerBB = PositionBB[initSquare]
-	attadef ^= attackerBB
-	if debug {
-		println("depth: ", depth, "\tside: ", sideToMove, "\tattacker: ", attacker, "\tpiece taken: ", targetPiece, "\tnew score: ", gain[depth], "\tbb: ", attadef)
+	// Ugly en passant-capturer, we should only get valid captures in SEE anyway...
+	if targetPiece == 0 {
+		targetPiece = 1
 	}
+
+	var attackerBB = PositionBB[initSquare]
+	gain[depth] = SeePieceValue[targetPiece]
+	//attadef &^= attackerBB
+
+	if debug {
+		println("fen: ", b.ToFen(), "\tboard: ", b.White.All|b.Black.All, "\tfrom: ", initSquare, "\tto: ", targetSquare, "\tattadef: ", attadef)
+		println("depth: ", depth, "\tside: ", sideToMove, "\tattacker: ", attacker, "\tpiece taken: ", targetPiece, "\tnew score: ", gain[depth], "\tAttadef: ", attadef, "\tAttackerBB: ", attackerBB)
+	}
+
 	sideToMove = !sideToMove
 
-	for ok := true; ok; ok = attadef != 0 {
+	// We "already made the first move", so we swap side before going into the loop
+	//sideToMove = !sideToMove
+	for done := true; done; done = attackerBB != 0 {
 		depth++
 		gain[depth] = SeePieceValue[attacker] - gain[depth-1]
 
-		//if attadef == 0 {
-		//	break
-		//}
-
-		sideToMove = !sideToMove
-		attackerBB, attacker = getClosestAttacker(b, attadef, sideToMove, targetSquare)
-		attadef ^= attackerBB
-
 		if attadef != 0 && debug {
-			println("depth: ", depth, "\tside: ", !sideToMove, "\tattacker: ", attacker, "\tcurr score: ", gain[depth], "\tprev score: ", -gain[depth-1], "\tpiece score: ", SeePieceValue[attacker], "\tbb: ", attadef, "\tattackerBB: ", attackerBB)
+			println("depth: ", depth, "\tGain: ", gain[depth], "\tComparison: ", SeePieceValue[attacker], "-", gain[depth-1], " = ", SeePieceValue[attacker]-gain[depth-1], "\tside to move: ", sideToMove, "\t --------- ", "attacker: ", attacker)
 		}
 
-		//attadef ^= attackerBB
-
-		if (max(-gain[depth-1], gain[depth]) < 0) || attackerBB == 0 {
+		// If we're in a losing position after the last trade, we break
+		if max(-gain[depth-1], gain[depth]) < 0 {
 			break
 		}
+
+		attadef ^= attackerBB
+		if debug {
+			println("Depth: ", depth, "Attadef: ", attadef)
+		}
+
+		attackerBB, attacker = getClosestAttacker(b, attadef, sideToMove, targetSquare)
+		sideToMove = !sideToMove
 	}
 
-	for loopDepth := depth; loopDepth > 0; loopDepth-- {
+	for x := depth - 1; x > 0; x-- {
+		gain[x-1] = -max(-gain[x-1], gain[x])
 		if debug {
-			println("Depth: ", depth, "\tscore: ", gain[loopDepth-1])
+			println("Depth: ", x-1, "Highest value: ", gain[x-1])
 		}
-		gain[loopDepth-1] = -max(-gain[loopDepth-1], gain[loopDepth])
 	}
 
 	if debug {
 		println("Gain: ", gain[0])
 	}
+
 	return gain[0]
 }
 
-func getClosestAttacker(b *dragontoothmg.Board, attadef uint64, sideToMove bool, targetSquare uint8) (uint64, dragontoothmg.Piece) {
-
-	bb := b.White
-	themBB := b.Black
-	if !sideToMove {
-		bb = b.Black
-		themBB = b.White
-	}
-	// Get closest diagonal hit
-	diagonalAttack := dragontoothmg.CalculateBishopMoveBitboard(targetSquare, attadef) & ^(bb.All)
-	diagonalAttack &= attadef
-
-	// Get closest orthogonal hit
-	orthogonalAttack := dragontoothmg.CalculateRookMoveBitboard(targetSquare, attadef) & ^(bb.All)
-	orthogonalAttack &= attadef
-
-	east, west := PawnCaptureBitboards(PositionBB[targetSquare], !sideToMove)
-	hitPieces := ((east | west) | diagonalAttack | orthogonalAttack | (KnightMasks[targetSquare] & themBB.Knights)) & attadef
-	return minAttacker(b, hitPieces, sideToMove)
-}
-
-func getPiecesAttackingSquare(b *dragontoothmg.Board, targetSquare uint8, usBB dragontoothmg.Bitboards, enemyBB dragontoothmg.Bitboards, sideToMove bool) uint64 {
-	// Calculate attacks from "supersquare" - if this square was one of every type of piece, what can it hit?
-	// Has to take into account xraying from diagonal & orthogonal movement
-	// Currently, our bishops/rooks/queens don't xray through opponent bishops/rooks/queens... Fix? Or no? Prolly not.
-	diagonalAttacksXray := dragontoothmg.CalculateBishopMoveBitboard(targetSquare, ((usBB.All & ^(usBB.Bishops|usBB.Queens))|enemyBB.All)) & ^(usBB.All & ^(usBB.Bishops | usBB.Queens)) //(^usBB.All & ^(usBB.Bishops | usBB.Queens))
-	orthogonalAttacksXray := dragontoothmg.CalculateRookMoveBitboard(targetSquare, ((usBB.All & ^(usBB.Rooks|usBB.Queens))|enemyBB.All)) & ^(usBB.All & ^(usBB.Rooks | usBB.Queens))
+func getPiecesAttackingSquare(targetSquare uint8, usBB dragontoothmg.Bitboards, enemyBB dragontoothmg.Bitboards, sideToMove bool) uint64 {
+	/*
+		Calculate attacks from "supersquare" - if this square was one of every type of piece, what can it hit?
+		Has to take into account xraying from diagonal & orthogonal movement (love how the chess programming wiki expands my vocabulary!)
+		Currently, our bishops/rooks/queens don't xray through opponent bishops/rooks/queens... Fix? Or no? Probably not, unless we dynamically update
+		the attadef as we go ...
+		Xray through pawns
+	*/
+	orthogonalAttacksXray := dragontoothmg.CalculateRookMoveBitboard(targetSquare, ((usBB.All & ^(usBB.Rooks|usBB.Queens))|(enemyBB.All & ^(enemyBB.Rooks|enemyBB.Queens)))) & ^(usBB.All & ^(usBB.Rooks | usBB.Queens | enemyBB.Rooks | enemyBB.Queens))
 
 	var attackBB uint64
-	if b.Wtomove {
-		attackBB = wPawnAttackBB
-	} else {
-		attackBB = bPawnAttackBB
+	var pawnBB uint64
+
+	targetBB := PositionBB[targetSquare]
+
+	// Check which of our pawns we can xray through
+	for x := usBB.Pawns; x != 0; x &= x - 1 {
+		bb := PositionBB[bits.TrailingZeros64(x)]
+		var pawnAttackBBEast, pawnAttackBBWest uint64
+		pawnAttackBBEast, pawnAttackBBWest = PawnCaptureBitboards(bb, sideToMove)
+		if ((pawnAttackBBEast | pawnAttackBBWest) & targetBB) > 0 {
+			attackBB |= bb
+			pawnBB |= bb
+		}
 	}
-	hitPieces := attackBB & usBB.Pawns
-	hitPieces |= orthogonalAttacksXray & (usBB.Rooks | usBB.Queens)
+
+	diagonalAttacksXray := dragontoothmg.CalculateBishopMoveBitboard(targetSquare, ((usBB.All & ^(usBB.Bishops|usBB.Queens|pawnBB))|enemyBB.All)) & ^(usBB.All & ^(usBB.Bishops | usBB.Queens)) //(^usBB.All & ^(usBB.Bishops | usBB.Queens))
+
+	hitPieces := attackBB | orthogonalAttacksXray&(usBB.Rooks|usBB.Queens)
 	hitPieces |= diagonalAttacksXray & (usBB.Bishops | usBB.Queens)
 	hitPieces |= KnightMasks[targetSquare] & usBB.Knights
 	hitPieces |= KingMoves[targetSquare] & usBB.Kings
@@ -125,14 +132,32 @@ func getPiecesAttackingSquare(b *dragontoothmg.Board, targetSquare uint8, usBB d
 	return hitPieces
 }
 
-func minAttacker(b *dragontoothmg.Board, attadef uint64, sideToMove bool) (uint64, dragontoothmg.Piece) {
-	bb := b.Black
-	if !sideToMove {
-		bb = b.White
+func getClosestAttacker(b *dragontoothmg.Board, attadef uint64, sideToMove bool, targetSquare uint8) (uint64, dragontoothmg.Piece) {
+	var usBB dragontoothmg.Bitboards
+	if sideToMove {
+		usBB = b.White
+	} else {
+		usBB = b.Black
 	}
+	// Get closest diagonal hit
+	diagonalAttack := dragontoothmg.CalculateBishopMoveBitboard(targetSquare, attadef) & ^(usBB.All &^ (usBB.Bishops | usBB.Queens))
+	diagonalAttack &= attadef
+	//println("Diagonal attack: ", diagonalAttack)
 
+	// Get closest orthogonal hit
+	orthogonalAttack := dragontoothmg.CalculateRookMoveBitboard(targetSquare, attadef) & ^(usBB.All & ^(usBB.Rooks | usBB.Queens))
+	orthogonalAttack &= attadef
+	//println("Orthogonal attack: ", orthogonalAttack)
+
+	east, west := PawnCaptureBitboards(PositionBB[targetSquare], !sideToMove)
+	hitPieces := ((east | west) | diagonalAttack | orthogonalAttack | (KnightMasks[targetSquare] & usBB.Knights)) & attadef
+	return minAttacker(hitPieces, usBB)
+}
+
+func minAttacker(attadef uint64, bb dragontoothmg.Bitboards) (uint64, dragontoothmg.Piece) {
 	var subset uint64
 	var piece dragontoothmg.Piece
+
 	if attadef&bb.Pawns > 0 {
 		subset = attadef & bb.Pawns
 		piece = dragontoothmg.Pawn
@@ -155,7 +180,8 @@ func minAttacker(b *dragontoothmg.Board, attadef uint64, sideToMove bool) (uint6
 
 	if subset != 0 {
 		// Bit-twidling to return a single bit if there are multiple bits.
-		// ... Or it used to be here, but I'm too cool for school! I create my own failures instead.
+		// ... Or it used to be here, but I'm too cool for school! I create my own failures instead
+		//Definitely ignore this last sentence.
 		return PositionBB[bits.TrailingZeros64(subset)], piece
 	}
 

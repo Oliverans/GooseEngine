@@ -39,13 +39,27 @@ func initPositionBB() {
 
 // Late-move reduction tables
 func InitLMRTable() {
-	for depth := 3; depth < 100; depth++ {
+	for depth := 1; depth < 100; depth++ {
 		for moveCnt := 3; moveCnt < 100; moveCnt++ {
-			LMR[depth][moveCnt] = max(2, depth/4) + moveCnt/12
+			// Current calculations comes from Weiss engine ....
+			/*
+				Modern engines have a different reduction of search depending on whether there's a capture or a quiet move
+
+				Blunder engine uses the following (more simple) formula:
+				max(2, depth/4) + moveCnt/12
+
+				Weiss engine uses the following formula for quiet and captures respectively:
+				1.82 + log10(depth) * log10(moveCnt) / 2.68
+				0.38 + log10(depth) * log10(moveCnt) / 2.93
+
+			*/
+			//LMR[0][depth][moveCnt] = int8(max(2, depth/4) + moveCnt/12) //int8(1.82 + math.Log10(float64(depth))*math.Log10(float64(moveCnt))/2.68)
+			LMR[depth][moveCnt] = int8(max(2, depth/4) + moveCnt/12) // int8(0.38 + math.Log10(float64(depth))*math.Log10(float64(moveCnt))/2.93)
 		}
 	}
 }
 
+// If we set any of the piece values to a custom value, we apply it here...
 func setPieceValues() {
 	for _, pieceType := range pieceList {
 		switch pieceType {
