@@ -1,0 +1,6 @@
+github.com/Oliverans/GooseEngineMG v0.0.0-20251030082014-9aaef9602adf h1:HFJIO2DpkIp9EVed0ncZERBb5ANviotyKA3IKDG8z18=
+github.com/Oliverans/GooseEngineMG v0.0.0-20251030082014-9aaef9602adf/go.mod h1:zoIbtNymFGkrKMCF+ucGwfBdN/8zpa+jIr/1RDZ/jP8=
+github.com/dylhunn/dragontoothmg v0.0.0-20170905201839-b0146de1e275 h1:PDfC81w74XKfP1qDVvKrcL+isYNi7FBunA4zU+eMlME=
+github.com/dylhunn/dragontoothmg v0.0.0-20170905201839-b0146de1e275/go.mod h1:L6ZI7rasNVYqjj/tpfqYRowKPuSQO71UCBBhPxamiDQ=
+golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df h1:UA2aFVmmsIlefxMk29Dp2juaUSth8Pyn3Tq5Y5mJGME=
+golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df/go.mod h1:FXUEEKJgO7OQYeo8N01OfiKP8RXMtf6e8aTskBGqWdc=
