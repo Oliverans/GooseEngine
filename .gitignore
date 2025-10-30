@@ -6,9 +6,16 @@ venv/
 compiled_engines\*
 cutechess_tours/
 polyglot
+*.book
+
+.DS_Store
 
 .vscode
 
 *.exe
 *.prof
 *.txt
+
+*.epd
+
+*.pgn
