@@ -1,2 +1,76 @@
-.DS_Store
+# -------------------------
+# Go / build artifacts
+# -------------------------
+/bin/
+/build/
+/dist/
+/out/
+/coverage/
 
+# If you ever vendor deps, uncomment this:
+# /vendor/
+
+# Common binaries & libs
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Project-local binaries (seen in your tree)
+#/ adjust or add more names if you build different outputs
+/chess-engine
+/chess-engine.exe
+
+# Test/bench/profiling outputs
+*.prof
+*.pprof
+coverage.out
+profile.out
+cpu.out
+mem.out
+bench.out
+test.out
+
+# Logs
+*.log
+
+# -------------------------
+# Cutechess / tournament runs
+# (generated artifacts; keep only what you explicitly add)
+# -------------------------
+/cutechess_tours/*.pgn
+/cutechess_tours/*.bin
+/cutechess_tours/error.txt
+/cutechess_cli_tournament.txt
+
+# -------------------------
+# Editors / IDEs
+# -------------------------
+.vscode/
+.idea/
+*.code-workspace
+
+# -------------------------
+# OS cruft (macOS/Windows)
+# -------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+Thumbs.db
+ehthumbs.db
+
+# -------------------------
+# Python virtualenv & cache
+# -------------------------
+venv/
+.venv/
+ENV/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
