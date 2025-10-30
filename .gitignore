@@ -1,10 +1,13 @@
 lichess-bot\*
 lichess-bot-master\*
 .venv\*
-venv\*
+venv/
 .vscode\*
 compiled_engines\*
+cutechess_tours/
 polyglot
+
+.vscode
 
 *.exe
 *.prof
