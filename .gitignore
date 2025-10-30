@@ -1,0 +1,11 @@
+lichess-bot\*
+lichess-bot-master\*
+.venv\*
+venv\*
+.vscode\*
+compiled_engines\*
+polyglot
+
+*.exe
+*.prof
+*.txt
