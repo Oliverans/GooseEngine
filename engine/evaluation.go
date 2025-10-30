@@ -1,12 +1,12 @@
 package engine
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"math/bits"
 
 	"github.com/dylhunn/dragontoothmg"
-	"golang.org/x/exp/constraints"
 )
 
 var FlipView = [64]int{
@@ -315,14 +315,13 @@ var onlyRank = [8]uint64{
 
 /* ============= HELPER FUNCTIONS ============= */
 
-func min[T constraints.Ordered](a, b T) T {
+func min[T cmp.Ordered](a, b T) T {
 	if a < b {
 		return a
 	}
 	return b
 }
-
-func max[T constraints.Ordered](a, b T) T {
+func max[T cmp.Ordered](a, b T) T {
 	if a > b {
 		return a
 	}
