@@ -8,7 +8,7 @@ import (
 	"sort"
 	"time"
 
-	eng "github.com/Oliverans/GooseEngineMG/goosemg"
+	eng "chess-engine/goosemg"
 )
 
 func main() {

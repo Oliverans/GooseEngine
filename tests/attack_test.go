@@ -3,7 +3,7 @@ package goose_engine_mg_test
 import (
 	"testing"
 
-	myengine "github.com/Oliverans/GooseEngineMG/goosemg"
+	myengine "chess-engine/goosemg"
 )
 
 // helper: parse empty board

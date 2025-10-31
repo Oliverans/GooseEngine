@@ -108,7 +108,7 @@ type Square int
 
 const NoSquare Square = -1
 
-// Bitboards exposes the per-piece bitboards for a color in a dragontooth-compatible layout.
+// Bitboards exposes the per-piece bitboards
 type Bitboards struct {
 	Pawns   uint64
 	Knights uint64
@@ -153,6 +153,11 @@ type Board struct {
 
 	// Zobrist hash key for the current position (for move repetition and hashing)
 	zobristKey uint64
+
+	// Aggregated bitboards and turn flag for consumers.
+	White   Bitboards
+	Black   Bitboards
+	Wtomove bool
 }
 
 // HasLegalMoves reports whether the side to move has any legal moves.
@@ -310,6 +315,29 @@ func (b *Board) ColorOccupancy(c Color) uint64 { return b.occupancy[int(c)] }
 
 // PieceAt returns the piece on a square.
 func (b *Board) PieceAt(sq Square) Piece { return b.pieces[int(sq)] }
+
+// refreshBitboards synchronizes the exported Bitboards and Wtomove view with internal arrays.
+func (b *Board) refreshBitboards() {
+	b.White = Bitboards{
+		Pawns:   b.pawns[White],
+		Knights: b.knights[White],
+		Bishops: b.bishops[White],
+		Rooks:   b.rooks[White],
+		Queens:  b.queens[White],
+		Kings:   b.kings[White],
+		All:     b.occupancy[White],
+	}
+	b.Black = Bitboards{
+		Pawns:   b.pawns[Black],
+		Knights: b.knights[Black],
+		Bishops: b.bishops[Black],
+		Rooks:   b.rooks[Black],
+		Queens:  b.queens[Black],
+		Kings:   b.kings[Black],
+		All:     b.occupancy[Black],
+	}
+	b.Wtomove = b.sideToMove == White
+}
 
 // colorOf returns the color of a piece. NoPiece is treated as White.
 func colorOf(p Piece) Color {

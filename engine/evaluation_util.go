@@ -3,7 +3,7 @@ package engine
 import (
 	"math/bits"
 
-	"github.com/dylhunn/dragontoothmg"
+	gm "chess-engine/goosemg"
 )
 
 var KnightMasks = [64]uint64{
@@ -46,7 +46,7 @@ func getFileOfSquare(sq int) uint64 {
 	return onlyFile[sq%8]
 }
 
-func getKingSafetyTable(b *dragontoothmg.Board, inner bool, wPawnAttackBB uint64, bPawnAttackBB uint64) [2]uint64 {
+func getKingSafetyTable(b *gm.Board, inner bool, wPawnAttackBB uint64, bPawnAttackBB uint64) [2]uint64 {
 	var kingZoneTable [2]uint64
 	kingBoards := [2]uint64{
 		0: b.White.Kings,
@@ -97,7 +97,7 @@ func getKingSafetyTable(b *dragontoothmg.Board, inner bool, wPawnAttackBB uint64
 	return kingZoneTable
 }
 
-func getOutpostsBB(b *dragontoothmg.Board) (outpostSquares [2]uint64) {
+func getOutpostsBB(b *gm.Board) (outpostSquares [2]uint64) {
 	// Generate allowed ranks & files for outposts to be on
 	wPotentialOutposts := (wPawnAttackBB & wAllowedOutpostMask) &^ b.White.Pawns
 	bPotentialOutposts := (bPawnAttackBB & bAllowedOutpostMask) &^ b.Black.Pawns
@@ -157,7 +157,7 @@ func calculatePawnSouthFill(pawnBitboard uint64) uint64 {
 	return pawnBitboard
 }
 
-func isTheoreticalDraw(board *dragontoothmg.Board, debug bool) bool {
+func isTheoreticalDraw(board *gm.Board, debug bool) bool {
 	pawnCount := bits.OnesCount64(board.White.Pawns | board.Black.Pawns)
 
 	wKnights := bits.OnesCount64(board.White.Knights)

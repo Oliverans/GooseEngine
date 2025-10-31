@@ -1,9 +1,9 @@
 package goose_engine_mg_test
 
 import (
-    "testing"
-    // Replace "github.com/Oliverans/GooseEngineMG/goosemg" with the module path of the engine package when integrating.
-    myengine "github.com/Oliverans/GooseEngineMG/goosemg"
+	"testing"
+	// Replace "chess-engine/goosemg" with the module path of the engine package when integrating.
+	myengine "chess-engine/goosemg"
 )
 
 func TestPerftInitialPosition(t *testing.T) {
@@ -109,31 +109,33 @@ func TestPerftPromotionPosition(t *testing.T) {
 }
 
 func TestPerftInitialDepth3(t *testing.T) {
-    board, err := myengine.ParseFEN(myengine.FENStartPos)
-    if err != nil {
-        t.Fatalf("ParseFEN failed: %v", err)
-    }
-    if got := myengine.Perft(board, 3); got != 8902 {
-        t.Fatalf("Initial depth3: got %d want %d", got, 8902)
-    }
+	board, err := myengine.ParseFEN(myengine.FENStartPos)
+	if err != nil {
+		t.Fatalf("ParseFEN failed: %v", err)
+	}
+	if got := myengine.Perft(board, 3); got != 8902 {
+		t.Fatalf("Initial depth3: got %d want %d", got, 8902)
+	}
 }
 
 func TestPerftInitialDeep(t *testing.T) {
-    board, err := myengine.ParseFEN(myengine.FENStartPos)
-    if err != nil { t.Fatalf("ParseFEN failed: %v", err) }
+	board, err := myengine.ParseFEN(myengine.FENStartPos)
+	if err != nil {
+		t.Fatalf("ParseFEN failed: %v", err)
+	}
 
-    // Depth 4
-    if got := myengine.Perft(board, 4); got != 197281 {
-        t.Fatalf("Initial depth4: got %d want %d", got, 197281)
-    }
+	// Depth 4
+	if got := myengine.Perft(board, 4); got != 197281 {
+		t.Fatalf("Initial depth4: got %d want %d", got, 197281)
+	}
 
-    // Depth 5 can be heavier; allow skipping under -short
-    if testing.Short() {
-        t.Skip("skipping depth 5 perft in short mode")
-    }
-    if got := myengine.Perft(board, 5); got != 4865609 {
-        t.Fatalf("Initial depth5: got %d want %d", got, 4865609)
-    }
+	// Depth 5 can be heavier; allow skipping under -short
+	if testing.Short() {
+		t.Skip("skipping depth 5 perft in short mode")
+	}
+	if got := myengine.Perft(board, 5); got != 4865609 {
+		t.Fatalf("Initial depth5: got %d want %d", got, 4865609)
+	}
 }
 
 // Additional standard perft positions from Chess Programming Wiki

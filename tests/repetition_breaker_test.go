@@ -1,10 +1,10 @@
 package goose_engine_mg_test
 
 import (
-    "strings"
-    "testing"
+	"strings"
+	"testing"
 
-    myengine "github.com/Oliverans/GooseEngineMG/goosemg"
+	myengine "chess-engine/goosemg"
 )
 
 // parseCoord converts a coordinate like "d2" into a Square.

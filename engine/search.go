@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/dylhunn/dragontoothmg"
+	gm "chess-engine/goosemg"
 )
 
 var MaxScore int16 = 20000
@@ -62,7 +62,7 @@ var prevSearchScore int16 = 0
 var timeHandler TimeHandler
 var GlobalStop = false
 
-func StartSearch(board *dragontoothmg.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool) string {
+func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool) string {
 	initVariables(board)
 
 	/*
@@ -77,30 +77,30 @@ func StartSearch(board *dragontoothmg.Board, depth uint8, gameTime int, incremen
 	*/
 
 	// Just some test stuff for SEE; Will remove later
-	//var tempMove dragontoothmg.Move
-	//*board = dragontoothmg.ParseFen("1k1r3q/1ppn3p/p4b2/4p3/8/P2N2P1/1PP1R1BP/2K1Q3 w - - 0 1")
-	//tempMove.Setfrom(dragontoothmg.Square(19))
-	//tempMove.Setto(dragontoothmg.Square(36))
+	//var tempMove gm.Move
+	//*board = gm.ParseFen("1k1r3q/1ppn3p/p4b2/4p3/8/P2N2P1/1PP1R1BP/2K1Q3 w - - 0 1")
+	//tempMove.Setfrom(gm.Square(19))
+	//tempMove.Setto(gm.Square(36))
 	//see(board, tempMove, true)
 	//return "LMAO"
 	////
-	//*board = dragontoothmg.ParseFen("5rk1/1pp2q1p/p1pb4/8/3P1NP1/2P5/1P1BQ1P1/5RK1 b - -")
-	//tempMove.Setfrom(dragontoothmg.Square(43))
-	//tempMove.Setto(dragontoothmg.Square(29))
+	//*board = gm.ParseFen("5rk1/1pp2q1p/p1pb4/8/3P1NP1/2P5/1P1BQ1P1/5RK1 b - -")
+	//tempMove.Setfrom(gm.Square(43))
+	//tempMove.Setto(gm.Square(29))
 	//see(board, tempMove, true)
 	////
-	//*board = dragontoothmg.ParseFen("3r3k/3r4/2n1n3/8/3p4/2PR4/1B1Q4/3R3K w - -")
-	//tempMove.Setfrom(dragontoothmg.Square(18))
-	//tempMove.Setto(dragontoothmg.Square(27))
+	//*board = gm.ParseFen("3r3k/3r4/2n1n3/8/3p4/2PR4/1B1Q4/3R3K w - -")
+	//tempMove.Setfrom(gm.Square(18))
+	//tempMove.Setto(gm.Square(27))
 	//see(board, tempMove, true)
 	////
-	//*board = dragontoothmg.ParseFen("rnbqk2r/pp3ppp/2p1pn2/3p4/3P4/N1P1BN2/PPB1PPPb/R2Q1RK1 w kq -")
-	//tempMove.Setfrom(dragontoothmg.Square(6))
-	//tempMove.Setto(dragontoothmg.Square(15))
+	//*board = gm.ParseFen("rnbqk2r/pp3ppp/2p1pn2/3p4/3P4/N1P1BN2/PPB1PPPb/R2Q1RK1 w kq -")
+	//tempMove.Setfrom(gm.Square(6))
+	//tempMove.Setto(gm.Square(15))
 	//see(board, tempMove, true)
-	//*board = dragontoothmg.ParseFen("7k/p7/1p6/8/8/1Q6/8/7K w - - 0 1")
-	//tempMove.Setfrom(dragontoothmg.Square(17))
-	//tempMove.Setto(dragontoothmg.Square(41))
+	//*board = gm.ParseFen("7k/p7/1p6/8/8/1Q6/8/7K w - - 0 1")
+	//tempMove.Setfrom(gm.Square(17))
+	//tempMove.Setto(gm.Square(41))
 	//see(board, tempMove, true)
 	//os.Exit(0)
 
@@ -119,7 +119,7 @@ func StartSearch(board *dragontoothmg.Board, depth uint8, gameTime int, incremen
 	//file, _ := os.OpenFile("E:\\Programs\\Dropbox\\Dropbox\\chess_game_improved\\engine\\test_suite.txt", os.O_RDONLY, 0600)
 	//sc := bufio.NewScanner(file)
 	//for sc.Scan() {
-	//	var tempMove dragontoothmg.Move
+	//	var tempMove gm.Move
 	//	// Split string - we get fen & score here
 	//	epd_split := strings.Split(sc.Text(), ";")
 	//	position := epd_split[0]
@@ -132,9 +132,9 @@ func StartSearch(board *dragontoothmg.Board, depth uint8, gameTime int, incremen
 	//	to := move[2:4]
 	//	toNumber := strToInt[to]
 	//
-	//	*board = dragontoothmg.ParseFen(position)
-	//	tempMove.Setfrom(dragontoothmg.Square(fromNumber))
-	//	tempMove.Setto(dragontoothmg.Square(toNumber))
+	//	*board = gm.ParseFen(position)
+	//	tempMove.Setfrom(gm.Square(fromNumber))
+	//	tempMove.Setto(gm.Square(toNumber))
 	//	see(board, tempMove, false)
 	//	println("Expected score: ", score, "\tTrades: ", epd_split[3])
 	//}
@@ -145,10 +145,10 @@ func StartSearch(board *dragontoothmg.Board, depth uint8, gameTime int, incremen
 	}
 
 	GlobalStop = false
-	timeHandler.initTimemanagement(gameTime, increment, int(board.Halfmoveclock), useCustomDepth)
-	timeHandler.StartTime(int(board.Halfmoveclock))
+	timeHandler.initTimemanagement(gameTime, increment, int(board.HalfmoveClock()), useCustomDepth)
+	timeHandler.StartTime(int(board.HalfmoveClock()))
 
-	var bestMove dragontoothmg.Move
+	var bestMove gm.Move
 
 	if evalOnly {
 		Evaluation(board, true, false)
@@ -161,8 +161,8 @@ func StartSearch(board *dragontoothmg.Board, depth uint8, gameTime int, incremen
 	return bestMove.String()
 }
 
-func rootsearch(b *dragontoothmg.Board, depth uint8, useCustomDepth bool) (int, dragontoothmg.Move) {
-	halfMoveCounter = b.Halfmoveclock
+func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool) (int, gm.Move) {
+	halfMoveCounter = uint8(b.HalfmoveClock())
 	var timeSpent int64
 	var alpha int16 = int16(prevSearchScore - aspirationWindowSize)
 	var beta int16 = int16(prevSearchScore + aspirationWindowSize)
@@ -172,8 +172,8 @@ func rootsearch(b *dragontoothmg.Board, depth uint8, useCustomDepth bool) (int, 
 		alpha = int16(prevSearchScore - aspirationWindowSize)
 		beta = int16(prevSearchScore + aspirationWindowSize)
 	}
-	var nullMove dragontoothmg.Move
-	var bestMove dragontoothmg.Move
+	var nullMove gm.Move
+	var bestMove gm.Move
 	var pvLine PVLine
 	var prevPVLine PVLine
 	var mateFound bool
@@ -246,7 +246,7 @@ func rootsearch(b *dragontoothmg.Board, depth uint8, useCustomDepth bool) (int, 
 	return int(bestScore), bestMove
 }
 
-func alphabeta(b *dragontoothmg.Board, alpha int16, beta int16, depth int8, ply int8, pvLine *PVLine, prevMove dragontoothmg.Move, didNull bool, isExtended bool) int16 {
+func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLine *PVLine, prevMove gm.Move, didNull bool, isExtended bool) int16 {
 	nodesChecked++
 
 	if nodesChecked&2047 == 0 {
@@ -260,7 +260,7 @@ func alphabeta(b *dragontoothmg.Board, alpha int16, beta int16, depth int8, ply 
 	}
 
 	/* INIT KEY VARIABLES */
-	var bestMove dragontoothmg.Move
+	var bestMove gm.Move
 	var childPVLine = PVLine{}
 	var isPVNode = (beta - alpha) > 1
 	var isRoot = ply == 0
@@ -421,14 +421,14 @@ func alphabeta(b *dragontoothmg.Board, alpha int16, beta int16, depth int8, ply 
 		move := moveList.moves[index].move
 
 		// Prepare variables for move search
-		var isCapture bool = dragontoothmg.IsCapture(move, b) // Get whether move is a capture, before moving
+		var isCapture bool = gm.IsCapture(move, b) // Get whether move is a capture, before moving
 
 		var unapplyFunc = b.Apply(move)
 		var inCheck = b.OurKingInCheck()
 		var posHash = b.Hash()
 
 		// Tactical moves - if we're capturing, checking or promoting a pawn
-		tactical := (isCapture || inCheck || move.Promote() > 0)
+		tactical := (isCapture || inCheck || move.PromotionPieceType() != gm.PieceTypeNone)
 
 		/*
 			#################################################################################
@@ -552,7 +552,7 @@ func alphabeta(b *dragontoothmg.Board, alpha int16, beta int16, depth int8, ply 
 	return bestScore
 }
 
-func quiescence(b *dragontoothmg.Board, alpha int16, beta int16, pvLine *PVLine, depth int8) int16 {
+func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8) int16 {
 	nodesChecked++
 	quiescenceNodes++
 

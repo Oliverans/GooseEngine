@@ -3,20 +3,20 @@ package engine
 import (
 	"math/bits"
 
-	"github.com/dylhunn/dragontoothmg"
+	gm "chess-engine/goosemg"
 )
 
 var KingMoves [65]uint64
 
 var SeePieceValue = [7]int{
-	dragontoothmg.King:   5000,
-	dragontoothmg.Pawn:   100,
-	dragontoothmg.Knight: 300,
-	dragontoothmg.Bishop: 300,
-	dragontoothmg.Rook:   500,
-	dragontoothmg.Queen:  900}
+	gm.PieceTypeKing:   5000,
+	gm.PieceTypePawn:   100,
+	gm.PieceTypeKnight: 300,
+	gm.PieceTypeBishop: 300,
+	gm.PieceTypeRook:   500,
+	gm.PieceTypeQueen:  900}
 
-func see(b *dragontoothmg.Board, move dragontoothmg.Move, debug bool) int {
+func see(b *gm.Board, move gm.Move, debug bool) int {
 	// Prepare values
 	var gain = [32]int{}
 	var depth uint8 = 0
@@ -32,19 +32,19 @@ func see(b *dragontoothmg.Board, move dragontoothmg.Move, debug bool) int {
 	attadef := (whitePieceAttackers | blackPieceAttackers)
 
 	// Get initial pieces captured
-	var targetPiece dragontoothmg.Piece
-	var attacker dragontoothmg.Piece
+	var targetPiece gm.PieceType
+	var attacker gm.PieceType
 	if sideToMove {
-		targetPiece, _ = GetPieceTypeAtPosition(targetSquare, &b.Black)
-		attacker, _ = GetPieceTypeAtPosition(initSquare, &b.White)
+		targetPiece, _ = GetPieceTypeAtPosition(uint8(targetSquare), &b.Black)
+		attacker, _ = GetPieceTypeAtPosition(uint8(initSquare), &b.White)
 	} else {
-		targetPiece, _ = GetPieceTypeAtPosition(targetSquare, &b.White)
-		attacker, _ = GetPieceTypeAtPosition(initSquare, &b.Black)
+		targetPiece, _ = GetPieceTypeAtPosition(uint8(targetSquare), &b.White)
+		attacker, _ = GetPieceTypeAtPosition(uint8(initSquare), &b.Black)
 	}
 
 	// Ugly en passant-capturer, we should only get valid captures in SEE anyway...
-	if targetPiece == 0 {
-		targetPiece = 1
+	if targetPiece == gm.PieceTypeNone {
+		targetPiece = gm.PieceTypePawn
 	}
 
 	var attackerBB = PositionBB[initSquare]
@@ -96,7 +96,7 @@ func see(b *dragontoothmg.Board, move dragontoothmg.Move, debug bool) int {
 	return gain[0]
 }
 
-func getPiecesAttackingSquare(targetSquare uint8, usBB dragontoothmg.Bitboards, enemyBB dragontoothmg.Bitboards, sideToMove bool) uint64 {
+func getPiecesAttackingSquare(targetSquare gm.Square, usBB gm.Bitboards, enemyBB gm.Bitboards, sideToMove bool) uint64 {
 	/*
 		Calculate attacks from "supersquare" - if this square was one of every type of piece, what can it hit?
 		Has to take into account xraying from diagonal & orthogonal movement (love how the chess programming wiki expands my vocabulary!)
@@ -104,12 +104,13 @@ func getPiecesAttackingSquare(targetSquare uint8, usBB dragontoothmg.Bitboards, 
 		the attadef as we go ...
 		Xray through pawns
 	*/
-	orthogonalAttacksXray := dragontoothmg.CalculateRookMoveBitboard(targetSquare, ((usBB.All & ^(usBB.Rooks|usBB.Queens))|(enemyBB.All & ^(enemyBB.Rooks|enemyBB.Queens)))) & ^(usBB.All & ^(usBB.Rooks | usBB.Queens | enemyBB.Rooks | enemyBB.Queens))
+	ts := uint8(targetSquare)
+	orthogonalAttacksXray := gm.CalculateRookMoveBitboard(ts, ((usBB.All & ^(usBB.Rooks|usBB.Queens))|(enemyBB.All & ^(enemyBB.Rooks|enemyBB.Queens)))) & ^(usBB.All & ^(usBB.Rooks | usBB.Queens | enemyBB.Rooks | enemyBB.Queens))
 
 	var attackBB uint64
 	var pawnBB uint64
 
-	targetBB := PositionBB[targetSquare]
+	targetBB := PositionBB[int(targetSquare)]
 
 	// Check which of our pawns we can xray through
 	for x := usBB.Pawns; x != 0; x &= x - 1 {
@@ -122,60 +123,61 @@ func getPiecesAttackingSquare(targetSquare uint8, usBB dragontoothmg.Bitboards, 
 		}
 	}
 
-	diagonalAttacksXray := dragontoothmg.CalculateBishopMoveBitboard(targetSquare, ((usBB.All & ^(usBB.Bishops|usBB.Queens|pawnBB))|enemyBB.All)) & ^(usBB.All & ^(usBB.Bishops | usBB.Queens)) //(^usBB.All & ^(usBB.Bishops | usBB.Queens))
+	diagonalAttacksXray := gm.CalculateBishopMoveBitboard(ts, ((usBB.All & ^(usBB.Bishops|usBB.Queens|pawnBB))|enemyBB.All)) & ^(usBB.All & ^(usBB.Bishops | usBB.Queens)) //(^usBB.All & ^(usBB.Bishops | usBB.Queens))
 
 	hitPieces := attackBB | orthogonalAttacksXray&(usBB.Rooks|usBB.Queens)
 	hitPieces |= diagonalAttacksXray & (usBB.Bishops | usBB.Queens)
-	hitPieces |= KnightMasks[targetSquare] & usBB.Knights
-	hitPieces |= KingMoves[targetSquare] & usBB.Kings
+	hitPieces |= KnightMasks[int(targetSquare)] & usBB.Knights
+	hitPieces |= KingMoves[int(targetSquare)] & usBB.Kings
 
 	return hitPieces
 }
 
-func getClosestAttacker(b *dragontoothmg.Board, attadef uint64, sideToMove bool, targetSquare uint8) (uint64, dragontoothmg.Piece) {
-	var usBB dragontoothmg.Bitboards
+func getClosestAttacker(b *gm.Board, attadef uint64, sideToMove bool, targetSquare gm.Square) (uint64, gm.PieceType) {
+	var usBB gm.Bitboards
 	if sideToMove {
 		usBB = b.White
 	} else {
 		usBB = b.Black
 	}
 	// Get closest diagonal hit
-	diagonalAttack := dragontoothmg.CalculateBishopMoveBitboard(targetSquare, attadef) & ^(usBB.All &^ (usBB.Bishops | usBB.Queens))
+	ts := uint8(targetSquare)
+	diagonalAttack := gm.CalculateBishopMoveBitboard(ts, attadef) & ^(usBB.All &^ (usBB.Bishops | usBB.Queens))
 	diagonalAttack &= attadef
 	//println("Diagonal attack: ", diagonalAttack)
 
 	// Get closest orthogonal hit
-	orthogonalAttack := dragontoothmg.CalculateRookMoveBitboard(targetSquare, attadef) & ^(usBB.All & ^(usBB.Rooks | usBB.Queens))
+	orthogonalAttack := gm.CalculateRookMoveBitboard(ts, attadef) & ^(usBB.All & ^(usBB.Rooks | usBB.Queens))
 	orthogonalAttack &= attadef
 	//println("Orthogonal attack: ", orthogonalAttack)
 
-	east, west := PawnCaptureBitboards(PositionBB[targetSquare], !sideToMove)
+	east, west := PawnCaptureBitboards(PositionBB[int(targetSquare)], !sideToMove)
 	hitPieces := ((east | west) | diagonalAttack | orthogonalAttack | (KnightMasks[targetSquare] & usBB.Knights)) & attadef
 	return minAttacker(hitPieces, usBB)
 }
 
-func minAttacker(attadef uint64, bb dragontoothmg.Bitboards) (uint64, dragontoothmg.Piece) {
+func minAttacker(attadef uint64, bb gm.Bitboards) (uint64, gm.PieceType) {
 	var subset uint64
-	var piece dragontoothmg.Piece
+	var piece gm.PieceType
 
 	if attadef&bb.Pawns > 0 {
 		subset = attadef & bb.Pawns
-		piece = dragontoothmg.Pawn
+		piece = gm.PieceTypePawn
 	} else if attadef&bb.Knights > 0 {
 		subset = attadef & bb.Knights
-		piece = dragontoothmg.Knight
+		piece = gm.PieceTypeKnight
 	} else if attadef&bb.Bishops > 0 {
 		subset = attadef & bb.Bishops
-		piece = dragontoothmg.Bishop
+		piece = gm.PieceTypeBishop
 	} else if attadef&bb.Rooks > 0 {
 		subset = attadef & bb.Rooks
-		piece = dragontoothmg.Rook
+		piece = gm.PieceTypeRook
 	} else if attadef&bb.Queens > 0 {
 		subset = attadef & bb.Queens
-		piece = dragontoothmg.Queen
+		piece = gm.PieceTypeQueen
 	} else if attadef&bb.Kings > 0 {
 		subset = attadef & bb.Kings
-		piece = dragontoothmg.King
+		piece = gm.PieceTypeKing
 	}
 
 	if subset != 0 {

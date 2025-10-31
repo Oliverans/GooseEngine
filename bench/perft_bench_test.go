@@ -1,9 +1,9 @@
 package bench
 
 import (
-    "testing"
+	"testing"
 
-    eng "github.com/Oliverans/GooseEngineMG/goosemg"
+	eng "chess-engine/goosemg"
 )
 
 func benchPerft(b *testing.B, fen string, depth int) {

@@ -3,10 +3,10 @@ package engine
 import (
 	"math"
 
-	"github.com/dylhunn/dragontoothmg"
+	gm "chess-engine/goosemg"
 )
 
-func initVariables(board *dragontoothmg.Board) {
+func initVariables(_ *gm.Board) {
 	// Search tables ...
 	InitLMRTable()
 	initPositionBB()
@@ -63,19 +63,19 @@ func InitLMRTable() {
 func setPieceValues() {
 	for _, pieceType := range pieceList {
 		switch pieceType {
-		case dragontoothmg.Pawn:
+		case gm.PieceTypePawn:
 			pieceValueMG[pieceType] = PawnValueMG
 			pieceValueEG[pieceType] = PawnValueEG
-		case dragontoothmg.Knight:
+		case gm.PieceTypeKnight:
 			pieceValueMG[pieceType] = KnightValueMG
 			pieceValueEG[pieceType] = KnightValueEG
-		case dragontoothmg.Bishop:
+		case gm.PieceTypeBishop:
 			pieceValueMG[pieceType] = BishopValueMG
 			pieceValueEG[pieceType] = BishopValueMG
-		case dragontoothmg.Rook:
+		case gm.PieceTypeRook:
 			pieceValueMG[pieceType] = RookValueMG
 			pieceValueEG[pieceType] = RookValueEG
-		case dragontoothmg.Queen:
+		case gm.PieceTypeQueen:
 			pieceValueMG[pieceType] = QueenValueMG
 			pieceValueEG[pieceType] = QueenValueEG
 		}

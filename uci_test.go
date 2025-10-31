@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/dylhunn/dragontoothmg"
+	gm "chess-engine/goosemg"
 )
 
 func BenchmarkMain(b *testing.B) {
-	board := dragontoothmg.ParseFen(dragontoothmg.Startpos) // the game board
+	board := gm.ParseFen(gm.Startpos) // the game board
 	var bestmove = engine.StartSearch(&board, 50, 1000, 500, false, false)
 	engine.ResetForNewGame()
 	fmt.Println("bestmove ", bestmove)

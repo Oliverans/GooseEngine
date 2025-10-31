@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"math/bits"
 
-	"github.com/dylhunn/dragontoothmg"
+	gm "chess-engine/goosemg"
 )
 
 var nodesChecked = 0
 var cutNodes = 0
 var ttNodes = 0
 var LMR = [MaxDepth + 1][100]int8{}
-var counterMove [2][64][64]dragontoothmg.Move
+var counterMove [2][64][64]gm.Move
 var historyMove [2][64][64]int
 var historyMaxVal = 10000 // Ensure we stay below the captures, countermoves etc
 
@@ -33,14 +33,14 @@ type HistoryStruct struct {
 }
 
 /*
-	HISTORY/COUNTER MOVES
-	If a move was a cut-node (above beta), and not a capture, we keep track of two things:
-	The move that countered us (previous move made) - a counter move
-	A historical score of the move - since we know it was a good move to keep track of, we make sure we can use this for move ordering later
+HISTORY/COUNTER MOVES
+If a move was a cut-node (above beta), and not a capture, we keep track of two things:
+The move that countered us (previous move made) - a counter move
+A historical score of the move - since we know it was a good move to keep track of, we make sure we can use this for move ordering later
 */
-func storeCounter(sideToMove bool, prevMove dragontoothmg.Move, move dragontoothmg.Move) {
-	from := dragontoothmg.Square(prevMove.From())
-	to := dragontoothmg.Square(prevMove.To())
+func storeCounter(sideToMove bool, prevMove gm.Move, move gm.Move) {
+	from := gm.Square(prevMove.From())
+	to := gm.Square(prevMove.To())
 	if sideToMove {
 		counterMove[0][from][to] = move
 	} else {
@@ -49,7 +49,7 @@ func storeCounter(sideToMove bool, prevMove dragontoothmg.Move, move dragontooth
 }
 
 // Increment the history score for the given move if it caused a beta-cutoff and is quiet.
-func incrementHistoryScore(b *dragontoothmg.Board, move dragontoothmg.Move, depth int8) {
+func incrementHistoryScore(b *gm.Board, move gm.Move, depth int8) {
 	if b.Wtomove {
 		historyMove[0][move.From()][move.To()] += int(depth * depth)
 		if historyMove[0][move.From()][move.To()] >= historyMaxVal {
@@ -64,7 +64,7 @@ func incrementHistoryScore(b *dragontoothmg.Board, move dragontoothmg.Move, dept
 }
 
 // Decrement the history score for the given move if it didn't cause a beta-cutoff and is quiet.
-func decrementHistoryScore(b *dragontoothmg.Board, move dragontoothmg.Move) {
+func decrementHistoryScore(b *gm.Board, move gm.Move) {
 	if b.Wtomove {
 		if historyMove[0][move.From()][move.To()] > 0 {
 			historyMove[0][move.From()][move.To()] -= 1
@@ -113,7 +113,7 @@ func Max(x, y int) int {
 	return y
 }
 
-func hasMinorOrMajorPiece(b *dragontoothmg.Board) (wCount int, bCount int) {
+func hasMinorOrMajorPiece(b *gm.Board) (wCount int, bCount int) {
 	wCount += bits.OnesCount64(b.White.Bishops | b.White.Knights | b.White.Rooks | b.White.Queens)
 	bCount += bits.OnesCount64(b.Black.Bishops | b.Black.Knights | b.Black.Rooks | b.Black.Queens)
 	return wCount, bCount
@@ -147,7 +147,7 @@ func getMateOrCPScore(score int) string {
 
 func ResetForNewGame() {
 	TT.clearTT()
-	var nilMove dragontoothmg.Move
+	var nilMove gm.Move
 	for i := 0; i < 64; i++ {
 		for z := 0; z < 64; z++ {
 			counterMove[0][i][z] = nilMove

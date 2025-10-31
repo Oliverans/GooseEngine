@@ -1,8 +1,8 @@
 package goose_engine_mg_test
 
 import (
-    myengine "github.com/Oliverans/GooseEngineMG/goosemg"
-    "testing"
+	myengine "chess-engine/goosemg"
+	"testing"
 )
 
 // findMove finds a move by from/to squares.

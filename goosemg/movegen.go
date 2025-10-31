@@ -1519,7 +1519,7 @@ func (b *Board) GeneratePseudoMovesInto(dst []Move) []Move {
 // GeneratePseudoMoves returns all pseudo-legal moves (allocates a new slice).
 func (b *Board) GeneratePseudoMoves() []Move { return b.GeneratePseudoMovesInto(make([]Move, 0, 128)) }
 
-// GenerateLegalMoves exposes the same API name as dragontoothmg for legal move generation.
+// GenerateLegalMoves - for legal move generation!!
 func (b *Board) GenerateLegalMoves() []Move { return b.GenerateMoves() }
 
 // CalculateRookMoveBitboard returns rook attacks from the given square for the supplied occupancy mask.

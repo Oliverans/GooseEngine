@@ -8,18 +8,18 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dylhunn/dragontoothmg"
+	gm "chess-engine/goosemg"
 )
 
 func main() {
-	//board := dragontoothmg.ParseFen(dragontoothmg.Startpos) // the game board
+	//board := gm.ParseFen(gm.Startpos) // the game board
 	//tuner.InitEntry(&board)
 	uciLoop()
 }
 
 func uciLoop() {
 	scanner := bufio.NewScanner(os.Stdin)
-	board := dragontoothmg.ParseFen(dragontoothmg.Startpos) // the game board
+	board := gm.ParseFen(gm.Startpos) // the game board
 	engine.History.History = make([]uint64, 500)
 	//engine.InitVariables(&board)
 	// used for communicating with search routine
@@ -65,7 +65,7 @@ func uciLoop() {
 		case "isready":
 			fmt.Println("readyok")
 		case "ucinewgame":
-			board = dragontoothmg.ParseFen(dragontoothmg.Startpos)
+			board = gm.ParseFen(gm.Startpos)
 			engine.ResetForNewGame()
 		case "quit":
 			return
@@ -179,7 +179,7 @@ func uciLoop() {
 				continue
 			}
 			if strings.ToLower(posScanner.Text()) == "startpos" {
-				board = dragontoothmg.ParseFen(dragontoothmg.Startpos)
+				board = gm.ParseFen(gm.Startpos)
 				posScanner.Scan() // advance the scanner to leave it in a consistent state
 			} else if strings.ToLower(posScanner.Text()) == "fen" {
 				fenstr := ""
@@ -190,7 +190,7 @@ func uciLoop() {
 					fmt.Println("info string Invalid fen position")
 					continue
 				}
-				board = dragontoothmg.ParseFen(fenstr)
+				board = gm.ParseFen(fenstr)
 			} else {
 				fmt.Println("info string Invalid position subcommand")
 				continue
@@ -201,7 +201,7 @@ func uciLoop() {
 			for posScanner.Scan() { // for each move
 				moveStr := strings.ToLower(posScanner.Text())
 				legalMoves := board.GenerateLegalMoves()
-				var nextMove dragontoothmg.Move
+				var nextMove gm.Move
 				found := false
 				for _, mv := range legalMoves {
 					if mv.String() == moveStr {
@@ -210,20 +210,29 @@ func uciLoop() {
 						break
 					}
 				}
-				if !found { // we didn't find the move, but we will try to apply it anyway
-					fmt.Println("info string Move", moveStr, "not found for position", board.ToFen())
-					var err error
-					nextMove, err = dragontoothmg.ParseMove(moveStr)
+				if !found {
+					parsed, err := gm.ParseMove(moveStr)
 					if err != nil {
 						fmt.Println("info string Contingency move parsing failed")
+						continue
+					}
+					for _, mv := range legalMoves {
+						if mv.From() == parsed.From() && mv.To() == parsed.To() && mv.PromotionPieceType() == parsed.PromotionPieceType() {
+							nextMove = mv
+							found = true
+							break
+						}
+					}
+					if !found {
+						fmt.Println("info string Move", moveStr, "not found for position", board.ToFen())
 						continue
 					}
 				}
 				board.Apply(nextMove)
 				engine.HistoryMap[board.Hash()]++
 			}
-			//engine.History.History = make([]uint64, (int(board.Halfmoveclock) + 50))
-			engine.History.HalfclockRepetition = int(board.Halfmoveclock)
+			//engine.History.History = make([]uint64, (int(board.HalfmoveClock()) + 50))
+			engine.History.HalfclockRepetition = int(board.HalfmoveClock())
 		case "setoption":
 			goScanner := bufio.NewScanner(strings.NewReader(line))
 			goScanner.Split(bufio.ScanWords)

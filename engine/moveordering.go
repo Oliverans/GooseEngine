@@ -1,11 +1,11 @@
 package engine
 
 import (
-	"github.com/dylhunn/dragontoothmg"
+	gm "chess-engine/goosemg"
 )
 
 type move struct {
-	move  dragontoothmg.Move
+	move  gm.Move
 	score uint16
 }
 type moveList struct {
@@ -35,19 +35,19 @@ var killerOffset uint16 = 2000
 var counterOffset uint16 = 1000
 
 // Nice helper to get what piece is at a square :)
-func GetPieceTypeAtPosition(position uint8, bitboards *dragontoothmg.Bitboards) (pieceType dragontoothmg.Piece, occupied bool) {
+func GetPieceTypeAtPosition(position uint8, bitboards *gm.Bitboards) (pieceType gm.PieceType, occupied bool) {
 	if bitboards.Pawns&(1<<position) > 0 {
-		return dragontoothmg.Pawn, true
+		return gm.PieceTypePawn, true
 	} else if bitboards.Knights&(1<<position) > 0 {
-		return dragontoothmg.Knight, true
+		return gm.PieceTypeKnight, true
 	} else if bitboards.Bishops&(1<<position) > 0 {
-		return dragontoothmg.Bishop, true
+		return gm.PieceTypeBishop, true
 	} else if bitboards.Rooks&(1<<position) > 0 {
-		return dragontoothmg.Rook, true
+		return gm.PieceTypeRook, true
 	} else if bitboards.Queens&(1<<position) > 0 {
-		return dragontoothmg.Queen, true
+		return gm.PieceTypeQueen, true
 	} else if bitboards.Kings&(1<<position) > 0 {
-		return dragontoothmg.King, true
+		return gm.PieceTypeKing, true
 	}
 	return 0, false
 }
@@ -69,9 +69,9 @@ func orderNextMove(currIndex uint8, moves *moveList) {
 	moves.moves[bestIndex] = tempMove
 }
 
-func scoreMovesList(board *dragontoothmg.Board, moves []dragontoothmg.Move, depth int8, pvMove dragontoothmg.Move, prevMove dragontoothmg.Move) (movesList moveList) {
-	var bitboardsOwn dragontoothmg.Bitboards
-	var bitboardsOpponent dragontoothmg.Bitboards
+func scoreMovesList(board *gm.Board, moves []gm.Move, depth int8, pvMove gm.Move, prevMove gm.Move) (movesList moveList) {
+	var bitboardsOwn gm.Bitboards
+	var bitboardsOpponent gm.Bitboards
 	if board.Wtomove {
 		bitboardsOwn = board.White
 		bitboardsOpponent = board.Black
@@ -84,8 +84,8 @@ func scoreMovesList(board *dragontoothmg.Board, moves []dragontoothmg.Move, dept
 	for i := 0; i < len(moves); i++ {
 		move := moves[i]
 		var moveEval uint16 = 0
-		isCapture := dragontoothmg.IsCapture(move, board)
-		promotePiece := move.Promote()
+		isCapture := gm.IsCapture(move, board)
+		promotePiece := move.PromotionPieceType()
 		isPVMove := (move == pvMove)
 
 		if isPVMove {
@@ -93,8 +93,8 @@ func scoreMovesList(board *dragontoothmg.Board, moves []dragontoothmg.Move, dept
 		} else if promotePiece != 0 {
 			moveEval = captureOffset + uint16(pieceValueEG[promotePiece])
 		} else if isCapture {
-			pieceTypeFrom, _ := GetPieceTypeAtPosition(move.From(), &bitboardsOwn)
-			enemyPiece, _ := GetPieceTypeAtPosition(move.To(), &bitboardsOpponent)
+			pieceTypeFrom, _ := GetPieceTypeAtPosition(uint8(move.From()), &bitboardsOwn)
+			enemyPiece, _ := GetPieceTypeAtPosition(uint8(move.To()), &bitboardsOpponent)
 			moveEval = captureOffset + mvvLva[enemyPiece][pieceTypeFrom]
 		} else if killerMoveTable.KillerMoves[depth][0] == move {
 			moveEval = killerOffset + 100
@@ -119,9 +119,9 @@ func scoreMovesList(board *dragontoothmg.Board, moves []dragontoothmg.Move, dept
 	return movesList
 }
 
-func scoreMovesListCaptures(board *dragontoothmg.Board, moves []dragontoothmg.Move) (movesList moveList, anyCaptures bool) {
-	var bitboardsOwn dragontoothmg.Bitboards
-	var bitboardsOpponent dragontoothmg.Bitboards
+func scoreMovesListCaptures(board *gm.Board, moves []gm.Move) (movesList moveList, anyCaptures bool) {
+	var bitboardsOwn gm.Bitboards
+	var bitboardsOpponent gm.Bitboards
 	if board.Wtomove {
 		bitboardsOwn = board.White
 		bitboardsOpponent = board.Black
@@ -135,8 +135,8 @@ func scoreMovesListCaptures(board *dragontoothmg.Board, moves []dragontoothmg.Mo
 
 	for i := 0; i < len(moves); i++ {
 		move := moves[i]
-		ourPiece, _ := GetPieceTypeAtPosition(move.From(), &bitboardsOwn)
-		enemyPiece, isCapture := GetPieceTypeAtPosition(move.To(), &bitboardsOpponent)
+		ourPiece, _ := GetPieceTypeAtPosition(uint8(move.From()), &bitboardsOwn)
+		enemyPiece, isCapture := GetPieceTypeAtPosition(uint8(move.To()), &bitboardsOpponent)
 		var move_eval uint16 = 0
 
 		if isCapture {

@@ -1,12 +1,12 @@
 package engine
 
 import (
-	"github.com/dylhunn/dragontoothmg"
+	gm "chess-engine/goosemg"
 )
 
 ///////////////////////// Move pair struct /////////////////////////
 type Pair struct {
-	Key   dragontoothmg.Move
+	Key   gm.Move
 	Value int
 }
 type PairList []Pair
@@ -34,7 +34,7 @@ func (p PairList) Less(j, i int) bool { return p[i].Value < p[j].Value }
 
 // A struct representing a principal variation line.
 type PVLine struct {
-	Moves []dragontoothmg.Move
+	Moves []gm.Move
 }
 
 // Clear the principal variation line.
@@ -44,18 +44,18 @@ func (pvLine *PVLine) Clear() {
 
 // Update the principal variation line with a new best move,
 // and a new line of best play after the best move.
-func (pvLine *PVLine) Update(move dragontoothmg.Move, newPVLine PVLine) {
+func (pvLine *PVLine) Update(move gm.Move, newPVLine PVLine) {
 	pvLine.Clear()
 	pvLine.Moves = append(pvLine.Moves, move)
 	pvLine.Moves = append(pvLine.Moves, newPVLine.Moves...)
 }
 
 // Get the best move from the principal variation line.
-func (pvLine *PVLine) GetPVMove() dragontoothmg.Move {
+func (pvLine *PVLine) GetPVMove() gm.Move {
 	return pvLine.Moves[0]
 }
 
-func (pvLine *PVLine) IsPVMove(move dragontoothmg.Move) bool {
+func (pvLine *PVLine) IsPVMove(move gm.Move) bool {
 	for i := 0; i < len(pvLine.Moves); i++ {
 		if pvLine.Moves[i] == move {
 			return true
@@ -64,10 +64,10 @@ func (pvLine *PVLine) IsPVMove(move dragontoothmg.Move) bool {
 	return false
 }
 
-func (pvLine *PVLine) GetPVMoveAtDepth(depth int) dragontoothmg.Move {
+func (pvLine *PVLine) GetPVMoveAtDepth(depth int) gm.Move {
 	if depth >= 0 && depth <= len(pvLine.Moves)-1 {
 		return pvLine.Moves[depth]
 	}
-	var nullMove dragontoothmg.Move
+	var nullMove gm.Move
 	return nullMove
 }

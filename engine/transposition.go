@@ -3,7 +3,7 @@ package engine
 import (
 	"time"
 
-	"github.com/dylhunn/dragontoothmg"
+	gm "chess-engine/goosemg"
 )
 
 const (
@@ -31,7 +31,7 @@ type TransTable struct {
 type TTEntry struct {
 	Hash  uint64
 	Depth int8
-	Move  dragontoothmg.Move
+	Move  gm.Move
 	Score int16
 	Flag  int8
 	Age   uint8
@@ -85,11 +85,10 @@ func (TT *TransTable) getEntry(hash uint64) (entry *TTEntry) {
 }
 
 /*
-	If there's a spot to improve searching and data storing, here is where it'd happen!
-	This is an "always replace"-approach; I've fiddled with depth comparisons and gotten weird/buggy results
-
+If there's a spot to improve searching and data storing, here is where it'd happen!
+This is an "always replace"-approach; I've fiddled with depth comparisons and gotten weird/buggy results
 */
-func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move dragontoothmg.Move, score int16, flag int8, age uint8) {
+func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move, score int16, flag int8, age uint8) {
 	// Create entry
 	entrySlot := hash % TT.size
 
