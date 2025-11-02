@@ -13,7 +13,7 @@ var Checkmate int16 = 9000
 
 var killerMoveTable KillerStruct
 
-//Quiescence variables
+// Quiescence variables
 var quiescenceNodes = 0
 var QuiescenceTime time.Duration
 
@@ -64,81 +64,6 @@ var GlobalStop = false
 
 func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool) string {
 	initVariables(board)
-
-	/*
-		Used to debug and test out static evaluation:
-			- game phase
-			- prints out all important evaluation variables, such as
-				- both midgame & endgame values
-				- the difference in score between mid & endgame
-					- all individual piece evaluation scores and their components
-				- helper variables (outpost squares etc)
-			- whether we consider this position moving towards a theoretical draw
-	*/
-
-	// Just some test stuff for SEE; Will remove later
-	//var tempMove gm.Move
-	//*board = gm.ParseFen("1k1r3q/1ppn3p/p4b2/4p3/8/P2N2P1/1PP1R1BP/2K1Q3 w - - 0 1")
-	//tempMove.Setfrom(gm.Square(19))
-	//tempMove.Setto(gm.Square(36))
-	//see(board, tempMove, true)
-	//return "LMAO"
-	////
-	//*board = gm.ParseFen("5rk1/1pp2q1p/p1pb4/8/3P1NP1/2P5/1P1BQ1P1/5RK1 b - -")
-	//tempMove.Setfrom(gm.Square(43))
-	//tempMove.Setto(gm.Square(29))
-	//see(board, tempMove, true)
-	////
-	//*board = gm.ParseFen("3r3k/3r4/2n1n3/8/3p4/2PR4/1B1Q4/3R3K w - -")
-	//tempMove.Setfrom(gm.Square(18))
-	//tempMove.Setto(gm.Square(27))
-	//see(board, tempMove, true)
-	////
-	//*board = gm.ParseFen("rnbqk2r/pp3ppp/2p1pn2/3p4/3P4/N1P1BN2/PPB1PPPb/R2Q1RK1 w kq -")
-	//tempMove.Setfrom(gm.Square(6))
-	//tempMove.Setto(gm.Square(15))
-	//see(board, tempMove, true)
-	//*board = gm.ParseFen("7k/p7/1p6/8/8/1Q6/8/7K w - - 0 1")
-	//tempMove.Setfrom(gm.Square(17))
-	//tempMove.Setto(gm.Square(41))
-	//see(board, tempMove, true)
-	//os.Exit(0)
-
-	//var strToInt = map[string]int{
-	//	"a1": 0, "a2": 8, "a3": 16, "a4": 24, "a5": 32, "a6": 40, "a7": 48, "a8": 56,
-	//	"b1": 1, "b2": 9, "b3": 17, "b4": 25, "b5": 33, "b6": 41, "b7": 49, "b8": 57,
-	//	"c1": 2, "c2": 10, "c3": 18, "c4": 26, "c5": 34, "c6": 42, "c7": 50, "c8": 58,
-	//	"d1": 3, "d2": 11, "d3": 19, "d4": 27, "d5": 35, "d6": 43, "d7": 51, "d8": 59,
-	//	"e1": 4, "e2": 12, "e3": 20, "e4": 28, "e5": 36, "e6": 44, "e7": 52, "e8": 60,
-	//	"f1": 5, "f2": 13, "f3": 21, "f4": 29, "f5": 37, "f6": 45, "f7": 53, "f8": 61,
-	//	"g1": 6, "g2": 14, "g3": 22, "g4": 30, "g5": 38, "g6": 46, "g7": 54, "g8": 62,
-	//	"h1": 7, "h2": 15, "h3": 23, "h4": 31, "h5": 39, "h6": 47, "h7": 55, "h8": 63,
-	//}
-
-	//file, _ := os.OpenFile("/Users/olivernylander/Dropbox/chess_game_improved/tuner/tuning_positions.epd", os.O_RDONLY, 0600)
-	//file, _ := os.OpenFile("E:\\Programs\\Dropbox\\Dropbox\\chess_game_improved\\engine\\test_suite.txt", os.O_RDONLY, 0600)
-	//sc := bufio.NewScanner(file)
-	//for sc.Scan() {
-	//	var tempMove gm.Move
-	//	// Split string - we get fen & score here
-	//	epd_split := strings.Split(sc.Text(), ";")
-	//	position := epd_split[0]
-	//	move := epd_split[1]
-	//	move = strings.ReplaceAll(move, " ", "")
-	//	score := epd_split[2]
-	//
-	//	from := move[0:2]
-	//	fromNumber := strToInt[from]
-	//	to := move[2:4]
-	//	toNumber := strToInt[to]
-	//
-	//	*board = gm.ParseFen(position)
-	//	tempMove.Setfrom(gm.Square(fromNumber))
-	//	tempMove.Setto(gm.Square(toNumber))
-	//	see(board, tempMove, false)
-	//	println("Expected score: ", score, "\tTrades: ", epd_split[3])
-	//}
-	//os.Exit(0)
 
 	if !TT.isInitialized {
 		TT.init()
@@ -301,7 +226,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		#################################################################################
 	*/
 	ttEntry := TT.getEntry(posHash)
-	usable, ttScore := TT.useEntry(ttEntry, posHash, depth, alpha, beta)
+	usable, ttScore := TT.useEntry(ttEntry, posHash, depth, alpha, beta, ply)
 	if usable && !isRoot {
 		ttNodes++
 		return ttScore
@@ -324,7 +249,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		unApplyfunc := b.ApplyNullMove()
 		nullHash := b.Hash()
 		HistoryMap[nullHash]++
-		var R int8 = 3 + (6 / depth)
+		var R int8 = 2 + (depth / 6)
 		score := -alphabeta(b, -beta, -beta+1, (depth - 1 - R), ply+1, &childPVLine, bestMove, true, isExtended)
 		unApplyfunc()
 		HistoryMap[nullHash]--
@@ -556,7 +481,7 @@ func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8
 	nodesChecked++
 	quiescenceNodes++
 
-	if nodesChecked&2048 == 0 {
+	if nodesChecked&2047 == 0 {
 		if timeHandler.TimeStatus() {
 			searchShouldStop = true
 		}

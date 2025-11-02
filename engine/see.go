@@ -14,146 +14,223 @@ var SeePieceValue = [7]int{
 	gm.PieceTypeKnight: 300,
 	gm.PieceTypeBishop: 300,
 	gm.PieceTypeRook:   500,
-	gm.PieceTypeQueen:  900}
+	gm.PieceTypeQueen:  900,
+}
+
+const (
+	colorWhite = iota
+	colorBlack
+)
 
 func see(b *gm.Board, move gm.Move, debug bool) int {
-	// Prepare values
-	var gain = [32]int{}
-	var depth uint8 = 0
+	const maxDepth = 32
+
+	var gain [maxDepth]int
+
+	fromSquare := move.From()
+	toSquare := move.To()
+
 	sideToMove := b.Wtomove
+	us := colorIndex(sideToMove)
+	them := us ^ 1
 
-	// Get initial squares of capture move
-	initSquare := move.From()
-	targetSquare := move.To()
+	var pieces [2]gm.Bitboards
+	pieces[colorWhite] = b.White
+	pieces[colorBlack] = b.Black
 
-	// Get bitboard of all pieces attacking square
-	whitePieceAttackers := getPiecesAttackingSquare(targetSquare, b.White, b.Black, true)
-	blackPieceAttackers := getPiecesAttackingSquare(targetSquare, b.Black, b.White, false)
-	attadef := (whitePieceAttackers | blackPieceAttackers)
+	occupied := pieces[colorWhite].All | pieces[colorBlack].All
 
-	// Get initial pieces captured
-	var targetPiece gm.PieceType
-	var attacker gm.PieceType
-	if sideToMove {
-		targetPiece, _ = GetPieceTypeAtPosition(uint8(targetSquare), &b.Black)
-		attacker, _ = GetPieceTypeAtPosition(uint8(initSquare), &b.White)
-	} else {
-		targetPiece, _ = GetPieceTypeAtPosition(uint8(targetSquare), &b.White)
-		attacker, _ = GetPieceTypeAtPosition(uint8(initSquare), &b.Black)
+	from := uint8(fromSquare)
+	to := uint8(toSquare)
+
+	movingPiece := pieceAtSquare(from, &pieces[us])
+	if movingPiece == gm.PieceTypeNone {
+		return 0
 	}
 
-	// Ugly en passant-capturer, we should only get valid captures in SEE anyway...
-	if targetPiece == gm.PieceTypeNone {
-		targetPiece = gm.PieceTypePawn
+	capturedPiece := pieceAtSquare(to, &pieces[them])
+	captureSquare := to
+
+	if capturedPiece == gm.PieceTypeNone {
+		if move.Flags()&gm.FlagEnPassant == 0 {
+			return 0
+		}
+		if sideToMove {
+			if to < 8 {
+				return 0
+			}
+			captureSquare = to - 8
+		} else {
+			if to > 55 {
+				return 0
+			}
+			captureSquare = to + 8
+		}
+		if pieces[them].Pawns&PositionBB[int(captureSquare)] == 0 {
+			return 0
+		}
+		capturedPiece = gm.PieceTypePawn
 	}
 
-	var attackerBB = PositionBB[initSquare]
-	gain[depth] = SeePieceValue[targetPiece]
-	//attadef &^= attackerBB
+	removePiece(&pieces[them], capturedPiece, captureSquare)
+	occupied &^= PositionBB[int(captureSquare)]
 
-	if debug {
-		println("fen: ", b.ToFen(), "\tboard: ", b.White.All|b.Black.All, "\tfrom: ", initSquare, "\tto: ", targetSquare, "\tattadef: ", attadef)
-		println("depth: ", depth, "\tside: ", sideToMove, "\tattacker: ", attacker, "\tpiece taken: ", targetPiece, "\tnew score: ", gain[depth], "\tAttadef: ", attadef, "\tAttackerBB: ", attackerBB)
+	removePiece(&pieces[us], movingPiece, from)
+	occupied &^= PositionBB[int(from)]
+
+	movingPieceAfter := movingPiece
+	if promo := move.PromotionPieceType(); promo != gm.PieceTypeNone {
+		movingPieceAfter = promo
 	}
 
-	sideToMove = !sideToMove
+	addPiece(&pieces[us], movingPieceAfter, to)
+	occupied |= PositionBB[int(to)]
 
-	// We "already made the first move", so we swap side before going into the loop
-	//sideToMove = !sideToMove
-	for done := true; done; done = attackerBB != 0 {
-		depth++
-		gain[depth] = SeePieceValue[attacker] - gain[depth-1]
+	gain[0] = SeePieceValue[capturedPiece]
 
-		if attadef != 0 && debug {
-			println("depth: ", depth, "\tGain: ", gain[depth], "\tComparison: ", SeePieceValue[attacker], "-", gain[depth-1], " = ", SeePieceValue[attacker]-gain[depth-1], "\tside to move: ", sideToMove, "\t --------- ", "attacker: ", attacker)
+	capturedPieceType := movingPieceAfter
+	side := them
+	depth := 0
+
+	for {
+		attackers := attackersToSquare(to, occupied, pieces[side], side == colorWhite)
+		attackers &^= PositionBB[int(to)]
+		if attackers == 0 {
+			break
 		}
 
-		// If we're in a losing position after the last trade, we break
+		attackerBB, attackerPiece := minAttacker(attackers, pieces[side])
+		if attackerBB == 0 {
+			break
+		}
+
+		attackSquare := uint8(bits.TrailingZeros64(attackerBB))
+
+		depth++
+		if depth >= maxDepth {
+			depth = maxDepth - 1
+		}
+		gain[depth] = SeePieceValue[capturedPieceType] - gain[depth-1]
+
 		if max(-gain[depth-1], gain[depth]) < 0 {
 			break
 		}
 
-		attadef ^= attackerBB
-		if debug {
-			println("Depth: ", depth, "Attadef: ", attadef)
-		}
+		removePiece(&pieces[side], attackerPiece, attackSquare)
+		occupied &^= PositionBB[int(attackSquare)]
 
-		attackerBB, attacker = getClosestAttacker(b, attadef, sideToMove, targetSquare)
-		sideToMove = !sideToMove
+		opponent := side ^ 1
+		removePiece(&pieces[opponent], capturedPieceType, to)
+		occupied &^= PositionBB[int(to)]
+
+		addPiece(&pieces[side], attackerPiece, to)
+		occupied |= PositionBB[int(to)]
+
+		capturedPieceType = attackerPiece
+		side = opponent
 	}
 
-	for x := depth - 1; x > 0; x-- {
-		gain[x-1] = -max(-gain[x-1], gain[x])
-		if debug {
-			println("Depth: ", x-1, "Highest value: ", gain[x-1])
-		}
+	for depth > 0 {
+		gain[depth-1] = -max(-gain[depth-1], gain[depth])
+		depth--
 	}
 
 	if debug {
-		println("Gain: ", gain[0])
+		println("SEE gain:", gain[0])
 	}
 
 	return gain[0]
 }
 
-func getPiecesAttackingSquare(targetSquare gm.Square, usBB gm.Bitboards, enemyBB gm.Bitboards, sideToMove bool) uint64 {
-	/*
-		Calculate attacks from "supersquare" - if this square was one of every type of piece, what can it hit?
-		Has to take into account xraying from diagonal & orthogonal movement (love how the chess programming wiki expands my vocabulary!)
-		Currently, our bishops/rooks/queens don't xray through opponent bishops/rooks/queens... Fix? Or no? Probably not, unless we dynamically update
-		the attadef as we go ...
-		Xray through pawns
-	*/
-	ts := uint8(targetSquare)
-	orthogonalAttacksXray := gm.CalculateRookMoveBitboard(ts, ((usBB.All & ^(usBB.Rooks|usBB.Queens))|(enemyBB.All & ^(enemyBB.Rooks|enemyBB.Queens)))) & ^(usBB.All & ^(usBB.Rooks | usBB.Queens | enemyBB.Rooks | enemyBB.Queens))
+func attackersToSquare(target uint8, occupied uint64, pieces gm.Bitboards, white bool) uint64 {
+	targetBB := PositionBB[int(target)]
 
-	var attackBB uint64
-	var pawnBB uint64
+	attackers := pawnAttackers(targetBB, pieces.Pawns, white)
+	attackers |= KnightMasks[int(target)] & pieces.Knights
+	attackers |= KingMoves[int(target)] & pieces.Kings
 
-	targetBB := PositionBB[int(targetSquare)]
+	bishopAttacks := gm.CalculateBishopMoveBitboard(target, occupied)
+	rookAttacks := gm.CalculateRookMoveBitboard(target, occupied)
 
-	// Check which of our pawns we can xray through
-	for x := usBB.Pawns; x != 0; x &= x - 1 {
-		bb := PositionBB[bits.TrailingZeros64(x)]
-		var pawnAttackBBEast, pawnAttackBBWest uint64
-		pawnAttackBBEast, pawnAttackBBWest = PawnCaptureBitboards(bb, sideToMove)
-		if ((pawnAttackBBEast | pawnAttackBBWest) & targetBB) > 0 {
-			attackBB |= bb
-			pawnBB |= bb
-		}
-	}
+	attackers |= bishopAttacks & (pieces.Bishops | pieces.Queens)
+	attackers |= rookAttacks & (pieces.Rooks | pieces.Queens)
 
-	diagonalAttacksXray := gm.CalculateBishopMoveBitboard(ts, ((usBB.All & ^(usBB.Bishops|usBB.Queens|pawnBB))|enemyBB.All)) & ^(usBB.All & ^(usBB.Bishops | usBB.Queens)) //(^usBB.All & ^(usBB.Bishops | usBB.Queens))
-
-	hitPieces := attackBB | orthogonalAttacksXray&(usBB.Rooks|usBB.Queens)
-	hitPieces |= diagonalAttacksXray & (usBB.Bishops | usBB.Queens)
-	hitPieces |= KnightMasks[int(targetSquare)] & usBB.Knights
-	hitPieces |= KingMoves[int(targetSquare)] & usBB.Kings
-
-	return hitPieces
+	return attackers
 }
 
-func getClosestAttacker(b *gm.Board, attadef uint64, sideToMove bool, targetSquare gm.Square) (uint64, gm.PieceType) {
-	var usBB gm.Bitboards
-	if sideToMove {
-		usBB = b.White
-	} else {
-		usBB = b.Black
+func pawnAttackers(targetBB uint64, pawns uint64, white bool) uint64 {
+	if white {
+		return (((targetBB >> 7) & ^bitboardFileA) & pawns) | (((targetBB >> 9) & ^bitboardFileH) & pawns)
 	}
-	// Get closest diagonal hit
-	ts := uint8(targetSquare)
-	diagonalAttack := gm.CalculateBishopMoveBitboard(ts, attadef) & ^(usBB.All &^ (usBB.Bishops | usBB.Queens))
-	diagonalAttack &= attadef
-	//println("Diagonal attack: ", diagonalAttack)
+	return (((targetBB << 7) & ^bitboardFileH) & pawns) | (((targetBB << 9) & ^bitboardFileA) & pawns)
+}
 
-	// Get closest orthogonal hit
-	orthogonalAttack := gm.CalculateRookMoveBitboard(ts, attadef) & ^(usBB.All & ^(usBB.Rooks | usBB.Queens))
-	orthogonalAttack &= attadef
-	//println("Orthogonal attack: ", orthogonalAttack)
+func pieceAtSquare(square uint8, bitboards *gm.Bitboards) gm.PieceType {
+	mask := PositionBB[int(square)]
+	switch {
+	case bitboards.Pawns&mask != 0:
+		return gm.PieceTypePawn
+	case bitboards.Knights&mask != 0:
+		return gm.PieceTypeKnight
+	case bitboards.Bishops&mask != 0:
+		return gm.PieceTypeBishop
+	case bitboards.Rooks&mask != 0:
+		return gm.PieceTypeRook
+	case bitboards.Queens&mask != 0:
+		return gm.PieceTypeQueen
+	case bitboards.Kings&mask != 0:
+		return gm.PieceTypeKing
+	default:
+		return gm.PieceTypeNone
+	}
+}
 
-	east, west := PawnCaptureBitboards(PositionBB[int(targetSquare)], !sideToMove)
-	hitPieces := ((east | west) | diagonalAttack | orthogonalAttack | (KnightMasks[targetSquare] & usBB.Knights)) & attadef
-	return minAttacker(hitPieces, usBB)
+func addPiece(bitboards *gm.Bitboards, piece gm.PieceType, square uint8) {
+	mask := PositionBB[int(square)]
+	bitboards.All |= mask
+	switch piece {
+	case gm.PieceTypePawn:
+		bitboards.Pawns |= mask
+	case gm.PieceTypeKnight:
+		bitboards.Knights |= mask
+	case gm.PieceTypeBishop:
+		bitboards.Bishops |= mask
+	case gm.PieceTypeRook:
+		bitboards.Rooks |= mask
+	case gm.PieceTypeQueen:
+		bitboards.Queens |= mask
+	case gm.PieceTypeKing:
+		bitboards.Kings |= mask
+	}
+}
+
+func removePiece(bitboards *gm.Bitboards, piece gm.PieceType, square uint8) {
+	if piece == gm.PieceTypeNone {
+		return
+	}
+	mask := ^PositionBB[int(square)]
+	bitboards.All &= mask
+	switch piece {
+	case gm.PieceTypePawn:
+		bitboards.Pawns &= mask
+	case gm.PieceTypeKnight:
+		bitboards.Knights &= mask
+	case gm.PieceTypeBishop:
+		bitboards.Bishops &= mask
+	case gm.PieceTypeRook:
+		bitboards.Rooks &= mask
+	case gm.PieceTypeQueen:
+		bitboards.Queens &= mask
+	case gm.PieceTypeKing:
+		bitboards.Kings &= mask
+	}
+}
+
+func colorIndex(white bool) int {
+	if white {
+		return colorWhite
+	}
+	return colorBlack
 }
 
 func minAttacker(attadef uint64, bb gm.Bitboards) (uint64, gm.PieceType) {
@@ -181,11 +258,8 @@ func minAttacker(attadef uint64, bb gm.Bitboards) (uint64, gm.PieceType) {
 	}
 
 	if subset != 0 {
-		// Bit-twidling to return a single bit if there are multiple bits.
-		// ... Or it used to be here, but I'm too cool for school! I create my own failures instead
-		//Definitely ignore this last sentence.
 		return PositionBB[bits.TrailingZeros64(subset)], piece
 	}
 
-	return 0, piece
+	return 0, gm.PieceTypeNone
 }

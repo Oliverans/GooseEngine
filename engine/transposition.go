@@ -2,6 +2,7 @@ package engine
 
 import (
 	"time"
+	"unsafe"
 
 	gm "chess-engine/goosemg"
 )
@@ -42,17 +43,25 @@ var TranspositionTime time.Duration
 func (TT *TransTable) clearTT() {
 	TT.entries = nil
 	TT.isInitialized = false
-	//TT.init()
 }
 
 func (TT *TransTable) init() {
 	// Set up transposition table
-	TT.size = (TTSize * 1024 * 1024) / 16
+	entrySize := uint64(unsafe.Sizeof(TTEntry{}))
+	if entrySize == 0 {
+		entrySize = 1
+	}
+	totalBytes := uint64(TTSize) * 1024 * 1024
+	entryCount := totalBytes / entrySize
+	if entryCount == 0 {
+		entryCount = 1
+	}
+	TT.size = entryCount
 	TT.entries = make([]TTEntry, TT.size)
 	TT.isInitialized = true
 }
 
-func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha int16, beta int16) (usable bool, score int16) {
+func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha int16, beta int16, ply int8) (usable bool, score int16) {
 	score = UnusableScore
 	usable = false
 	if ttEntry.Hash == hash {
@@ -60,17 +69,25 @@ func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha 
 		if ttEntry.Depth > depth {
 			var ttScore = ttEntry.Score
 
+			if score > Checkmate {
+				score -= int16(ply)
+			}
+
+			if score < -Checkmate {
+				score += int16(ply)
+			}
+
 			if ttEntry.Flag == ExactFlag {
 				score = ttScore
 				usable = true
 			}
 
-			if ttEntry.Flag == AlphaFlag && ttScore < alpha {
+			if ttEntry.Flag == AlphaFlag && ttScore <= alpha {
 				score = alpha
 				usable = true
 			}
 
-			if ttEntry.Flag == BetaFlag && ttScore > beta {
+			if ttEntry.Flag == BetaFlag && ttScore >= beta {
 				score = beta
 				usable = true
 			}
@@ -91,20 +108,6 @@ This is an "always replace"-approach; I've fiddled with depth comparisons and go
 func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move, score int16, flag int8, age uint8) {
 	// Create entry
 	entrySlot := hash % TT.size
-
-	// Check if we got an entry already
-	//prevEntry := TT.entries[entrySlot]
-	//shouldReplace := prevEntry.Depth < depth // || prevEntry.Age+ageLimit < age
-
-	// Replace
-	//if shouldReplace && move != 0000 && flag == ExactFlag {
-	//if depth < prevEntry.Depth { // || move == 0 {
-	//	return
-	//}
-
-	if score == 0 {
-		return
-	}
 
 	var entry TTEntry
 	entry.Hash = hash
