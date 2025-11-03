@@ -4,7 +4,7 @@ import (
 	gm "chess-engine/goosemg"
 )
 
-///////////////////////// Move pair struct /////////////////////////
+// /////////////////////// Move pair struct /////////////////////////
 type Pair struct {
 	Key   gm.Move
 	Value int
@@ -39,7 +39,7 @@ type PVLine struct {
 
 // Clear the principal variation line.
 func (pvLine *PVLine) Clear() {
-	pvLine.Moves = nil
+	pvLine.Moves = pvLine.Moves[:0]
 }
 
 // Update the principal variation line with a new best move,

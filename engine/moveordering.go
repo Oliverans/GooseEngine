@@ -34,24 +34,6 @@ var captureOffset uint16 = 20000
 var killerOffset uint16 = 2000
 var counterOffset uint16 = 1000
 
-// Nice helper to get what piece is at a square :)
-func GetPieceTypeAtPosition(position uint8, bitboards *gm.Bitboards) (pieceType gm.PieceType, occupied bool) {
-	if bitboards.Pawns&(1<<position) > 0 {
-		return gm.PieceTypePawn, true
-	} else if bitboards.Knights&(1<<position) > 0 {
-		return gm.PieceTypeKnight, true
-	} else if bitboards.Bishops&(1<<position) > 0 {
-		return gm.PieceTypeBishop, true
-	} else if bitboards.Rooks&(1<<position) > 0 {
-		return gm.PieceTypeRook, true
-	} else if bitboards.Queens&(1<<position) > 0 {
-		return gm.PieceTypeQueen, true
-	} else if bitboards.Kings&(1<<position) > 0 {
-		return gm.PieceTypeKing, true
-	}
-	return 0, false
-}
-
 // Ordering the moves one at a time, at index given
 func orderNextMove(currIndex uint8, moves *moveList) {
 	bestIndex := currIndex
@@ -70,21 +52,22 @@ func orderNextMove(currIndex uint8, moves *moveList) {
 }
 
 func scoreMovesList(board *gm.Board, moves []gm.Move, depth int8, pvMove gm.Move, prevMove gm.Move) (movesList moveList) {
-	var bitboardsOwn gm.Bitboards
-	var bitboardsOpponent gm.Bitboards
-	if board.Wtomove {
-		bitboardsOwn = board.White
-		bitboardsOpponent = board.Black
-	} else {
-		bitboardsOwn = board.Black
-		bitboardsOpponent = board.White
+	side := 0
+	if !board.Wtomove {
+		side = 1
 	}
 
 	movesList.moves = make([]move, len(moves))
 	for i := 0; i < len(moves); i++ {
 		move := moves[i]
 		var moveEval uint16 = 0
-		isCapture := gm.IsCapture(move, board)
+		capturedPiece := move.CapturedPiece()
+		capturedType := capturedPiece.Type()
+		isEnPassant := move.Flags() == gm.FlagEnPassant
+		if isEnPassant {
+			capturedType = gm.PieceTypePawn
+		}
+		isCapture := capturedPiece != gm.NoPiece || isEnPassant
 		promotePiece := move.PromotionPieceType()
 		isPVMove := (move == pvMove)
 
@@ -93,20 +76,13 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, depth int8, pvMove gm.Move
 		} else if promotePiece != 0 {
 			moveEval = captureOffset + uint16(pieceValueEG[promotePiece])
 		} else if isCapture {
-			pieceTypeFrom, _ := GetPieceTypeAtPosition(uint8(move.From()), &bitboardsOwn)
-			enemyPiece, _ := GetPieceTypeAtPosition(uint8(move.To()), &bitboardsOpponent)
-			moveEval = captureOffset + mvvLva[enemyPiece][pieceTypeFrom]
+			pieceTypeFrom := move.MovedPiece().Type()
+			moveEval = captureOffset + mvvLva[capturedType][pieceTypeFrom]
 		} else if killerMoveTable.KillerMoves[depth][0] == move {
 			moveEval = killerOffset + 100
 		} else if killerMoveTable.KillerMoves[depth][1] == move {
 			moveEval = killerOffset
 		} else {
-			var side int
-			if board.Wtomove {
-				side = 0
-			} else {
-				side = 1
-			}
 			moveEval = uint16(historyMove[side][move.From()][move.To()])
 			if counterMove[side][prevMove.From()][prevMove.To()] == move {
 				moveEval += counterOffset
@@ -119,30 +95,22 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, depth int8, pvMove gm.Move
 	return movesList
 }
 
-func scoreMovesListCaptures(board *gm.Board, moves []gm.Move) (movesList moveList, anyCaptures bool) {
-	var bitboardsOwn gm.Bitboards
-	var bitboardsOpponent gm.Bitboards
-	if board.Wtomove {
-		bitboardsOwn = board.White
-		bitboardsOpponent = board.Black
-	} else {
-		bitboardsOwn = board.Black
-		bitboardsOpponent = board.White
-	}
-
+func scoreMovesListCaptures(_ *gm.Board, moves []gm.Move) (movesList moveList, anyCaptures bool) {
 	movesList.moves = make([]move, len(moves)) // Could maybe do better, but whatever
 	var capturedMovesIndex uint8
 
 	for i := 0; i < len(moves); i++ {
 		move := moves[i]
-		ourPiece, _ := GetPieceTypeAtPosition(uint8(move.From()), &bitboardsOwn)
-		enemyPiece, isCapture := GetPieceTypeAtPosition(uint8(move.To()), &bitboardsOpponent)
-		var move_eval uint16 = 0
-
-		if isCapture {
-			move_eval += mvvLva[enemyPiece][ourPiece]
+		capturedPiece := move.CapturedPiece()
+		capturedType := capturedPiece.Type()
+		if move.Flags() == gm.FlagEnPassant {
+			capturedType = gm.PieceTypePawn
+		}
+		if capturedPiece != gm.NoPiece || move.Flags() == gm.FlagEnPassant {
+			moverType := move.MovedPiece().Type()
+			score := mvvLva[capturedType][moverType]
 			movesList.moves[capturedMovesIndex].move = move
-			movesList.moves[capturedMovesIndex].score = move_eval
+			movesList.moves[capturedMovesIndex].score = score
 			capturedMovesIndex++
 		}
 	}

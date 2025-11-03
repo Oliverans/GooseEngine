@@ -14,19 +14,17 @@ const (
 	ExactFlag
 
 	// In MB
-	TTSize = 256
+	TTSize      = 256
+	clusterSize = 4
 
 	// Unusable score
 	UnusableScore = -32500
-
-	// Max moves ago before we simply replace an entry
-	ageLimit = 15
 )
 
 type TransTable struct {
 	isInitialized bool
 	entries       []TTEntry
-	size          uint64
+	clusterCount  uint64
 }
 
 type TTEntry struct {
@@ -35,7 +33,6 @@ type TTEntry struct {
 	Move  gm.Move
 	Score int16
 	Flag  int8
-	Age   uint8
 }
 
 var TranspositionTime time.Duration
@@ -43,6 +40,7 @@ var TranspositionTime time.Duration
 func (TT *TransTable) clearTT() {
 	TT.entries = nil
 	TT.isInitialized = false
+	TT.clusterCount = 0
 }
 
 func (TT *TransTable) init() {
@@ -52,19 +50,26 @@ func (TT *TransTable) init() {
 		entrySize = 1
 	}
 	totalBytes := uint64(TTSize) * 1024 * 1024
-	entryCount := totalBytes / entrySize
-	if entryCount == 0 {
-		entryCount = 1
+	clusterBytes := entrySize * clusterSize
+	if clusterBytes == 0 {
+		clusterBytes = entrySize
 	}
-	TT.size = entryCount
-	TT.entries = make([]TTEntry, TT.size)
+	clusterCount := totalBytes / clusterBytes
+	if clusterCount == 0 {
+		clusterCount = 1
+	}
+	TT.clusterCount = clusterCount
+	TT.entries = make([]TTEntry, TT.clusterCount*clusterSize)
 	TT.isInitialized = true
 }
 
-func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha int16, beta int16, ply int8) (usable bool, score int16) {
+func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha int16, beta int16, ply int8, excludedMove gm.Move) (usable bool, score int16) {
 	score = UnusableScore
 	usable = false
-	if ttEntry.Hash == hash {
+	if ttEntry != nil && ttEntry.Hash == hash {
+		if excludedMove != 0 && ttEntry.Move == excludedMove {
+			return false, score
+		}
 		score = ttEntry.Score
 		if ttEntry.Depth > depth {
 			var ttScore = ttEntry.Score
@@ -97,24 +102,34 @@ func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha 
 	return usable, score
 }
 
-func (TT *TransTable) getEntry(hash uint64) (entry *TTEntry) {
-	return &TT.entries[hash%TT.size]
+func (TT *TransTable) getEntry(hash uint64) (entry *TTEntry, found bool) {
+	if TT.clusterCount == 0 {
+		return nil, false
+	}
+
+	clusterIndex := hash % TT.clusterCount
+	start := int(clusterIndex * clusterSize)
+	for i := 0; i < clusterSize; i++ {
+		next := &TT.entries[start+i]
+		if next.Hash == hash {
+			return next, true
+		}
+	}
+	return nil, false
 }
 
 /*
 If there's a spot to improve searching and data storing, here is where it'd happen!
 This is an "always replace"-approach; I've fiddled with depth comparisons and gotten weird/buggy results
 */
-func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move, score int16, flag int8, age uint8) {
+func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move, score int16, flag int8) {
 	// Create entry
-	entrySlot := hash % TT.size
+	if TT.clusterCount == 0 {
+		return
+	}
 
-	var entry TTEntry
-	entry.Hash = hash
-	entry.Depth = depth
-	entry.Move = move
-	entry.Flag = flag
-	entry.Age = age
+	clusterIndex := hash % TT.clusterCount
+	base := int(clusterIndex * clusterSize)
 
 	// If we have a mate score, we add the ply
 	if score > Checkmate {
@@ -123,7 +138,45 @@ func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move
 	if score < -Checkmate {
 		score -= int16(ply) //= -MaxScore + int16(depth)
 	}
+	targetIdx := -1
+
+	// Prefer updating existing entry
+	for i := 0; i < clusterSize; i++ {
+		idx := base + i
+		if TT.entries[idx].Hash == hash {
+			targetIdx = idx
+			break
+		}
+	}
+
+	// Next look for an empty slot
+	if targetIdx == -1 {
+		for i := 0; i < clusterSize; i++ {
+			idx := base + i
+			if TT.entries[idx].Hash == 0 {
+				targetIdx = idx
+				break
+			}
+		}
+	}
+
+	// Otherwise replace the shallowest entry in the cluster
+	if targetIdx == -1 {
+		targetIdx = base
+		minDepth := TT.entries[base].Depth
+		for i := 1; i < clusterSize; i++ {
+			idx := base + i
+			if TT.entries[idx].Depth < minDepth {
+				minDepth = TT.entries[idx].Depth
+				targetIdx = idx
+			}
+		}
+	}
+
+	entry := &TT.entries[targetIdx]
+	entry.Hash = hash
+	entry.Depth = depth
+	entry.Move = move
+	entry.Flag = flag
 	entry.Score = score
-	TT.entries[entrySlot] = entry
-	//}
 }

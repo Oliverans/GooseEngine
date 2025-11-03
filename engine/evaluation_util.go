@@ -97,7 +97,7 @@ func getKingSafetyTable(b *gm.Board, inner bool, wPawnAttackBB uint64, bPawnAtta
 	return kingZoneTable
 }
 
-func getOutpostsBB(b *gm.Board) (outpostSquares [2]uint64) {
+func getOutpostsBB(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB uint64) (outpostSquares [2]uint64) {
 	// Generate allowed ranks & files for outposts to be on
 	wPotentialOutposts := (wPawnAttackBB & wAllowedOutpostMask) &^ b.White.Pawns
 	bPotentialOutposts := (bPawnAttackBB & bAllowedOutpostMask) &^ b.Black.Pawns

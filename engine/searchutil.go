@@ -8,8 +8,6 @@ import (
 )
 
 var nodesChecked = 0
-var cutNodes = 0
-var ttNodes = 0
 var LMR = [MaxDepth + 1][100]int8{}
 var counterMove [2][64][64]gm.Move
 var historyMove [2][64][64]int
