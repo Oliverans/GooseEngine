@@ -696,6 +696,13 @@ func absInt(v int) int {
 	return v
 }
 
+func absInt16(v int16) int16 {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
 func kingDist(a, b int) int {
 	dx := absInt((a & 7) - (b & 7))
 	dy := absInt((a >> 3) - (b >> 3))

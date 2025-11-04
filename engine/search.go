@@ -8,8 +8,8 @@ import (
 	gm "chess-engine/goosemg"
 )
 
-var MaxScore int16 = 20000
-var Checkmate int16 = 9000
+var MaxScore int16 = 32500
+var Checkmate int16 = 20000
 
 var killerMoveTable KillerStruct
 
@@ -42,7 +42,7 @@ var RazoringMargins = [10]int16{
 }
 
 // Late move pruning
-var LateMovePruningMargins = [6]int{0, 8, 12, 16, 20, 24}
+var LateMovePruningMargins = [6]int{0, 0, 0, 16, 20, 24}
 
 var LMRLegalMovesLimit = 4
 var LMRDepthLimit = 3
@@ -242,7 +242,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 	*/
 
 	var wCount, bCount = hasMinorOrMajorPiece(b)
-	var sideHasPieces bool = b.Wtomove && wCount > 0 || !b.Wtomove && bCount > 0
+	var sideHasPieces bool = (b.Wtomove && wCount > 0) || (!b.Wtomove && bCount > 0)
 	if !inCheck && !isPVNode && !didNull && sideHasPieces && depth >= 2 {
 		unApplyfunc := b.ApplyNullMove()
 		nullHash := b.Hash()
@@ -263,7 +263,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		So we return
 		#################################################################################
 	*/
-	if !inCheck && !isPVNode && sideHasPieces && beta < Checkmate {
+	if !inCheck && !isPVNode && sideHasPieces && absInt16(beta) < Checkmate {
 		var staticFutilityPruneScore int16 = (85 * int16(depth))
 		if (int16(staticScore) - staticFutilityPruneScore) >= beta {
 			return beta
@@ -326,7 +326,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		#################################################################################
 	*/
 
-	if !inCheck && !isPVNode && !isRoot && int(depth) < len(FutilityMargins) && alpha < Checkmate && beta < Checkmate {
+	if !inCheck && !isPVNode && !isRoot && int(depth) < len(FutilityMargins) && absInt16(alpha) < Checkmate {
 		futilityPruneScore := FutilityMargins[depth]
 		if int16(staticScore)+futilityPruneScore <= alpha {
 			futilityPruning = true
@@ -353,7 +353,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 	}
 
 	var bestScore = -MaxScore
-	var moveList moveList = scoreMovesList(b, allMoves, depth, bestMove, prevMove)
+	var moveList moveList = scoreMovesList(b, allMoves, depth, ply, bestMove, prevMove)
 
 	var ttFlag int8 = AlphaFlag
 	var searchedAny bool
@@ -420,13 +420,10 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		nextExtended := isExtended || extendMove
 
 		// Do the PV node full search - we should get one valid PVline even if we miss a bunch of search optimization
-		if index == 0 {
+		if index <= 2 {
 			nextDepth := depth - 1
 			if extendMove {
 				nextDepth++
-			}
-			if nextDepth < 0 {
-				nextDepth = 0
 			}
 			score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, didNull, nextExtended, 0)
 			searchedAny = true
@@ -498,9 +495,9 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		if score >= beta {
 			ttFlag = BetaFlag
 			if !isCapture {
-				InsertKiller(move, depth, &killerMoveTable)
+				InsertKiller(move, ply, &killerMoveTable)
 				storeCounter(!b.Wtomove, prevMove, move)
-				incrementHistoryScore(b, move, depth)
+				incrementHistoryScore(!b.Wtomove, move, depth)
 			}
 			childPVLine.Clear()
 			unapplyFunc()
@@ -512,10 +509,10 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 			ttFlag = ExactFlag
 			pvLine.Update(move, childPVLine)
 			if !isCapture {
-				incrementHistoryScore(b, move, depth)
+				incrementHistoryScore(!b.Wtomove, move, depth)
 			}
 		} else {
-			decrementHistoryScore(b, move)
+			decrementHistoryScore(!b.Wtomove, move)
 		}
 
 		unapplyFunc()

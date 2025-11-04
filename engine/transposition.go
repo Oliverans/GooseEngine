@@ -18,7 +18,7 @@ const (
 	clusterSize = 4
 
 	// Unusable score
-	UnusableScore = -32500
+	UnusableScore = -32750
 )
 
 type TransTable struct {
@@ -71,7 +71,7 @@ func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha 
 			return false, score
 		}
 		score = ttEntry.Score
-		if ttEntry.Depth > depth {
+		if ttEntry.Depth >= depth {
 			var ttScore = ttEntry.Score
 
 			if score > Checkmate {
@@ -83,7 +83,6 @@ func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha 
 			}
 
 			if ttEntry.Flag == ExactFlag {
-				score = ttScore
 				usable = true
 			}
 

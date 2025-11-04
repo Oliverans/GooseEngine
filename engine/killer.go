@@ -15,8 +15,12 @@ var KillerMoveLength = 2
 var KillerMoveScore = 10
 
 func InsertKiller(move gm.Move, ply int8, k *KillerStruct) {
-	if move != k.KillerMoves[ply][0] {
-		k.KillerMoves[ply][1] = k.KillerMoves[ply][0]
-		k.KillerMoves[ply][0] = move
+	index := int(ply)
+	if index >= len(k.KillerMoves) {
+		index = len(k.KillerMoves) - 1
+	}
+	if move != k.KillerMoves[index][0] {
+		k.KillerMoves[index][1] = k.KillerMoves[index][0]
+		k.KillerMoves[index][0] = move
 	}
 }

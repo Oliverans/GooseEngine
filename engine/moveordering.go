@@ -51,10 +51,16 @@ func orderNextMove(currIndex uint8, moves *moveList) {
 	moves.moves[bestIndex] = tempMove
 }
 
-func scoreMovesList(board *gm.Board, moves []gm.Move, depth int8, pvMove gm.Move, prevMove gm.Move) (movesList moveList) {
+func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove gm.Move, prevMove gm.Move) (movesList moveList) {
 	side := 0
 	if !board.Wtomove {
 		side = 1
+	}
+	killerIdx := int(ply)
+	if killerIdx < 0 {
+		killerIdx = 0
+	} else if killerIdx >= len(killerMoveTable.KillerMoves) {
+		killerIdx = len(killerMoveTable.KillerMoves) - 1
 	}
 
 	movesList.moves = make([]move, len(moves))
@@ -78,9 +84,9 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, depth int8, pvMove gm.Move
 		} else if isCapture {
 			pieceTypeFrom := move.MovedPiece().Type()
 			moveEval = captureOffset + mvvLva[capturedType][pieceTypeFrom]
-		} else if killerMoveTable.KillerMoves[depth][0] == move {
+		} else if killerMoveTable.KillerMoves[killerIdx][0] == move {
 			moveEval = killerOffset + 100
-		} else if killerMoveTable.KillerMoves[depth][1] == move {
+		} else if killerMoveTable.KillerMoves[killerIdx][1] == move {
 			moveEval = killerOffset
 		} else {
 			moveEval = uint16(historyMove[side][move.From()][move.To()])

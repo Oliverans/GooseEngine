@@ -47,30 +47,27 @@ func storeCounter(sideToMove bool, prevMove gm.Move, move gm.Move) {
 }
 
 // Increment the history score for the given move if it caused a beta-cutoff and is quiet.
-func incrementHistoryScore(b *gm.Board, move gm.Move, depth int8) {
-	if b.Wtomove {
-		historyMove[0][move.From()][move.To()] += int(depth * depth)
-		if historyMove[0][move.From()][move.To()] >= historyMaxVal {
-			ageHistoryTable(b.Wtomove)
-		}
-	} else {
-		historyMove[1][move.From()][move.To()] += int(depth * depth)
-		if historyMove[1][move.From()][move.To()] >= historyMaxVal {
-			ageHistoryTable(b.Wtomove)
-		}
+func incrementHistoryScore(sideToMove bool, move gm.Move, depth int8) {
+	sideIdx := 0
+	if !sideToMove {
+		sideIdx = 1
+	}
+
+	historyMove[sideIdx][move.From()][move.To()] += int(depth * depth)
+	if historyMove[sideIdx][move.From()][move.To()] >= historyMaxVal {
+		ageHistoryTable(sideToMove)
 	}
 }
 
 // Decrement the history score for the given move if it didn't cause a beta-cutoff and is quiet.
-func decrementHistoryScore(b *gm.Board, move gm.Move) {
-	if b.Wtomove {
-		if historyMove[0][move.From()][move.To()] > 0 {
-			historyMove[0][move.From()][move.To()] -= 1
-		}
-	} else {
-		if historyMove[1][move.From()][move.To()] > 0 {
-			historyMove[1][move.From()][move.To()] -= 1
-		}
+func decrementHistoryScore(sideToMove bool, move gm.Move) {
+	sideIdx := 0
+	if !sideToMove {
+		sideIdx = 1
+	}
+
+	if historyMove[sideIdx][move.From()][move.To()] > 0 {
+		historyMove[sideIdx][move.From()][move.To()]--
 	}
 }
 
