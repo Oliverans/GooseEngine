@@ -104,8 +104,12 @@ var ConnectedPawnsBonusMG = 7
 var ConnectedPawnsBonusEG = 9
 var PhalanxPawnsBonusMG = 5
 var PhalanxPawnsBonusEG = 7
-var BlockedPawnBonusMG = 25
-var BlockedPawnBonusEG = 15
+var BlockedPawnBonusMG = 13
+var BlockedPawnBonusEG = 7
+var BackwardPawnMG = 8
+var BackwardPawnEG = 4
+var PawnLeverMG = 6
+var PawnLeverEG = 3
 
 /* Knight variables */
 var KnightOutpostMG = 20
@@ -429,6 +433,58 @@ func evaluateWeakSquares(movementBB [2][5]uint64, kingInnerRing [2]uint64, wPawn
 	PAWN FUNCTIONS
 */
 
+// isolatedPawnPenaltyFromBB scores isolated pawns from precomputed bitboards.
+func isolatedPawnPenalty(wIsolated uint64, bIsolated uint64) (isolatedMG int, isolatedEG int) {
+	wCount := bits.OnesCount64(wIsolated)
+	bCount := bits.OnesCount64(bIsolated)
+	isolatedMG = (bCount * IsolatedPawnMG) - (wCount * IsolatedPawnMG)
+	isolatedEG = (bCount * IsolatedPawnEG) - (wCount * IsolatedPawnEG)
+	return isolatedMG, isolatedEG
+}
+
+// passedPawnBonusFromBB scores passed pawns using PSQT tables from bitboards.
+func passedPawnBonus(wPassed uint64, bPassed uint64) (passedMG int, passedEG int) {
+	for x := wPassed; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		passedMG += PassedPawnPSQT_MG[sq]
+		passedEG += PassedPawnPSQT_EG[sq]
+	}
+	for x := bPassed; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		revSQ := FlipView[sq]
+		passedMG -= PassedPawnPSQT_MG[revSQ]
+		passedEG -= PassedPawnPSQT_EG[revSQ]
+	}
+	return passedMG, passedEG
+}
+
+// blockedPawnBonusFromBB scores blocked advanced pawns from bitboards.
+func blockedPawnBonus(wBlocked uint64, bBlocked uint64) (blockedBonusMG int, blockedBonusEG int) {
+	wCount := bits.OnesCount64(wBlocked)
+	bCount := bits.OnesCount64(bBlocked)
+	blockedBonusMG = (wCount * BlockedPawnBonusMG) - (bCount * BlockedPawnBonusMG)
+	blockedBonusEG = (wCount * BlockedPawnBonusEG) - (bCount * BlockedPawnBonusEG)
+	return blockedBonusMG, blockedBonusEG
+}
+
+// backwardPawnPenalty scores backward pawns bitboards into MG/EG contributions.
+func backwardPawnPenalty(wBackward uint64, bBackward uint64) (backMG int, backEG int) {
+	wCount := bits.OnesCount64(wBackward)
+	bCount := bits.OnesCount64(bBackward)
+	backMG = (bCount * BackwardPawnMG) - (wCount * BackwardPawnMG)
+	backEG = (bCount * BackwardPawnEG) - (wCount * BackwardPawnEG)
+	return backMG, backEG
+}
+
+// pawnLeverReadiness scores immediate lever opportunities into MG/EG.
+func pawnLeverBonus(wLever uint64, bLever uint64) (leverMG int, leverEG int) {
+	wCount := bits.OnesCount64(wLever)
+	bCount := bits.OnesCount64(bLever)
+	leverMG = (wCount * PawnLeverMG) - (bCount * PawnLeverMG)
+	leverEG = (wCount * PawnLeverEG) - (bCount * PawnLeverEG)
+	return leverMG, leverEG
+}
+
 func connectedOrPhalanxPawnBonus(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB uint64) (connectedMG, connectedEG, phalanxMG, phalanxEG int) {
 
 	var wConnectedMG = bits.OnesCount64(b.White.Pawns & wPawnAttackBB)
@@ -467,81 +523,6 @@ func pawnDoublingPenalties(b *gm.Board) (doubledMG, doubledEG int) {
 	doubledMG = (bDoubledPawnCount * DoubledPawnPenaltyMG) - (wDoubledPawnCount * DoubledPawnPenaltyMG)
 	doubledEG = (bDoubledPawnCount * DoubledPawnPenaltyEG) - (wDoubledPawnCount * DoubledPawnPenaltyEG)
 	return doubledMG, doubledEG
-}
-
-func isolatedPawnPenalty(b *gm.Board) (isolatedMG, isolatedEG int) {
-
-	for x := b.White.Pawns; x != 0; x &= x - 1 {
-		idx := bits.TrailingZeros64(x)
-		file := idx % 8
-		neighbors := bits.OnesCount64(isolatedPawnTable[file]&b.White.Pawns) - 1
-		if neighbors == 0 {
-			isolatedMG -= IsolatedPawnMG
-			isolatedEG -= IsolatedPawnEG
-		}
-	}
-
-	for x := b.Black.Pawns; x != 0; x &= x - 1 {
-		idx := bits.TrailingZeros64(x)
-		file := idx % 8
-		neighbors := bits.OnesCount64(isolatedPawnTable[file]&b.Black.Pawns) - 1
-		if neighbors == 0 {
-			isolatedMG += IsolatedPawnMG
-			isolatedEG += IsolatedPawnEG
-		}
-	}
-
-	return isolatedMG, isolatedEG
-}
-
-func passedPawnBonus(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB uint64) (passedMG, passedEG int) {
-	for x := b.White.Pawns; x != 0; x &= x - 1 {
-		var sq = bits.TrailingZeros64(x)
-		var pawnFile = onlyFile[sq%8]
-		var checkAbove = ranksAbove[(sq/8)+1]
-
-		if bits.OnesCount64(bPawnAttackBB&(pawnFile&checkAbove)) == 0 && bits.OnesCount64(b.Black.Pawns&(pawnFile&checkAbove)) == 0 {
-			passedMG += PassedPawnPSQT_MG[sq]
-			passedEG += PassedPawnPSQT_EG[sq]
-		}
-	}
-
-	for x := b.Black.Pawns; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		pawnFile := onlyFile[sq%8]
-		var checkBelow = ranksBelow[(sq/8)-1]
-
-		if bits.OnesCount64(wPawnAttackBB&(pawnFile&checkBelow)) == 0 && bits.OnesCount64(b.White.Pawns&(pawnFile&checkBelow)) == 0 {
-			revSQ := FlipView[sq]
-			passedMG -= PassedPawnPSQT_MG[revSQ]
-			passedEG -= PassedPawnPSQT_EG[revSQ]
-		}
-	}
-
-	return passedMG, passedEG
-}
-
-func blockedPawnBonus(b *gm.Board) (blockedBonusMG int, blockedBonusEG int) {
-	thirdAndFourthRank := onlyRank[2] | onlyRank[3]
-	fifthAndSixthRank := onlyRank[4] | onlyRank[5]
-
-	for x := b.White.Pawns; x != 0; x &= x - 1 {
-		squareBB := PositionBB[bits.TrailingZeros64(x)]
-		abovePawnBB := squareBB << 8
-		if (fifthAndSixthRank&squareBB) > 0 && (b.Black.Pawns&abovePawnBB) > 0 {
-			blockedBonusMG += BlockedPawnBonusMG
-			blockedBonusEG += BlockedPawnBonusEG
-		}
-	}
-	for x := b.Black.Pawns; x != 0; x &= x - 1 {
-		squareBB := PositionBB[bits.TrailingZeros64(x)]
-		abovePawnBB := squareBB >> 8
-		if (thirdAndFourthRank&squareBB) > 0 && (b.White.Pawns&abovePawnBB) > 0 {
-			blockedBonusMG -= BlockedPawnBonusMG
-			blockedBonusEG -= BlockedPawnBonusEG
-		}
-	}
-	return blockedBonusMG, blockedBonusEG
 }
 
 /*
@@ -843,16 +824,35 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 	var wPawnAttackSpan = calculatePawnFileFill((wPawnAttackBBEast|wPawnAttackBBWest), true) & ranksBelow[4]
 	var bPawnAttackSpan = calculatePawnFileFill((bPawnAttackBBEast|bPawnAttackBBWest), false) & ranksAbove[4]
 
-	var pawnFillWhite = calculatePawnFileFill(b.White.Pawns, true)
-	var pawnFillBlack = calculatePawnFileFill(b.Black.Pawns, false)
+	// Build file-level masks for open/semi-open files (per entire file, not per square)
+	var whiteFiles uint64 = 0
+	for x := b.White.Pawns; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		whiteFiles |= getFileOfSquare(sq)
+	}
+	var blackFiles uint64 = 0
+	for x := b.Black.Pawns; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		blackFiles |= getFileOfSquare(sq)
+	}
 
-	var wSemiOpenFiles = pawnFillBlack &^ pawnFillWhite
-	var bSemiOpenFiles = pawnFillWhite &^ pawnFillBlack
+	var wSemiOpenFiles = ^whiteFiles & blackFiles
+	var bSemiOpenFiles = ^blackFiles & whiteFiles
 
-	var openFiles = ^pawnFillWhite & ^pawnFillBlack
+	var openFiles = ^whiteFiles & ^blackFiles
 
 	var wPawnAttackBB = wPawnAttackBBEast | wPawnAttackBBWest
 	var bPawnAttackBB = bPawnAttackBBEast | bPawnAttackBBWest
+
+	// Precompute reusable pawn structure bitboards
+	var wIsolatedBB, bIsolatedBB = getIsolatedPawnsBitboards(b)
+	var wPassedBB, bPassedBB = getPassedPawnsBitboards(b, wPawnAttackBB, bPawnAttackBB)
+	var wBlockedBB, bBlockedBB = getBlockedPawnsBitboards(b)
+	var wBackwardBB, bBackwardBB = getBackwardPawnsBitboards(b, wPawnAttackBB, bPawnAttackBB, wIsolatedBB, bIsolatedBB, wPassedBB, bPassedBB)
+	var wLeverBB, bLeverBB = getPawnLeverBitboards(b, wPawnAttackBB, bPawnAttackBB)
+
+	// Center state and openness index for mobility scaling
+	lockedCenter, openIdx := getCenterState(b, openFiles, wSemiOpenFiles, bSemiOpenFiles, wLeverBB, bLeverBB)
 
 	// Prepare raw attack maps for weak-squares and king-safety
 	var knightMovementBB = [2]uint64{}
@@ -870,6 +870,9 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 	// Get game phase
 	var piecePhase = GetPiecePhase(b)
 	var currPhase = TotalPhase - piecePhase
+
+	// Simple center-based scale factors (percent) moved to helper for clarity
+	knightMobilityScale, bishopMobbilityScale, bishopPairScaleMG := getCenterMobilityScales(lockedCenter, openIdx)
 
 	var pawnMG, pawnEG int
 	var knightMG, knightEG int
@@ -896,9 +899,14 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 		println("################### FEN ###################")
 		println("FEN: ", b.ToFen())
 		println("################### HELPER VARIABLES ###################")
-		println("Pawn attacks: ", wPawnAttackBB, " <||> ", bPawnAttackBB)
 		println("Pawn attack spans: ", wPawnAttackSpan, " <||> ", bPawnAttackSpan)
 		println("Pawn attacks: ", wPawnAttackBB, " <||> ", bPawnAttackBB)
+		println("Pawn isolated: ", wIsolatedBB, " <||> ", bIsolatedBB)
+		println("Pawn passed: ", wPassedBB, " <||> ", bPassedBB)
+		println("Pawn blocked: ", wBlockedBB, " <||> ", bBlockedBB)
+		println("Pawn backward: ", wBackwardBB, " <||> ", bBackwardBB)
+		println("Pawn levers: ", wLeverBB, " <||> ", bLeverBB)
+		fmt.Printf("Center locked: %v, openIdx: %.2f\n", lockedCenter, openIdx)
 		println("Open files: ", openFiles)
 		println("Semi-Open files: ", wSemiOpenFiles, " <||> ", bSemiOpenFiles)
 		println("Outposts: ", outposts[0], " <||> ", outposts[1])
@@ -914,19 +922,21 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 		switch piece {
 		case gm.PieceTypePawn:
 			pawnPsqtMG, pawnPsqtEG := countPieceTables(&b.White.Pawns, &b.Black.Pawns, &PSQT_MG[gm.PieceTypePawn], &PSQT_EG[gm.PieceTypePawn])
-			isolatedMG, isolatedEG := isolatedPawnPenalty(b)
+			isolatedMG, isolatedEG := isolatedPawnPenalty(wIsolatedBB, bIsolatedBB)
 			doubledMG, doubledEG := pawnDoublingPenalties(b)
 			connectedMG, connectedEG, phalanxMG, phalanxEG := connectedOrPhalanxPawnBonus(b, wPawnAttackBB, bPawnAttackBB)
-			passedMG, passedEG := passedPawnBonus(b, wPawnAttackBB, bPawnAttackBB)
-			blockedPawnBonusMG, blockedPawnBonusEG := blockedPawnBonus(b)
+			passedMG, passedEG := passedPawnBonus(wPassedBB, bPassedBB)
+			blockedPawnBonusMG, blockedPawnBonusEG := blockedPawnBonus(wBlockedBB, bBlockedBB)
+			backwardMG, backwardEG := backwardPawnPenalty(wBackwardBB, bBackwardBB)
+			leverMG, leverEG := pawnLeverBonus(wLeverBB, bLeverBB)
 
 			// Transition from more complex pawn structures to just prioritizing passers as endgame nears...
 			// Not sure if it's good, but it's something?
-			pawnMG += pawnPsqtMG + passedMG + doubledMG + isolatedMG + connectedMG + phalanxMG + blockedPawnBonusMG
-			pawnEG += pawnPsqtEG + passedEG + doubledEG + isolatedEG + connectedEG + phalanxEG + blockedPawnBonusEG
+			pawnMG += pawnPsqtMG + passedMG + doubledMG + isolatedMG + connectedMG + phalanxMG + blockedPawnBonusMG + backwardMG + leverMG
+			pawnEG += pawnPsqtEG + passedEG + doubledEG + isolatedEG + connectedEG + phalanxEG + blockedPawnBonusEG + backwardEG + leverEG
 			if debug {
-				println("Pawn MG:\t", "PSQT: ", pawnPsqtMG, "\tIsolated: ", isolatedMG, "\tDoubled:", doubledMG, "\tPassed: ", passedMG, "\tConnected: ", connectedMG, "\tPhalanx: ", phalanxMG, "\tBlocked: ", blockedPawnBonusMG)
-				println("Pawn EG:\t", "PSQT: ", pawnPsqtEG, "\tIsolated: ", isolatedEG, "\tDoubled:", doubledEG, "\tPassed: ", passedEG, "\tConnected: ", connectedEG, "\tPhalanx: ", phalanxEG, "\tBlocked: ", blockedPawnBonusEG)
+				println("Pawn MG:\t", "PSQT: ", pawnPsqtMG, "\tIsolated: ", isolatedMG, "\tDoubled:", doubledMG, "\tPassed: ", passedMG, "\tConnected: ", connectedMG, "\tPhalanx: ", phalanxMG, "\tBlocked: ", blockedPawnBonusMG, "\tBackward:", backwardMG, "\tLever:", leverMG)
+				println("Pawn EG:\t", "PSQT: ", pawnPsqtEG, "\tIsolated: ", isolatedEG, "\tDoubled:", doubledEG, "\tPassed: ", passedEG, "\tConnected: ", connectedEG, "\tPhalanx: ", phalanxEG, "\tBlocked: ", blockedPawnBonusEG, "\tBackward:", backwardEG, "\tLever:", leverEG)
 			}
 		case gm.PieceTypeKnight:
 			knightPsqtMG, knightPsqtEG := countPieceTables(&b.White.Knights, &b.Black.Knights, &PSQT_MG[gm.PieceTypeKnight], &PSQT_EG[gm.PieceTypeKnight])
@@ -958,6 +968,8 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 			var knightOutpostMG = (KnightOutpostMG * bits.OnesCount64(b.White.Knights&whiteOutposts)) - (KnightOutpostMG * bits.OnesCount64(b.Black.Knights&blackOutposts))
 			var knightOutpostEG = (KnightOutpostEG * bits.OnesCount64(b.White.Knights&whiteOutposts)) - (KnightOutpostEG * bits.OnesCount64(b.Black.Knights&blackOutposts))
 			var knightThreatsBonusMG, knightThreatsBonusEG = knightThreats(b)
+			// Scale knight mobility by center state (simple integer scale)
+			knightMobilityMG = (knightMobilityMG * knightMobilityScale) / 100
 			knightMG += knightPsqtMG + knightOutpostMG + knightMobilityMG + knightThreatsBonusMG
 			knightEG += knightPsqtEG + knightOutpostEG + knightMobilityEG + knightThreatsBonusEG
 			if debug {
@@ -1003,6 +1015,9 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 			var bishopPairMG, bishopPairEG = bishopPairBonuses(b)
 			var bishopXrayAttackMG = bishopXrayAttacks(b)
 
+			// Scale bishop mobility and bishop-pair by center state (simple integer scale)
+			bishopMobilityMG = (bishopMobilityMG * bishopMobbilityScale) / 100
+			bishopPairMG = (bishopPairMG * bishopPairScaleMG) / 100
 			bishopMG += bishopPsqtMG + bishopMobilityMG + bishopPairMG + bishopOutpostMG + bishopXrayAttackMG
 			bishopEG += bishopPsqtEG + bishopMobilityEG + bishopPairEG
 			if debug {

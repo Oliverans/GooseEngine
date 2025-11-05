@@ -134,6 +134,198 @@ func getOutpostsBB(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB uint64) (out
 	return
 }
 
+// getIsolatedPawnsBitboards returns bitboards of isolated pawns for each side.
+func getIsolatedPawnsBitboards(b *gm.Board) (wIsolated uint64, bIsolated uint64) {
+	// A pawn is isolated if no friendly pawns exist on adjacent files
+	for x := b.White.Pawns; x != 0; x &= x - 1 {
+		idx := bits.TrailingZeros64(x)
+		file := idx % 8
+		neighbors := bits.OnesCount64(isolatedPawnTable[file]&b.White.Pawns) - 1
+		if neighbors == 0 {
+			wIsolated |= PositionBB[idx]
+		}
+	}
+	for x := b.Black.Pawns; x != 0; x &= x - 1 {
+		idx := bits.TrailingZeros64(x)
+		file := idx % 8
+		neighbors := bits.OnesCount64(isolatedPawnTable[file]&b.Black.Pawns) - 1
+		if neighbors == 0 {
+			bIsolated |= PositionBB[idx]
+		}
+	}
+	return wIsolated, bIsolated
+}
+
+// getPassedPawnsBitboards returns bitboards of passed pawns for each side.
+func getPassedPawnsBitboards(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB uint64) (wPassed uint64, bPassed uint64) {
+	for x := b.White.Pawns; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		pawnFile := onlyFile[sq%8]
+		checkAbove := ranksAbove[(sq/8)+1]
+		span := pawnFile & checkAbove
+		if bits.OnesCount64(bPawnAttackBB&span) == 0 && bits.OnesCount64(b.Black.Pawns&span) == 0 {
+			wPassed |= PositionBB[sq]
+		}
+	}
+	for x := b.Black.Pawns; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		pawnFile := onlyFile[sq%8]
+		checkBelow := ranksBelow[(sq/8)-1]
+		span := pawnFile & checkBelow
+		if bits.OnesCount64(wPawnAttackBB&span) == 0 && bits.OnesCount64(b.White.Pawns&span) == 0 {
+			bPassed |= PositionBB[sq]
+		}
+	}
+	return wPassed, bPassed
+}
+
+// getBlockedPawnsBitboards returns bitboards of advanced pawns blocked directly by enemy pawns.
+func getBlockedPawnsBitboards(b *gm.Board) (wBlocked uint64, bBlocked uint64) {
+	thirdAndFourthRank := onlyRank[2] | onlyRank[3]
+	fifthAndSixthRank := onlyRank[4] | onlyRank[5]
+
+	for x := b.White.Pawns; x != 0; x &= x - 1 {
+		sqBB := PositionBB[bits.TrailingZeros64(x)]
+		above := sqBB << 8
+		if (fifthAndSixthRank&sqBB) > 0 && (b.Black.Pawns&above) > 0 {
+			wBlocked |= sqBB
+		}
+	}
+	for x := b.Black.Pawns; x != 0; x &= x - 1 {
+		sqBB := PositionBB[bits.TrailingZeros64(x)]
+		above := sqBB >> 8
+		if (thirdAndFourthRank&sqBB) > 0 && (b.White.Pawns&above) > 0 {
+			bBlocked |= sqBB
+		}
+	}
+	return wBlocked, bBlocked
+}
+
+// getCenterState evaluates the center structure and returns whether the core center is locked
+// and an openness index in [0.0, 1.0] based on open/semi-open center files.
+// locked considers facing central pawns (d/e files) without immediate central pawn levers.
+func getCenterState(
+	b *gm.Board,
+	openFiles uint64,
+	wSemiOpenFiles uint64,
+	bSemiOpenFiles uint64,
+	wLeverBB uint64,
+	bLeverBB uint64,
+) (locked bool, openIdx float64) {
+	// Masks
+	centerFiles := onlyFile[2] | onlyFile[3] | onlyFile[4] | onlyFile[5] // c-f files
+
+    // Facing central pawns on both d and e files (rank-agnostic):
+    // A file is facing if a white pawn has a black pawn one rank ahead on the same file (or vice versa).
+    wD := b.White.Pawns & onlyFile[3]
+    wE := b.White.Pawns & onlyFile[4]
+    bD := b.Black.Pawns & onlyFile[3]
+    bE := b.Black.Pawns & onlyFile[4]
+    facingD := (((wD << 8) & bD) != 0) || (((bD >> 8) & wD) != 0)
+    facingE := (((wE << 8) & bE) != 0) || (((bE >> 8) & wE) != 0)
+    facingBoth := facingD && facingE
+
+	// Immediate central pawn levers (either side) — if exists, do not treat as locked
+	centralLeverMask := centerFiles & (onlyRank[2] | onlyRank[3] | onlyRank[4] | onlyRank[5])
+	hasCentralLever := ((wLeverBB | bLeverBB) & centralLeverMask) != 0
+
+	// If there are open files in the center, it is not locked
+	centerOpen := (openFiles & centerFiles) != 0
+    locked = facingBoth && !hasCentralLever && !centerOpen
+
+    // Openness index by center files c–f (per-file, not per-square),
+    // using precomputed open/semi-open file masks
+    openFilesCount := 0
+    semiFilesCount := 0
+    for f := 2; f <= 5; f++ { // c, d, e, f
+        fileMask := onlyFile[f]
+        if (openFiles & fileMask) != 0 {
+            openFilesCount++
+        } else if ((wSemiOpenFiles | bSemiOpenFiles) & fileMask) != 0 {
+            semiFilesCount++
+        }
+    }
+
+    idx := (float64(openFilesCount) + 0.5*float64(semiFilesCount)) / 4.0
+    if idx < 0 {
+        idx = 0
+    }
+    if idx > 1 {
+        idx = 1
+    }
+    openIdx = idx
+    return
+}
+
+// getCenterMobilityScales returns simple integer percentage scales for
+// knight mobility, bishop mobility, and bishop-pair bonus based on
+// center state (lockedCenter) and openness index (0..1).
+func getCenterMobilityScales(lockedCenter bool, openIdx float64) (knMobScale int, biMobScale int, bpScaleMG int) {
+    // Defaults: no scaling
+    knMobScale = 100
+    biMobScale = 100
+    bpScaleMG = 100
+
+    if lockedCenter {
+        // Fully locked center favors knights, penalizes bishops and bishop pair
+        knMobScale += 20
+        biMobScale -= 10
+        bpScaleMG -= 10
+        return
+    }
+
+    if openIdx >= 0.75 {
+        // Very open center favors bishops
+        knMobScale -= 10
+        biMobScale += 15
+        bpScaleMG += 20
+        return
+    }
+
+    if openIdx <= 0.25 {
+        // Quite closed center mildly favors knights
+        knMobScale += 10
+        biMobScale -= 5
+        bpScaleMG -= 5
+    }
+    return
+}
+
+// getBackwardPawnsBitboards returns bitboards of backward pawns for each side.
+func getBackwardPawnsBitboards(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB uint64, wIsolated uint64, bIsolated uint64, wPassed uint64, bPassed uint64) (wBackward uint64, bBackward uint64) {
+	// White candidates: exclude isolated and passed
+	wCandidates := b.White.Pawns &^ (wIsolated | wPassed)
+	// Friendly support behind on adjacent files (south fill for white)
+	wSouthFill := calculatePawnSouthFill(b.White.Pawns)
+	wAdjBehind := ((wSouthFill & ^bitboardFileA) >> 1) | ((wSouthFill & ^bitboardFileH) << 1)
+	// Propagate forward to cover current pawn squares
+	wAdjBehindForward := wAdjBehind | calculatePawnNorthFill(wAdjBehind)
+	wCandidates &^= wAdjBehindForward
+	// Require enemy pawn control of advance square
+	wFront := b.White.Pawns << 8
+	wFrontEnemyCtrl := wFront & bPawnAttackBB
+	wBackward = wCandidates & wFrontEnemyCtrl
+
+	// Black side (mirror)
+	bCandidates := b.Black.Pawns &^ (bIsolated | bPassed)
+	bNorthFill := calculatePawnNorthFill(b.Black.Pawns)
+	bAdjBehind := ((bNorthFill & ^bitboardFileA) >> 1) | ((bNorthFill & ^bitboardFileH) << 1)
+	bAdjBehindBackward := bAdjBehind | calculatePawnSouthFill(bAdjBehind)
+	bCandidates &^= bAdjBehindBackward
+	bFront := b.Black.Pawns >> 8
+	bFrontEnemyCtrl := bFront & wPawnAttackBB
+	bBackward = bCandidates & bFrontEnemyCtrl
+
+	return wBackward, bBackward
+}
+
+// getPawnLeverBitboards marks pawns that can immediately capture an enemy pawn.
+func getPawnLeverBitboards(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB uint64) (wLever uint64, bLever uint64) {
+	wLever = wPawnAttackBB & b.Black.Pawns
+	bLever = bPawnAttackBB & b.White.Pawns
+	return wLever, bLever
+}
+
 func calculatePawnFileFill(pawnBitboard uint64, isWhite bool) uint64 {
 	if isWhite {
 		pawnBitboard |= calculatePawnNorthFill(pawnBitboard)
