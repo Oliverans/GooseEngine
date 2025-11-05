@@ -70,32 +70,28 @@ func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha 
 		if excludedMove != 0 && ttEntry.Move == excludedMove {
 			return false, score
 		}
-		score = ttEntry.Score
 		if ttEntry.Depth >= depth {
-			var ttScore = ttEntry.Score
-
-			if score > Checkmate {
-				score -= int16(ply)
+			norm := ttEntry.Score
+			if norm > Checkmate {
+				norm -= int16(ply)
+			} else if norm < -Checkmate {
+				norm += int16(ply)
 			}
-
-			if score < -Checkmate {
-				score += int16(ply)
-			}
-
-			if ttEntry.Flag == ExactFlag {
+			switch ttEntry.Flag {
+			case ExactFlag:
 				usable = true
+				score = norm
+			case AlphaFlag:
+				if norm <= alpha {
+					usable = true
+					score = alpha
+				}
+			case BetaFlag:
+				if norm >= beta {
+					usable = true
+					score = beta
+				}
 			}
-
-			if ttEntry.Flag == AlphaFlag && ttScore <= alpha {
-				score = alpha
-				usable = true
-			}
-
-			if ttEntry.Flag == BetaFlag && ttScore >= beta {
-				score = beta
-				usable = true
-			}
-
 		}
 	}
 	return usable, score

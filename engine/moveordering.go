@@ -79,7 +79,7 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 
 		if isPVMove {
 			moveEval = captureOffset + 256 // max above is scoreOffset + 256, highest from mvvlva is 54
-		} else if promotePiece != 0 {
+		} else if promotePiece != gm.PieceTypeNone {
 			moveEval = captureOffset + uint16(pieceValueEG[promotePiece])
 		} else if isCapture {
 			pieceTypeFrom := move.MovedPiece().Type()

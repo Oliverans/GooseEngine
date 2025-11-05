@@ -112,7 +112,9 @@ func see(b *gm.Board, move gm.Move, debug bool) int {
 		}
 		gain[depth] = SeePieceValue[capturedPieceType] - gain[depth-1]
 
-		if max(-gain[depth-1], gain[depth]) < 0 {
+		// Refined early-exit: if recapturing cannot improve over stopping,
+		// the side to move would stop. No need to explore deeper.
+		if gain[depth] <= -gain[depth-1] {
 			break
 		}
 
@@ -133,10 +135,6 @@ func see(b *gm.Board, move gm.Move, debug bool) int {
 	for depth > 0 {
 		gain[depth-1] = -max(-gain[depth-1], gain[depth])
 		depth--
-	}
-
-	if debug {
-		println("SEE gain:", gain[0])
 	}
 
 	return gain[0]

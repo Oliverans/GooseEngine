@@ -369,22 +369,34 @@ func countPieceTables(wPieceBB *uint64, bPieceBB *uint64, ptm *[64]int, pte *[64
 	return mgScore, egScore
 }
 
-func getWeakSquares(movementBB [2][5]uint64, kingInnerRing [2]uint64) (weakSquares [2]uint64, weakSquaresKing [2]uint64) {
+func getWeakSquares(movementBB [2][5]uint64, kingInnerRing [2]uint64, wPawnAttackBB uint64, bPawnAttackBB uint64) (weakSquares [2]uint64, weakSquaresKing [2]uint64) {
 
-	var wSide uint64 = 0x3c3c3c7e00     //0xffffffff //(full half side)
-	var bSide uint64 = 0x7e3c3c3c000000 //0xffffffff00000000 (full half side)
+	// Priority space masks (tunable): emphasize central and forward squares per side
+	var wSide uint64 = 0x3c3c3c7e00
+	var bSide uint64 = 0x7e3c3c3c000000
 
-	// Squares attacked by bishops, knights and rooks
-	var wAttackers uint64 = (movementBB[0][0] | movementBB[0][1] | movementBB[0][2])
-	var bAttackers uint64 = (movementBB[1][0] | movementBB[1][1] | movementBB[1][2])
+	// Iterative accumulation via for-loop per piece type (R -> B -> N).
+	// Same-piece defenders cancel same-piece attackers. Pawns defend all. Q/K excluded entirely.
+	// White zone vs black attackers
+	var wRemainder uint64 = 0
+	for i := 2; i >= 0; i-- { // indices: 2=R, 1=B, 0=N
+		attackers := movementBB[1][i] // black raw attacks for piece i
+		defenders := movementBB[0][i] // white raw defenses for same piece i
+		attackers &^= wPawnAttackBB   // white pawns defend all
+		wRemainder |= (attackers &^ defenders)
+	}
 
-	// Undefended squares attacked by opponent pieces
-	var wPotentialWeakSquares uint64 = (wSide & bAttackers) // (movementBB[0][0] | movementBB[0][1] | movementBB[0][2])) | (movementBB[0][3] | movementBB[0][4])
-	var bPotentialWeakSquares uint64 = (bSide & wAttackers) //(movementBB[1][0] | movementBB[1][1] | movementBB[1][2])) | (movementBB[1][3] | movementBB[1][4])
+	// Black zone vs white attackers
+	var bRemainder uint64 = 0
+	for i := 2; i >= 0; i-- { // indices: 2=R, 1=B, 0=N
+		attackers := movementBB[0][i] // white raw attacks for piece i
+		defenders := movementBB[1][i] // black raw defenses for same piece i
+		attackers &^= bPawnAttackBB   // black pawns defend all
+		bRemainder |= (attackers &^ defenders)
+	}
 
-	// If the squares are defended by friendly pieces, they're not weak anymore
-	var wWeakSquares uint64 = wPotentialWeakSquares &^ wAttackers
-	var bWeakSquares uint64 = bPotentialWeakSquares &^ bAttackers
+	var wWeakSquares uint64 = wSide & wRemainder
+	var bWeakSquares uint64 = bSide & bRemainder
 
 	weakSquares[0] = wWeakSquares
 	weakSquares[1] = bWeakSquares
@@ -392,6 +404,25 @@ func getWeakSquares(movementBB [2][5]uint64, kingInnerRing [2]uint64) (weakSquar
 	weakSquaresKing[1] = bWeakSquares & kingInnerRing[1]
 
 	return weakSquares, weakSquaresKing
+}
+
+// evaluateWeakSquares computes the midgame weak-square contribution using raw attack maps.
+// It treats P/N/B as strong defenders, rooks as weak defenders (half penalty), and excludes Q/K as defenders.
+func evaluateWeakSquares(movementBB [2][5]uint64, kingInnerRing [2]uint64, wPawnAttackBB uint64, bPawnAttackBB uint64) (score int, weakSquares [2]uint64, weakKingSquares [2]uint64) {
+	weakSquares, weakKingSquares = getWeakSquares(movementBB, kingInnerRing, wPawnAttackBB, bPawnAttackBB)
+
+	// Uniform penalties: count weak squares and weak king-ring squares
+	wWeak := weakSquares[0] &^ weakKingSquares[0]
+	bWeak := weakSquares[1] &^ weakKingSquares[1]
+
+	wWeakSquarePenalty := -bits.OnesCount64(wWeak) * weakSquaresPenalty
+	bWeakSquarePenalty := +bits.OnesCount64(bWeak) * weakSquaresPenalty
+
+	wWeakKingSquarePenalty := -bits.OnesCount64(weakKingSquares[0]) * weakKingSquaresPenalty
+	bWeakKingSquarePenalty := +bits.OnesCount64(weakKingSquares[1]) * weakKingSquaresPenalty
+
+	score = wWeakSquarePenalty + wWeakKingSquarePenalty + bWeakSquarePenalty + bWeakKingSquarePenalty
+	return score, weakSquares, weakKingSquares
 }
 
 /*
@@ -823,13 +854,13 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 	var wPawnAttackBB = wPawnAttackBBEast | wPawnAttackBBWest
 	var bPawnAttackBB = bPawnAttackBBEast | bPawnAttackBBWest
 
-	// Prepare weak square arrays
+	// Prepare raw attack maps for weak-squares and king-safety
 	var knightMovementBB = [2]uint64{}
 	var bishopMovementBB = [2]uint64{}
 	var rookMovementBB = [2]uint64{}
 	var queenMovementBB = [2]uint64{}
 	var kingMovementBB = [2]uint64{}
-	var kingAttackMobilityBB = [2]uint64{} // Mobility without pawn protected square are filtered out
+	var kingAttackMobilityBB = [2]uint64{} // Aggregated raw attacks (non-pawn) used to restrict king moves
 
 	// Get outpost bitboards
 	var outposts = getOutpostsBB(b, wPawnAttackBB, bPawnAttackBB)
@@ -902,11 +933,11 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 			var knightMobilityMG, knightMobilityEG int
 			for x := b.White.Knights; x != 0; x &= x - 1 {
 				square := bits.TrailingZeros64(x)
-				attackedSquares := KnightMasks[square] &^ b.White.All
-				kingAttackMobilityBB[0] |= attackedSquares
-				movementBB := attackedSquares &^ bPawnAttackBB
-				knightMovementBB[0] |= movementBB
-				popCnt := bits.OnesCount64(movementBB)
+				attackedSquares := KnightMasks[square]
+				kingAttackMobilityBB[0] |= attackedSquares &^ b.White.All
+				knightMovementBB[0] |= attackedSquares
+				mobilitySquares := attackedSquares &^ bPawnAttackBB &^ b.White.All
+				popCnt := bits.OnesCount64(mobilitySquares)
 				knightMobilityMG += popCnt * mobilityValueMG[gm.PieceTypeKnight]
 				knightMobilityEG += popCnt * mobilityValueEG[gm.PieceTypeKnight]
 				attackUnitCounts[0] += (bits.OnesCount64(attackedSquares&innerKingSafetyZones[1]) * attackerInner[gm.PieceTypeKnight])
@@ -914,11 +945,11 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 			}
 			for x := b.Black.Knights; x != 0; x &= x - 1 {
 				square := bits.TrailingZeros64(x)
-				attackedSquares := KnightMasks[square] &^ b.Black.All
-				kingAttackMobilityBB[1] |= attackedSquares
-				movementBB := attackedSquares &^ wPawnAttackBB
-				knightMovementBB[1] |= movementBB
-				popCnt := bits.OnesCount64(movementBB)
+				attackedSquares := KnightMasks[square]
+				kingAttackMobilityBB[1] |= attackedSquares &^ b.Black.All
+				knightMovementBB[1] |= attackedSquares
+				mobilitySquares := attackedSquares &^ wPawnAttackBB &^ b.Black.All
+				popCnt := bits.OnesCount64(mobilitySquares)
 				knightMobilityMG -= popCnt * mobilityValueMG[gm.PieceTypeKnight]
 				knightMobilityEG -= popCnt * mobilityValueEG[gm.PieceTypeKnight]
 				attackUnitCounts[1] += (bits.OnesCount64(attackedSquares&innerKingSafetyZones[0]) * attackerInner[gm.PieceTypeKnight])
@@ -928,7 +959,7 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 			var knightOutpostEG = (KnightOutpostEG * bits.OnesCount64(b.White.Knights&whiteOutposts)) - (KnightOutpostEG * bits.OnesCount64(b.Black.Knights&blackOutposts))
 			var knightThreatsBonusMG, knightThreatsBonusEG = knightThreats(b)
 			knightMG += knightPsqtMG + knightOutpostMG + knightMobilityMG + knightThreatsBonusMG
-			knightEG += knightPsqtEG + knightOutpostEG + knightMobilityEG // + knightThreatsBonusEG
+			knightEG += knightPsqtEG + knightOutpostEG + knightMobilityEG + knightThreatsBonusEG
 			if debug {
 				println("Knight MG:\t", "PSQT: ", knightPsqtMG, "\tMobility: ", knightMobilityMG, "\tOutpost:", knightOutpostMG, "\tKnight threats: ", knightThreatsBonusMG)
 				println("Knight EG:\t", "PSQT: ", knightPsqtEG, "\tMobility: ", knightMobilityEG, "\tOutpost:", knightOutpostEG, "\tKnight threats: ", knightThreatsBonusEG)
@@ -941,10 +972,10 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 			for x := b.White.Bishops; x != 0; x &= x - 1 {
 				square := bits.TrailingZeros64(x)
 				occupied := allPieces &^ PositionBB[square]
-				attackedSquares := gm.CalculateBishopMoveBitboard(uint8(square), occupied) &^ b.White.All
-				kingAttackMobilityBB[0] |= attackedSquares
-				mobilitySquares := attackedSquares &^ bPawnAttackBB
-				bishopMovementBB[0] |= mobilitySquares
+				attackedSquares := gm.CalculateBishopMoveBitboard(uint8(square), occupied)
+				kingAttackMobilityBB[0] |= attackedSquares &^ b.White.All
+				bishopMovementBB[0] |= attackedSquares
+				mobilitySquares := attackedSquares &^ bPawnAttackBB &^ b.White.All
 				popCnt := bits.OnesCount64(mobilitySquares)
 				bishopMobilityMG += popCnt * mobilityValueMG[gm.PieceTypeBishop]
 				bishopMobilityEG += popCnt * mobilityValueEG[gm.PieceTypeBishop]
@@ -956,10 +987,10 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 			for x := b.Black.Bishops; x != 0; x &= x - 1 {
 				square := bits.TrailingZeros64(x)
 				occupied := allPieces &^ PositionBB[square]
-				attackedSquares := gm.CalculateBishopMoveBitboard(uint8(square), occupied) &^ b.Black.All
-				kingAttackMobilityBB[1] |= attackedSquares
-				mobilitySquares := attackedSquares &^ wPawnAttackBB
-				bishopMovementBB[1] |= mobilitySquares
+				attackedSquares := gm.CalculateBishopMoveBitboard(uint8(square), occupied)
+				kingAttackMobilityBB[1] |= attackedSquares &^ b.Black.All
+				bishopMovementBB[1] |= attackedSquares
+				mobilitySquares := attackedSquares &^ wPawnAttackBB &^ b.Black.All
 				popCnt := bits.OnesCount64(mobilitySquares)
 				bishopMobilityMG -= popCnt * mobilityValueMG[gm.PieceTypeBishop]
 				bishopMobilityEG -= popCnt * mobilityValueEG[gm.PieceTypeBishop]
@@ -987,11 +1018,11 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 			for x := b.White.Rooks; x != 0; x &= x - 1 {
 				square := bits.TrailingZeros64(x)
 				occupied := allPieces &^ PositionBB[square]
-				attackedSquares := gm.CalculateRookMoveBitboard(uint8(square), occupied) &^ b.White.All
-				kingAttackMobilityBB[0] |= attackedSquares
-				movementBB := attackedSquares &^ bPawnAttackBB
-				rookMovementBB[0] |= movementBB
-				popCnt := bits.OnesCount64(movementBB)
+				attackedSquares := gm.CalculateRookMoveBitboard(uint8(square), occupied)
+				kingAttackMobilityBB[0] |= attackedSquares &^ b.White.All
+				rookMovementBB[0] |= attackedSquares
+				mobilitySquares := attackedSquares &^ bPawnAttackBB &^ b.White.All
+				popCnt := bits.OnesCount64(mobilitySquares)
 				rookMobilityMG += popCnt * mobilityValueMG[gm.PieceTypeRook]
 				rookMobilityEG += popCnt * mobilityValueEG[gm.PieceTypeRook]
 				innerAttacks := attackedSquares & innerKingSafetyZones[1]
@@ -1002,11 +1033,11 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 			for x := b.Black.Rooks; x != 0; x &= x - 1 {
 				square := bits.TrailingZeros64(x)
 				occupied := allPieces &^ PositionBB[square]
-				attackedSquares := gm.CalculateRookMoveBitboard(uint8(square), occupied) &^ b.Black.All
-				kingAttackMobilityBB[1] |= attackedSquares
-				movementBB := attackedSquares &^ wPawnAttackBB
-				rookMovementBB[1] |= movementBB
-				popCnt := bits.OnesCount64(movementBB)
+				attackedSquares := gm.CalculateRookMoveBitboard(uint8(square), occupied)
+				kingAttackMobilityBB[1] |= attackedSquares &^ b.Black.All
+				rookMovementBB[1] |= attackedSquares
+				mobilitySquares := attackedSquares &^ wPawnAttackBB &^ b.Black.All
+				popCnt := bits.OnesCount64(mobilitySquares)
 				rookMobilityMG -= popCnt * mobilityValueMG[gm.PieceTypeRook]
 				rookMobilityEG -= popCnt * mobilityValueEG[gm.PieceTypeRook]
 				innerAttacks := attackedSquares & innerKingSafetyZones[0]
@@ -1031,11 +1062,11 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 				occupied := allPieces &^ PositionBB[square]
 				bishopAttacks := gm.CalculateBishopMoveBitboard(uint8(square), occupied)
 				rookAttacks := gm.CalculateRookMoveBitboard(uint8(square), occupied)
-				attackedSquares := (bishopAttacks | rookAttacks) &^ b.White.All
-				kingAttackMobilityBB[0] |= attackedSquares
-				movementBB := attackedSquares &^ bPawnAttackBB
-				queenMovementBB[0] |= movementBB
-				popCnt := bits.OnesCount64(movementBB)
+				attackedSquares := (bishopAttacks | rookAttacks)
+				kingAttackMobilityBB[0] |= attackedSquares &^ b.White.All
+				queenMovementBB[0] |= attackedSquares
+				mobilitySquares := attackedSquares &^ bPawnAttackBB &^ b.White.All
+				popCnt := bits.OnesCount64(mobilitySquares)
 				queenMobilityMG += popCnt * mobilityValueMG[gm.PieceTypeQueen]
 				queenMobilityEG += popCnt * mobilityValueEG[gm.PieceTypeQueen]
 				innerAttacks := attackedSquares & innerKingSafetyZones[1]
@@ -1048,11 +1079,11 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 				occupied := allPieces &^ PositionBB[square]
 				bishopAttacks := gm.CalculateBishopMoveBitboard(uint8(square), occupied)
 				rookAttacks := gm.CalculateRookMoveBitboard(uint8(square), occupied)
-				attackedSquares := (bishopAttacks | rookAttacks) &^ b.Black.All
-				kingAttackMobilityBB[1] |= attackedSquares
-				movementBB := attackedSquares &^ wPawnAttackBB
-				queenMovementBB[1] |= movementBB
-				popCnt := bits.OnesCount64(movementBB)
+				attackedSquares := (bishopAttacks | rookAttacks)
+				kingAttackMobilityBB[1] |= attackedSquares &^ b.Black.All
+				queenMovementBB[1] |= attackedSquares
+				mobilitySquares := attackedSquares &^ wPawnAttackBB &^ b.Black.All
+				popCnt := bits.OnesCount64(mobilitySquares)
 				queenMobilityMG -= popCnt * mobilityValueMG[gm.PieceTypeQueen]
 				queenMobilityEG -= popCnt * mobilityValueEG[gm.PieceTypeQueen]
 				innerAttacks := attackedSquares & innerKingSafetyZones[0]
@@ -1080,8 +1111,8 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 			KingMinorPieceDefenseBonusMG := kingMinorPieceDefences(innerKingSafetyZones, knightMovementBB, bishopMovementBB)
 			kingPawnDefenseMG := kingPawnDefense(b, innerKingSafetyZones)
 
-			kingMovementBB[0] = (innerKingSafetyZones[0] &^ b.White.All) &^ (kingAttackMobilityBB[1] | bishopMovementBB[1] | rookMovementBB[1] | queenMovementBB[1])
-			kingMovementBB[1] = (innerKingSafetyZones[1] &^ b.Black.All) &^ (kingAttackMobilityBB[0] | bishopMovementBB[0] | rookMovementBB[0] | queenMovementBB[0])
+			kingMovementBB[0] = (innerKingSafetyZones[0] &^ b.White.All) &^ kingAttackMobilityBB[1]
+			kingMovementBB[1] = (innerKingSafetyZones[1] &^ b.Black.All) &^ kingAttackMobilityBB[0]
 			/*
 				If we're below a certain count of pieces (excluding pawns), we try to centralize our king
 				We're more likely to centralize queens are traded off
@@ -1125,18 +1156,7 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int) {
 			knightMovementBB[1], bishopMovementBB[1], rookMovementBB[1], queenMovementBB[1], kingMovementBB[1],
 		},
 	}
-	var weakSquares, weakKingSquares = getWeakSquares(movementBB, innerKingSafetyZones)
-
-	//var weakSquaresPenalty = 2
-	//var weakKingSquaresPenalty = 5
-
-	var wWeakSquarePenalty = (bits.OnesCount64(weakSquares[0]&^weakKingSquares[0]) * weakSquaresPenalty) * -1
-	var bWeakSquarePenalty = (bits.OnesCount64(weakSquares[1]&^weakKingSquares[1]) * weakSquaresPenalty)
-
-	var wWeakKingSquarePenalty = (bits.OnesCount64(weakKingSquares[0]) * weakKingSquaresPenalty) * -1
-	var bWeakKingSquarePenalty = (bits.OnesCount64(weakKingSquares[1]) * weakKingSquaresPenalty)
-
-	var weakSquareMG int = wWeakSquarePenalty + wWeakKingSquarePenalty + bWeakSquarePenalty + bWeakKingSquarePenalty
+	weakSquareMG, weakSquares, weakKingSquares := evaluateWeakSquares(movementBB, innerKingSafetyZones, wPawnAttackBB, bPawnAttackBB)
 
 	/* Calculate score from all variables */
 	var materialScoreMG = (wMaterialMG - bMaterialMG)

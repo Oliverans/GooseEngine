@@ -20,13 +20,6 @@ var FutilityMargins = [3]int16{
 	0,   // depth 0
 	150, // depth 1
 	270, // depth 2
-	//170, // depth 3
-	//190, // depth 4
-	//210, // depth 5
-	//220, // depth 6
-	//240, // depth 7
-	//260, // depth 8
-	//290, // depth 9
 }
 
 var RazoringMargins = [10]int16{
@@ -42,7 +35,15 @@ var RazoringMargins = [10]int16{
 }
 
 // Late move pruning
-var LateMovePruningMargins = [6]int{0, 0, 0, 16, 20, 24}
+var LateMovePruningMargins = [7]int{
+	999,
+	999,
+	999,
+	12,
+	16,
+	24,
+	32,
+}
 
 var LMRLegalMovesLimit = 4
 var LMRDepthLimit = 3
@@ -144,7 +145,9 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool) (int, gm.Move) {
 		}
 
 		prevSearchScore = bestScore
-		prevPVLine = pvLine
+		// Store a deep copy of the PV from this iteration to avoid it being
+		// mutated by the next iteration's reuse of the PV slice backing array.
+		prevPVLine = pvLine.Clone()
 
 		_ = nps
 		_ = theMoves
@@ -283,9 +286,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 			margin := int16(75 + 5*depth)
 			// Base beta
 			scoreToBeat := ttValue - margin
-
 			R := 3 + depth/6
-
 			var verificationPV PVLine
 			scoreSingular := alphabeta(b, scoreToBeat-1, scoreToBeat, depth-1-R, ply, &verificationPV, prevMove, didNull, true, ttEntry.Move)
 			if scoreSingular < scoreToBeat {
@@ -356,7 +357,6 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 	var moveList moveList = scoreMovesList(b, allMoves, depth, ply, bestMove, prevMove)
 
 	var ttFlag int8 = AlphaFlag
-	var searchedAny bool
 	bestMove = 0
 
 	for index := uint8(0); index < uint8(len(moveList.moves)); index++ {
@@ -370,7 +370,6 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 
 		// Prepare variables for move search
 		var isCapture bool = gm.IsCapture(move, b) // Get whether move is a capture, before moving
-
 		var unapplyFunc = b.Apply(move)
 		var inCheck = b.OurKingInCheck()
 		var posHash = b.Hash()
@@ -385,7 +384,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 			We're most likely interested in the full depth for the first 1 or 2 moves
 			#################################################################################
 		*/
-		if depth < int8(len(LateMovePruningMargins)) && !isPVNode && !tactical && int(index) > LateMovePruningMargins[depth] {
+		if depth <= 2 && !isPVNode && !tactical && int(index) > LateMovePruningMargins[depth] {
 			unapplyFunc()
 			continue
 		}
@@ -416,7 +415,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 			#################################################################################
 		*/
 
-		extendMove := !isExtended && singularExtension && move == ttEntry.Move
+		extendMove := !isExtended && move == ttEntry.Move && singularExtension
 		nextExtended := isExtended || extendMove
 
 		// Do the PV node full search - we should get one valid PVline even if we miss a bunch of search optimization
@@ -426,7 +425,6 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 				nextDepth++
 			}
 			score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, didNull, nextExtended, 0)
-			searchedAny = true
 		} else {
 			var reduct int8 = 0
 			if !isPVNode && !tactical && int(depth) >= LMRDepthLimit {
@@ -457,7 +455,6 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 			}
 
 			score = -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, &childPVLine, move, didNull, nextExtended, 0)
-			searchedAny = true
 
 			if score > alpha && reduct > 0 { // If our search was good at a reduced search
 				nextDepth = depth - 1
@@ -499,7 +496,6 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 				storeCounter(!b.Wtomove, prevMove, move)
 				incrementHistoryScore(!b.Wtomove, move, depth)
 			}
-			childPVLine.Clear()
 			unapplyFunc()
 			break
 		}
@@ -517,10 +513,6 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 
 		unapplyFunc()
 		childPVLine.Clear()
-	}
-
-	if len(allMoves) > 0 && !searchedAny {
-		return max(alpha, int16(staticScore))
 	}
 
 	// Checkmate or stalemate
@@ -570,66 +562,37 @@ func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8
 		return standpat
 	}
 
-	var moves = b.GenerateLegalMoves()
-	if inCheck {
-		if len(moves) == 0 {
-			return -MaxScore + 1
-		}
-		var bestScore int16 = -MaxScore
-		for _, move := range moves {
-			unapplyFunc := b.Apply(move)
-			score := -quiescence(b, -beta, -alpha, &childPVLine, depth-1)
-			unapplyFunc()
-
-			if score > bestScore {
-				bestScore = score
-			}
-
-			if score >= beta {
-				return beta
-			}
-
-			if score > alpha {
-				alpha = score
-				pvLine.Update(move, childPVLine)
-			}
-			childPVLine.Clear()
-		}
-		return bestScore
-	}
-
 	var bestScore = alpha
-	var moveList, hasAnyCapture = scoreMovesListCaptures(b, moves)
 
-	if hasAnyCapture {
-		for index := uint8(0); index < uint8(len(moveList.moves)); index++ {
+	var moveList, _ = scoreMovesListCaptures(b, b.GenerateCaptures())
 
-			orderNextMove(index, &moveList)
-			move := moveList.moves[index].move
-			see := see(b, move, false)
-			if see < 0 {
-				continue
-			}
+	for index := uint8(0); index < uint8(len(moveList.moves)); index++ {
 
-			unapplyFunc := b.Apply(move)
+		orderNextMove(index, &moveList)
+		move := moveList.moves[index].move
+		//see := see(b, move, false)
+		//if see < 0 {
+		//	continue
+		//}
 
-			score := -quiescence(b, -beta, -alpha, &childPVLine, depth-1)
-			unapplyFunc()
+		unapplyFunc := b.Apply(move)
 
-			if score > bestScore {
-				bestScore = score
-			}
+		score := -quiescence(b, -beta, -alpha, &childPVLine, depth-1)
+		unapplyFunc()
 
-			if score >= beta {
-				return beta
-			}
-
-			if score > alpha {
-				alpha = score
-				pvLine.Update(move, childPVLine)
-			}
-			childPVLine.Clear()
+		if score > bestScore {
+			bestScore = score
 		}
+
+		if score >= beta {
+			return beta
+		}
+
+		if score > alpha {
+			alpha = score
+			pvLine.Update(move, childPVLine)
+		}
+		childPVLine.Clear()
 	}
 
 	return bestScore
