@@ -74,3 +74,10 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+
+# -------------------------
+# Custom files
+# -------------------------
+sprt.ps1
+perft_commands.txt
+*.json

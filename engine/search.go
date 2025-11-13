@@ -58,7 +58,7 @@ var prevSearchScore int16 = 0
 var timeHandler TimeHandler
 var GlobalStop = false
 
-func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool) string {
+func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool, moveOrderingOnly bool) string {
 	initVariables(board)
 
 	if !TT.isInitialized {
@@ -77,7 +77,20 @@ func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useC
 		os.Exit(0)
 	}
 
+	if moveOrderingOnly {
+		dumpRootMoveOrdering(board)
+		os.Exit(0)
+	}
+
 	_, bestMove = rootsearch(board, depth, useCustomDepth)
+
+	// Debug: probe TT at root and print stored best move (if any)
+	entry := TT.getEntry(board.Hash())
+	if entry != nil && entry.Move != 0 {
+		fmt.Println("DEBUG ---> BEST MOVE FROM TT IS:", entry.Move.String())
+	} else {
+		fmt.Println("DEBUG ---> BEST MOVE FROM TT IS:", "<none>")
+	}
 
 	return bestMove.String()
 }
@@ -167,6 +180,20 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool) (int, gm.Move) {
 	return int(bestScore), bestMove
 }
 
+func dumpRootMoveOrdering(board *gm.Board) {
+	legalMoves := board.GenerateLegalMoves()
+	var nullMove gm.Move
+	scoredMoves := scoreMovesList(board, legalMoves, 0, 0, nullMove, nullMove)
+	for i := uint8(0); i < uint8(len(scoredMoves.moves)); i++ {
+		orderNextMove(i, &scoredMoves)
+	}
+
+	fmt.Println("info string move ordering (start position)")
+	for idx, entry := range scoredMoves.moves {
+		fmt.Printf("info string #%d %s score=%d\n", idx+1, entry.move.String(), entry.score)
+	}
+}
+
 func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLine *PVLine, prevMove gm.Move, didNull bool, isExtended bool, excludedMove gm.Move) int16 {
 	nodesChecked++
 
@@ -194,11 +221,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 
 	posHash := b.Hash()
 	posRepeats := HistoryMap[posHash]
-
-	// 3-fold repition draw
-	if posRepeats >= 2 && !isRoot { // Draw
-		return 0
-	}
+	inHistory := posRepeats > 0
 
 	// Make sure we extend our search by 1 so we don't end our search while in check ...
 	if inCheck {
@@ -213,6 +236,21 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 
 	/*
 		#################################################################################
+		DRAW DETECTION:
+		Require a count of at least 2 repetitions of the same position declare a draw.
+		#################################################################################
+
+	*/
+	// Repetition draw detection: HistoryMap at this node includes the
+	// current occurrence (parent increments before recursing). Therefore, require
+	// a count of at least 2 repetitions of the same position declare a draw.
+	// This should also help catch any
+	if (posRepeats >= 2 || b.IsDrawBy50()) && !isRoot { // Draw
+		return 0
+	}
+
+	/*
+		#################################################################################
 		TRANSPOSITION TABLE:
 		We save the results from our previous searches, and check whether we can use it
 		to determine if it was a good or bad search result.
@@ -221,16 +259,12 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		Then we don't have to re-search the same position, and can return the previous search's result
 		#################################################################################
 	*/
-	ttEntryPtr, ttFound := TT.getEntry(posHash)
-	var ttEntry TTEntry
-	if ttEntryPtr != nil {
-		ttEntry = *ttEntryPtr
-	}
-	usable, ttScore := TT.useEntry(ttEntryPtr, posHash, depth, alpha, beta, ply, excludedMove)
-	if usable && !isRoot {
+	ttEntry := TT.getEntry(posHash)
+	usable, ttScore := TT.useEntry(ttEntry, posHash, depth, alpha, beta, ply, excludedMove)
+	if usable && !isRoot && !inHistory {
 		return ttScore
 	}
-	if ttFound {
+	if usable {
 		bestMove = ttEntry.Move
 	}
 
@@ -357,6 +391,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 	var moveList moveList = scoreMovesList(b, allMoves, depth, ply, bestMove, prevMove)
 
 	var ttFlag int8 = AlphaFlag
+	legalMoves := 0
 	bestMove = 0
 
 	for index := uint8(0); index < uint8(len(moveList.moves)); index++ {
@@ -364,9 +399,11 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		orderNextMove(index, &moveList)
 		move := moveList.moves[index].move
 
-		if excludedMove != 0 && move == excludedMove {
+		if move == excludedMove {
 			continue
 		}
+
+		legalMoves++
 
 		// Prepare variables for move search
 		var isCapture bool = gm.IsCapture(move, b) // Get whether move is a capture, before moving
@@ -384,13 +421,13 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 			We're most likely interested in the full depth for the first 1 or 2 moves
 			#################################################################################
 		*/
-		if depth <= 2 && !isPVNode && !tactical && int(index) > LateMovePruningMargins[depth] {
+		if depth <= 2 && !isPVNode && !tactical && legalMoves > LateMovePruningMargins[depth] {
 			unapplyFunc()
 			continue
 		}
 
 		// Futility pruning
-		if futilityPruning && !tactical && !isPVNode {
+		if futilityPruning && !tactical && !isPVNode && legalMoves > 1 {
 			unapplyFunc()
 			continue
 		}
@@ -398,28 +435,28 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		HistoryMap[posHash]++
 
 		/*
-			#################################################################################
-			LATE MOVE REDUCTION:
-			Assuming good move ordering, the first move is <most likely> the best move.
-			We will therefor spend less time searching moves further down in the move ordering.
+			            #################################################################################
+			            LATE MOVE REDUCTION:
+						Assuming good move ordering, the first move is <most likely> the best move.
+						We will therefor spend less time searching moves further down in the move ordering.
 
-			If we didn't already get a beta cut-off (Cut-node), most likely we're in an All-node (where we
-			have actually search and not cut ...)! Meaning we want to avoid spending time here.
+						If we didn't already get a beta cut-off (Cut-node), most likely we're in an All-node (where we
+						have actually search and not cut ...)! Meaning we want to avoid spending time here.
 
-			We do a reduced search hoping it will fail low. However, if we manage to raise alpha after
-			doing a reduced search, we will do a full search of that node as that note has the potential to be
-			an interesting path to take in the tree.
+						We do a reduced search hoping it will fail low. However, if we manage to raise alpha after
+						doing a reduced search, we will do a full search of that node as that note has the potential to be
+						an interesting path to take in the tree.
 
-			Great blog-post that helped me wrap my head around this:
-			http://macechess.blogspot.com/2010/08/implementing-late-move-reductions.html
-			#################################################################################
+						Great blog-post that helped me wrap my head around this:
+						http://macechess.blogspot.com/2010/08/implementing-late-move-reductions.html
+						#################################################################################
 		*/
 
 		extendMove := !isExtended && move == ttEntry.Move && singularExtension
 		nextExtended := isExtended || extendMove
 
 		// Do the PV node full search - we should get one valid PVline even if we miss a bunch of search optimization
-		if index <= 2 {
+		if legalMoves <= 2 {
 			nextDepth := depth - 1
 			if extendMove {
 				nextDepth++
@@ -456,7 +493,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 
 			score = -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, &childPVLine, move, didNull, nextExtended, 0)
 
-			if score > alpha && reduct > 0 { // If our search was good at a reduced search
+			if score > alpha && reduct > 0 && legalMoves > LMRLegalMovesLimit { // If our search was good at a reduced search
 				nextDepth = depth - 1
 				if nextDepth < 0 {
 					nextDepth = 0
@@ -523,7 +560,8 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		return 0 // ... Draw
 	}
 
-	if !timeHandler.stopSearch && !GlobalStop && bestMove != 0 {
+	// Avoid polluting TT with potentially incomplete results when search is aborted
+	if !timeHandler.stopSearch && !GlobalStop && !searchShouldStop && bestMove != 0 {
 		TT.storeEntry(posHash, depth, ply, bestMove, bestScore, ttFlag)
 	}
 
@@ -570,10 +608,10 @@ func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8
 
 		orderNextMove(index, &moveList)
 		move := moveList.moves[index].move
-		//see := see(b, move, false)
-		//if see < 0 {
-		//	continue
-		//}
+		see := see(b, move, false)
+		if see < 0 {
+			continue
+		}
 
 		unapplyFunc := b.Apply(move)
 

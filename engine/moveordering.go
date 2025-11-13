@@ -34,6 +34,9 @@ var captureOffset uint16 = 20000
 var killerOffset uint16 = 2000
 var counterOffset uint16 = 1000
 
+// Quiet moves need a base offset so they always score above losing captures.
+var quietOffset uint16 = 5000
+
 // Ordering the moves one at a time, at index given
 func orderNextMove(currIndex uint8, moves *moveList) {
 	bestIndex := currIndex
@@ -76,20 +79,30 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 		isCapture := capturedPiece != gm.NoPiece || isEnPassant
 		promotePiece := move.PromotionPieceType()
 		isPVMove := (move == pvMove)
+		seeScore := 0
+		if isCapture && !isPVMove {
+			seeScore = see(board, move, false)
+		}
 
 		if isPVMove {
-			moveEval = captureOffset + 256 // max above is scoreOffset + 256, highest from mvvlva is 54
+			moveEval = ^uint16(0)
 		} else if promotePiece != gm.PieceTypeNone {
 			moveEval = captureOffset + uint16(pieceValueEG[promotePiece])
 		} else if isCapture {
 			pieceTypeFrom := move.MovedPiece().Type()
-			moveEval = captureOffset + mvvLva[capturedType][pieceTypeFrom]
+			captureScore := mvvLva[capturedType][pieceTypeFrom]
+			if seeScore >= 0 {
+				moveEval = captureOffset + captureScore + uint16(seeScore)
+			} else {
+				// Losing captures go to the back of the line but retain MVV/LVA ordering.
+				moveEval = captureScore
+			}
 		} else if killerMoveTable.KillerMoves[killerIdx][0] == move {
-			moveEval = killerOffset + 100
+			moveEval = quietOffset + killerOffset + 100
 		} else if killerMoveTable.KillerMoves[killerIdx][1] == move {
-			moveEval = killerOffset
+			moveEval = quietOffset + killerOffset
 		} else {
-			moveEval = uint16(historyMove[side][move.From()][move.To()])
+			moveEval = quietOffset + uint16(historyMove[side][move.From()][move.To()])
 			if counterMove[side][prevMove.From()][prevMove.To()] == move {
 				moveEval += counterOffset
 			}

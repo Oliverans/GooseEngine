@@ -26,6 +26,7 @@ func uciLoop() {
 
 	//haltchannel := make(chan bool)
 	var evalOnly = false
+	var moveOrderingOnly = false
 	for scanner.Scan() {
 		line := scanner.Text()
 		tokens := strings.Fields(line)
@@ -35,6 +36,8 @@ func uciLoop() {
 		switch strings.ToLower(tokens[0]) {
 		case "eval":
 			evalOnly = true
+		case "moveordering":
+			moveOrderingOnly = true
 		case "uci":
 			fmt.Println("id name GooseEngine Alpha version 0.2")
 			fmt.Println("id author Goose")
@@ -166,7 +169,7 @@ func uciLoop() {
 				depthToUse = 50
 			}
 
-			var best_move = engine.StartSearch(&board, uint8(depthToUse), timeToUse, incToUse, useCustomDepth, evalOnly)
+			var best_move = engine.StartSearch(&board, uint8(depthToUse), timeToUse, incToUse, useCustomDepth, evalOnly, moveOrderingOnly)
 			fmt.Println("bestmove ", best_move)
 		case "position":
 			engine.HistoryMap = nil

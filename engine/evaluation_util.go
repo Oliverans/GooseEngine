@@ -215,15 +215,15 @@ func getCenterState(
 	// Masks
 	centerFiles := onlyFile[2] | onlyFile[3] | onlyFile[4] | onlyFile[5] // c-f files
 
-    // Facing central pawns on both d and e files (rank-agnostic):
-    // A file is facing if a white pawn has a black pawn one rank ahead on the same file (or vice versa).
-    wD := b.White.Pawns & onlyFile[3]
-    wE := b.White.Pawns & onlyFile[4]
-    bD := b.Black.Pawns & onlyFile[3]
-    bE := b.Black.Pawns & onlyFile[4]
-    facingD := (((wD << 8) & bD) != 0) || (((bD >> 8) & wD) != 0)
-    facingE := (((wE << 8) & bE) != 0) || (((bE >> 8) & wE) != 0)
-    facingBoth := facingD && facingE
+	// Facing central pawns on both d and e files (rank-agnostic):
+	// A file is facing if a white pawn has a black pawn one rank ahead on the same file (or vice versa).
+	wD := b.White.Pawns & onlyFile[3]
+	wE := b.White.Pawns & onlyFile[4]
+	bD := b.Black.Pawns & onlyFile[3]
+	bE := b.Black.Pawns & onlyFile[4]
+	facingD := (((wD << 8) & bD) != 0) || (((bD >> 8) & wD) != 0)
+	facingE := (((wE << 8) & bE) != 0) || (((bE >> 8) & wE) != 0)
+	facingBoth := facingD && facingE
 
 	// Immediate central pawn levers (either side) — if exists, do not treat as locked
 	centralLeverMask := centerFiles & (onlyRank[2] | onlyRank[3] | onlyRank[4] | onlyRank[5])
@@ -231,64 +231,64 @@ func getCenterState(
 
 	// If there are open files in the center, it is not locked
 	centerOpen := (openFiles & centerFiles) != 0
-    locked = facingBoth && !hasCentralLever && !centerOpen
+	locked = facingBoth && !hasCentralLever && !centerOpen
 
-    // Openness index by center files c–f (per-file, not per-square),
-    // using precomputed open/semi-open file masks
-    openFilesCount := 0
-    semiFilesCount := 0
-    for f := 2; f <= 5; f++ { // c, d, e, f
-        fileMask := onlyFile[f]
-        if (openFiles & fileMask) != 0 {
-            openFilesCount++
-        } else if ((wSemiOpenFiles | bSemiOpenFiles) & fileMask) != 0 {
-            semiFilesCount++
-        }
-    }
+	// Openness index by center files c–f (per-file, not per-square),
+	// using precomputed open/semi-open file masks
+	openFilesCount := 0
+	semiFilesCount := 0
+	for f := 2; f <= 5; f++ { // c, d, e, f
+		fileMask := onlyFile[f]
+		if (openFiles & fileMask) != 0 {
+			openFilesCount++
+		} else if ((wSemiOpenFiles | bSemiOpenFiles) & fileMask) != 0 {
+			semiFilesCount++
+		}
+	}
 
-    idx := (float64(openFilesCount) + 0.5*float64(semiFilesCount)) / 4.0
-    if idx < 0 {
-        idx = 0
-    }
-    if idx > 1 {
-        idx = 1
-    }
-    openIdx = idx
-    return
+	idx := (float64(openFilesCount) + 0.5*float64(semiFilesCount)) / 4.0
+	if idx < 0 {
+		idx = 0
+	}
+	if idx > 1 {
+		idx = 1
+	}
+	openIdx = idx
+	return
 }
 
 // getCenterMobilityScales returns simple integer percentage scales for
 // knight mobility, bishop mobility, and bishop-pair bonus based on
 // center state (lockedCenter) and openness index (0..1).
 func getCenterMobilityScales(lockedCenter bool, openIdx float64) (knMobScale int, biMobScale int, bpScaleMG int) {
-    // Defaults: no scaling
-    knMobScale = 100
-    biMobScale = 100
-    bpScaleMG = 100
+	// Defaults: no scaling
+	knMobScale = 100
+	biMobScale = 100
+	bpScaleMG = 100
 
-    if lockedCenter {
-        // Fully locked center favors knights, penalizes bishops and bishop pair
-        knMobScale += 20
-        biMobScale -= 10
-        bpScaleMG -= 10
-        return
-    }
+	if lockedCenter {
+		// Fully locked center favors knights, penalizes bishops and bishop pair
+		knMobScale += 20
+		biMobScale -= 10
+		bpScaleMG -= 10
+		return
+	}
 
-    if openIdx >= 0.75 {
-        // Very open center favors bishops
-        knMobScale -= 10
-        biMobScale += 15
-        bpScaleMG += 20
-        return
-    }
+	if openIdx >= 0.75 {
+		// Very open center favors bishops
+		knMobScale -= 10
+		biMobScale += 15
+		bpScaleMG += 20
+		return
+	}
 
-    if openIdx <= 0.25 {
-        // Quite closed center mildly favors knights
-        knMobScale += 10
-        biMobScale -= 5
-        bpScaleMG -= 5
-    }
-    return
+	if openIdx <= 0.25 {
+		// Quite closed center mildly favors knights
+		knMobScale += 10
+		biMobScale -= 5
+		bpScaleMG -= 5
+	}
+	return
 }
 
 // getBackwardPawnsBitboards returns bitboards of backward pawns for each side.
@@ -324,6 +324,110 @@ func getPawnLeverBitboards(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB uint
 	wLever = wPawnAttackBB & b.Black.Pawns
 	bLever = bPawnAttackBB & b.White.Pawns
 	return wLever, bLever
+}
+
+// getRookConnectedFiles returns file masks where each side has two or more rooks
+// connected on the same file with no blockers between them, ignoring own bishops/knights.
+func getRookConnectedFiles(b *gm.Board) (wFiles uint64, bFiles uint64) {
+	allPieces := b.White.All | b.Black.All
+
+	// Helper: evaluate one side
+	evalSide := func(rooks uint64, ignore uint64) uint64 {
+		var files uint64
+		for file := 0; file < 8; file++ {
+			fileMask := onlyFile[file]
+			rOnFile := rooks & fileMask
+			if bits.OnesCount64(rOnFile) < 2 {
+				continue
+			}
+			// Find min/max rank rook squares on this file
+			minR := 8
+			maxR := -1
+			for x := rOnFile; x != 0; x &= x - 1 {
+				sq := bits.TrailingZeros64(x)
+				r := sq / 8
+				if r < minR {
+					minR = r
+				}
+				if r > maxR {
+					maxR = r
+				}
+			}
+			if maxR-minR <= 1 {
+				files |= fileMask
+				continue
+			}
+			// Build between mask along file
+			between := uint64(0)
+			for r := minR + 1; r <= maxR-1; r++ {
+				between |= PositionBB[file+8*r]
+			}
+			blockers := between & (allPieces &^ ignore)
+			if blockers == 0 {
+				files |= fileMask
+			}
+		}
+		return files
+	}
+
+	wFiles = evalSide(b.White.Rooks, b.White.Bishops|b.White.Knights)
+	bFiles = evalSide(b.Black.Rooks, b.Black.Bishops|b.Black.Knights)
+	return wFiles, bFiles
+}
+
+// scoreRookStacksMG returns a midgame-only bonus for connected rook stacks per side.
+func scoreRookStacksMG(wFiles uint64, bFiles uint64) (mg int) {
+	wCount := bits.OnesCount64(wFiles) / 8
+	bCount := bits.OnesCount64(bFiles) / 8
+	mg = (wCount * StackedRooksMG) - (bCount * StackedRooksMG)
+	return mg
+}
+
+// getKingWingMasks returns wing masks (a-c or f-h) for each king, choosing the nearest wing for d/e.
+func getKingWingMasks(b *gm.Board) (wWing uint64, bWing uint64) {
+	wSq := bits.TrailingZeros64(b.White.Kings)
+	bSq := bits.TrailingZeros64(b.Black.Kings)
+	wFile := wSq % 8
+	bFile := bSq % 8
+	qSide := onlyFile[0] | onlyFile[1] | onlyFile[2]
+	kSide := onlyFile[5] | onlyFile[6] | onlyFile[7]
+	// d/e choose nearest wing
+	if wFile <= 2 {
+		wWing = qSide
+	} else if wFile >= 5 {
+		wWing = kSide
+	} else if wFile == 3 { // d-file
+		wWing = qSide
+	} else { // e-file
+		wWing = kSide
+	}
+	if bFile <= 2 {
+		bWing = qSide
+	} else if bFile >= 5 {
+		bWing = kSide
+	} else if bFile == 3 {
+		bWing = qSide
+	} else {
+		bWing = kSide
+	}
+	return wWing, bWing
+}
+
+// getPawnStormBitboards marks pawns advanced on the enemy king wing (attacking direction).
+func getPawnStormBitboards(b *gm.Board, wWing uint64, bWing uint64) (wStorm uint64, bStorm uint64) {
+	// White storm on black king wing, advanced (rank 4+)
+	wStorm = b.White.Pawns & bWing & ranksAbove[3]
+	// Black storm on white king wing, advanced (rank <= 5 from white perspective)
+	bStorm = b.Black.Pawns & wWing & ranksBelow[4]
+	return wStorm, bStorm
+}
+
+// getEnemyPawnProximityBitboards marks enemy pawns advanced on our king wing (potential threats).
+func getEnemyPawnProximityBitboards(b *gm.Board, wWing uint64, bWing uint64) (wProx uint64, bProx uint64) {
+	// Enemy near our king wing
+	wProx = b.Black.Pawns & wWing & ranksAbove[3]
+	bProx = b.White.Pawns & bWing & ranksBelow[4]
+	return wProx, bProx
 }
 
 func calculatePawnFileFill(pawnBitboard uint64, isWhite bool) uint64 {

@@ -127,13 +127,22 @@ func getPVLineString(pvLine PVLine) (theMoves string) {
 
 // Taken from Blunder chess engine and just slightly modified, since I'm very lazy; works great though :)
 func getMateOrCPScore(score int) string {
-	if int16(score) > Checkmate {
-		pliesToMate := int(MaxScore) - score
-		mateInN := (pliesToMate / 2) + (pliesToMate % 2)
+	mateValue := int(MaxScore)
+	mateThreshold := int(Checkmate)
+
+	if score >= mateThreshold {
+		pliesToMate := mateValue - score
+		if pliesToMate < 0 {
+			pliesToMate = 0
+		}
+		mateInN := (pliesToMate + 1) / 2
 		return fmt.Sprintf("mate %d", mateInN)
-	} else if int16(score) < -Checkmate {
-		pliesToMate := -int(MaxScore) - score
-		mateInN := (pliesToMate / 2) + (pliesToMate % 2)
+	} else if score <= -mateThreshold {
+		pliesToMate := mateValue + score // score is negative here
+		if pliesToMate < 0 {
+			pliesToMate = 0
+		}
+		mateInN := (pliesToMate + 1) / 2
 		return fmt.Sprintf("mate %d", -mateInN)
 	}
 
