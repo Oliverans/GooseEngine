@@ -163,7 +163,7 @@ func DefaultTrainToggles() ParamTrainToggles {
 	t.BishopPairMG, t.BishopPairEG = true, true
 	t.RookSemiOpenFileMG, t.RookOpenFileMG = true, true
 	t.SeventhRankEG, t.QueenCentralizedEG = true, true
-	t.QueenInfiltrationMG, t.QueenInfiltrationEG = false, false
+	t.QueenInfiltrationMG, t.QueenInfiltrationEG = true, true
 	t.DoubledMG, t.DoubledEG = true, true
 	t.IsolatedMG, t.IsolatedEG = true, true
 	t.ConnectedMG, t.ConnectedEG = true, true

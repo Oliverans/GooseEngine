@@ -38,6 +38,9 @@ var bAllowedOutpostMask uint64 = 0x7e7effff00
 var seventhRankMask uint64 = 0xff000000000000
 var secondRankMask uint64 = 0xff00
 
+/* Queen variables ... Pretty empty :'( */
+var centralizedQueenSquares uint64 = 0x183c3c180000
+
 const (
 	PawnPhase   = 0
 	KnightPhase = 1
@@ -62,136 +65,135 @@ var RookValueEG = 580
 var QueenValueMG = 1020
 var QueenValueEG = 950
 
-var weakSquaresPenaltyMG = 3
-var weakKingSquaresPenaltyMG = 6
-
+var weakSquaresPenaltyMG = 2
+var weakKingSquaresPenaltyMG = 5
 var PSQT_MG = [7][64]int{
 	gm.PieceTypePawn: {
 		0, 0, 0, 0, 0, 0, 0, 0,
-		-12, -12, -13, -6, -8, 27, 28, -1,
-		-19, -23, -16, -15, -4, -1, 7, -12,
-		-12, -10, -3, -5, 9, 13, 10, -9,
-		-2, 6, 5, 21, 35, 41, 25, 0,
-		-2, 16, 32, 39, 55, 81, 39, 0,
-		77, 79, 67, 67, 51, 56, 13, 16,
+		-14, -16, -17, -10, -12, 29, 29, 5,
+		-21, -29, -22, -21, -10, 0, 7, -7,
+		-14, -16, -8, -10, 3, 18, 13, 0,
+		-5, 0, -1, 15, 27, 45, 28, 9,
+		-2, 16, 30, 35, 48, 82, 40, 5,
+		77, 72, 70, 68, 53, 40, 14, 21,
 		0, 0, 0, 0, 0, 0, 0, 0,
 	},
 	gm.PieceTypeKnight: {
-		-33, -7, -23, -3, 4, 6, -7, -27,
-		-17, -16, 4, 13, 10, 12, 5, 5,
-		-9, 10, 12, 21, 26, 12, 12, -2,
-		7, 17, 27, 28, 35, 27, 40, 17,
-		8, 25, 44, 51, 34, 54, 28, 36,
-		-15, 26, 48, 51, 66, 75, 42, 17,
-		-12, 0, 39, 38, 36, 39, -1, 11,
-		-92, -16, -8, 0, 7, -24, 0, -33,
+		-17, -12, -25, -7, -2, 2, -12, -29,
+		-20, -18, -3, 7, 3, 4, 0, -1,
+		-14, 4, 6, 15, 19, 6, 5, -8,
+		3, 13, 21, 23, 28, 22, 33, 13,
+		5, 20, 40, 45, 29, 46, 22, 31,
+		-15, 18, 43, 44, 61, 62, 33, 12,
+		-7, 0, 32, 35, 34, 36, -2, 9,
+		-53, -3, -9, 1, 3, -4, 0, -13,
 	},
 	gm.PieceTypeBishop: {
-		-5, -4, -18, -18, -19, -12, -14, -8,
-		-3, 3, 9, -5, -3, 4, 10, -2,
-		-11, 4, 1, 3, -1, 2, -4, -3,
-		-15, 0, 3, 14, 18, -8, 0, -6,
-		-17, 12, 7, 31, 17, 22, 8, -10,
-		-8, 7, 20, 10, 25, 30, 18, -2,
-		-30, -12, -11, -9, -9, 6, -16, -9,
-		-17, -6, -20, -13, -7, -19, 1, -9,
+		0, -2, -15, -16, -16, -10, -9, -3,
+		-1, 4, 9, -4, -2, 5, 10, 1,
+		-10, 4, 2, 3, 0, 2, -3, -3,
+		-13, -1, 4, 15, 18, -7, -1, -4,
+		-16, 11, 6, 28, 17, 21, 8, -9,
+		-8, 4, 15, 7, 23, 27, 15, -2,
+		-31, -19, -12, -13, -16, -2, -20, -7,
+		-20, -8, -14, -15, -9, -20, 0, -10,
 	},
 	gm.PieceTypeRook: {
-		1, 5, 9, 17, 12, 14, 9, -4,
-		-31, -8, -12, -6, -10, 3, 12, -28,
-		-20, -11, -18, -7, -12, -12, 5, -13,
-		-17, -15, -15, -6, -14, -13, 7, -13,
-		-5, 5, 10, 24, 9, 12, 9, 1,
-		3, 34, 23, 37, 29, 29, 36, 17,
-		11, 7, 22, 26, 19, 18, 2, 21,
-		29, 26, 11, 14, 6, 6, 16, 27,
+		0, 4, 8, 15, 10, 13, 11, -1,
+		-31, -9, -12, -6, -11, 1, 11, -24,
+		-19, -12, -19, -8, -14, -14, 3, -12,
+		-16, -17, -16, -6, -15, -15, 3, -11,
+		-6, 3, 8, 21, 5, 8, 7, 3,
+		0, 32, 18, 33, 29, 24, 32, 14,
+		6, 0, 15, 20, 3, 11, -3, 18,
+		23, 20, 6, 8, -7, 3, 12, 22,
 	},
 	gm.PieceTypeQueen: {
-		7, 5, 12, 22, 18, -6, -7, -6,
-		2, 11, 21, 18, 20, 30, 28, 5,
-		0, 14, 10, 6, 5, 5, 15, -1,
-		5, 6, 1, -5, -8, -17, -2, -12,
-		-6, -2, -18, -30, -24, -23, -9, -13,
-		-7, -2, -2, -22, -28, -10, -16, -12,
-		-4, -43, -5, -16, -50, -11, -18, 19,
-		-2, 7, 4, -3, -2, 5, 11, 15,
+		15, 13, 19, 26, 27, 4, -2, 1,
+		10, 17, 25, 22, 24, 35, 33, 9,
+		7, 19, 16, 11, 9, 10, 18, 3,
+		10, 13, 7, 2, -4, -14, 0, -9,
+		0, 4, -14, -28, -22, -23, -7, -11,
+		-4, 2, 1, -21, -35, -26, -31, -34,
+		-1, -37, -3, -16, -55, -28, -23, 15,
+		1, 9, 4, -2, -10, 3, 11, 14,
 	},
 	gm.PieceTypeKing: {
-		-4, 42, 9, -51, -19, -48, 15, 23,
-		2, -8, -15, -51, -34, -35, -5, 14,
-		-4, -4, 5, -1, 7, 4, 2, -14,
-		-2, 7, 16, 12, 10, 7, 13, -10,
-		0, 6, 14, 9, 12, 12, 9, -10,
-		0, 8, 12, 10, 8, 13, 8, -1,
-		-2, 3, 5, 3, 3, 5, 3, -2,
-		-2, 0, 1, 1, 0, 0, 0, -1,
+		-4, 36, 4, -53, -22, -51, 14, 22,
+		0, -12, -20, -52, -35, -37, -6, 13,
+		-4, -5, 6, 7, 15, 8, 1, -12,
+		-1, 8, 21, 19, 23, 18, 20, -7,
+		0, 8, 16, 11, 14, 16, 11, -8,
+		0, 8, 13, 10, 8, 14, 9, 0,
+		-2, 4, 5, 3, 3, 5, 3, -2,
+		-2, 0, 1, 1, 1, 0, 0, -1,
 	},
 }
-
 var PSQT_EG = [7][64]int{
 	gm.PieceTypePawn: {
 		0, 0, 0, 0, 0, 0, 0, 0,
-		24, 18, 22, 20, 27, 24, 7, -2,
-		17, 13, 13, 14, 15, 15, 2, 4,
-		23, 19, 7, 5, 2, 8, 5, 10,
-		35, 26, 21, 0, 6, 12, 17, 19,
-		70, 78, 67, 59, 53, 48, 63, 61,
-		140, 126, 111, 94, 88, 80, 100, 119,
+		20, 16, 20, 19, 26, 22, 7, -5,
+		16, 14, 14, 15, 17, 16, 4, 3,
+		22, 21, 9, 7, 4, 9, 7, 9,
+		33, 27, 22, 0, 8, 12, 18, 17,
+		56, 62, 56, 51, 48, 41, 54, 50,
+		121, 110, 94, 79, 73, 72, 84, 100,
 		0, 0, 0, 0, 0, 0, 0, 0,
 	},
 	gm.PieceTypeKnight: {
-		-16, -47, -17, -8, -13, -18, -37, -22,
-		-18, -2, -7, 2, 2, -12, -9, -22,
-		-31, 4, 10, 28, 23, 4, 0, -30,
-		-5, 21, 40, 46, 42, 42, 20, -1,
-		0, 22, 39, 50, 56, 42, 34, 8,
-		-9, 13, 32, 33, 29, 38, 18, -3,
-		-11, 0, 7, 33, 30, 8, 1, -8,
-		-22, -1, 10, 8, 5, 13, -3, -27,
+		-20, -40, -15, -5, -7, -15, -30, -22,
+		-16, -1, -3, 6, 7, -6, -5, -16,
+		-26, 7, 12, 28, 24, 7, 5, -24,
+		-3, 22, 39, 45, 41, 41, 22, 1,
+		2, 23, 36, 49, 54, 42, 35, 10,
+		-8, 16, 30, 32, 27, 40, 20, -1,
+		-13, 0, 10, 31, 29, 8, 1, -6,
+		-29, -3, 11, 8, 8, 11, 1, -13,
 	},
 	gm.PieceTypeBishop: {
-		-12, -3, -16, 0, -5, -8, -9, -8,
-		0, -14, -3, 5, 5, -8, -7, -25,
-		-1, 8, 14, 19, 17, 9, -1, -1,
-		6, 12, 25, 22, 17, 21, 13, -1,
-		11, 20, 19, 20, 26, 22, 25, 15,
-		10, 19, 19, 17, 20, 27, 23, 16,
-		3, 18, 19, 20, 18, 18, 20, 7,
-		7, 11, 15, 17, 16, 6, 10, 7,
+		-17, -3, -16, 1, -5, -8, -10, -10,
+		-1, -14, -3, 4, 4, -8, -6, -26,
+		-1, 8, 14, 19, 16, 10, -1, 1,
+		5, 13, 23, 20, 17, 20, 13, -2,
+		11, 20, 19, 21, 25, 20, 24, 15,
+		10, 21, 21, 18, 20, 26, 24, 15,
+		6, 22, 20, 21, 20, 21, 21, 7,
+		8, 12, 14, 18, 17, 7, 11, 8,
 	},
 	gm.PieceTypeRook: {
-		-2, 1, 0, -7, -11, 0, 2, -11,
-		-2, -6, 0, -6, -9, -18, -9, -4,
-		6, 12, 9, 4, -2, -3, 3, -2,
-		20, 28, 25, 17, 13, 14, 15, 12,
-		27, 26, 25, 17, 14, 12, 16, 21,
-		29, 18, 25, 15, 10, 18, 10, 17,
-		8, 12, 8, 10, 3, -5, 7, 0,
-		25, 26, 27, 21, 20, 35, 38, 36,
+		-3, 1, 0, -6, -11, 0, -3, -16,
+		-1, -5, 1, -5, -8, -17, -9, -6,
+		6, 13, 11, 5, 1, 0, 4, -2,
+		20, 28, 26, 17, 14, 15, 16, 11,
+		26, 26, 25, 17, 15, 12, 16, 19,
+		30, 18, 26, 15, 9, 18, 11, 17,
+		9, 14, 10, 11, 9, -3, 7, -1,
+		25, 27, 28, 22, 24, 35, 38, 37,
 	},
 	gm.PieceTypeQueen: {
-		-8, -9, -13, -3, -9, -8, -7, -2,
-		1, -5, -17, 2, -7, -31, -14, -2,
-		2, 10, 20, -5, -5, 23, 10, 1,
-		12, 28, 7, 26, 19, 15, 30, 23,
-		19, 37, 5, 22, 16, 9, 37, 22,
-		16, 22, 19, 9, -4, -1, -4, -15,
-		23, 41, 21, 18, 18, -15, 12, 14,
-		9, 18, 13, 8, -5, 9, 16, 12,
+		-9, -10, -14, 3, -14, -8, -6, -1,
+		0, -5, -14, 6, -2, -31, -15, -1,
+		3, 15, 20, -7, -8, 25, 14, 3,
+		13, 25, 3, 18, 16, 14, 34, 27,
+		22, 38, 2, 21, 12, 11, 42, 29,
+		24, 26, 23, 7, 0, 12, 13, 17,
+		29, 44, 24, 21, 25, -4, 16, 19,
+		11, 21, 16, 9, 2, 11, 19, 14,
 	},
 	gm.PieceTypeKing: {
-		-38, -42, -21, -22, -43, -15, -41, -85,
-		-18, -10, 2, 9, 5, 5, -16, -36,
-		-15, 1, 14, 28, 24, 12, -5, -16,
-		-14, 13, 30, 40, 38, 28, 11, -16,
-		-1, 26, 36, 39, 38, 37, 26, -3,
-		2, 30, 33, 25, 23, 43, 38, 1,
-		-11, 15, 15, 6, 7, 15, 23, -8,
-		-17, -9, -2, 1, -2, -1, -4, -11,
+		-39, -39, -19, -21, -42, -15, -42, -85,
+		-17, -9, 2, 8, 4, 4, -17, -38,
+		-14, 1, 12, 24, 19, 9, -7, -18,
+		-14, 13, 27, 36, 31, 22, 6, -18,
+		0, 25, 33, 36, 34, 32, 23, -5,
+		3, 29, 31, 24, 21, 39, 35, 0,
+		-11, 15, 14, 6, 6, 14, 23, -8,
+		-15, -9, -3, 0, -3, -2, -4, -11,
 	},
 }
-var pieceValueMG = [7]int{gm.PieceTypeKing: 0, gm.PieceTypePawn: 79, gm.PieceTypeKnight: 337, gm.PieceTypeBishop: 364, gm.PieceTypeRook: 481, gm.PieceTypeQueen: 1004}
-var pieceValueEG = [7]int{gm.PieceTypeKing: 0, gm.PieceTypePawn: 95, gm.PieceTypeKnight: 293, gm.PieceTypeBishop: 301, gm.PieceTypeRook: 520, gm.PieceTypeQueen: 916}
+
+var pieceValueMG = [7]int{gm.PieceTypeKing: 0, gm.PieceTypePawn: 77, gm.PieceTypeKnight: 333, gm.PieceTypeBishop: 358, gm.PieceTypeRook: 473, gm.PieceTypeQueen: 990}
+var pieceValueEG = [7]int{gm.PieceTypeKing: 0, gm.PieceTypePawn: 95, gm.PieceTypeKnight: 298, gm.PieceTypeBishop: 305, gm.PieceTypeRook: 521, gm.PieceTypeQueen: 905}
 var mobilityValueMG = [7]int{gm.PieceTypeKing: 0, gm.PieceTypePawn: 0, gm.PieceTypeKnight: 3, gm.PieceTypeBishop: 2, gm.PieceTypeRook: 2, gm.PieceTypeQueen: 1}
 var mobilityValueEG = [7]int{gm.PieceTypeKing: 0, gm.PieceTypePawn: 0, gm.PieceTypeKnight: 2, gm.PieceTypeBishop: 3, gm.PieceTypeRook: 6, gm.PieceTypeQueen: 7}
 
@@ -201,90 +203,77 @@ var attackerOuter = [7]int{gm.PieceTypePawn: 0, gm.PieceTypeKnight: 1, gm.PieceT
 /* Pawn variables */
 var PassedPawnPSQT_MG = [64]int{
 	0, 0, 0, 0, 0, 0, 0, 0,
-	-11, -10, -11, -11, -7, -21, -4, 10,
-	-2, -5, -17, -17, -12, -11, -11, 8,
-	19, 7, -11, -7, -12, -18, -1, 7,
-	41, 34, 26, 21, 11, 9, 13, 21,
-	75, 62, 52, 43, 29, 28, 20, 23,
-	60, 52, 62, 57, 44, 24, 11, 17,
+	-13, -10, -9, -10, -7, -24, -6, 11,
+	-3, -4, -16, -14, -10, -14, -12, 8,
+	18, 8, -9, -5, -11, -19, -4, 6,
+	38, 35, 26, 20, 10, 6, 15, 22,
+	77, 64, 52, 43, 29, 26, 21, 24,
+	65, 59, 65, 62, 49, 32, 13, 20,
 	0, 0, 0, 0, 0, 0, 0, 0,
 }
 var PassedPawnPSQT_EG = [64]int{
 	0, 0, 0, 0, 0, 0, 0, 0,
-	10, 9, 5, 5, 2, -4, 8, 15,
-	10, 17, 10, 9, 7, 6, 21, 11,
-	33, 38, 33, 29, 29, 32, 45, 34,
-	64, 61, 47, 46, 40, 39, 55, 50,
-	100, 77, 60, 41, 35, 54, 57, 77,
-	61, 61, 57, 48, 47, 46, 53, 56,
+	14, 12, 8, 7, 3, -2, 8, 15,
+	11, 16, 9, 9, 6, 5, 20, 11,
+	32, 35, 31, 27, 27, 29, 42, 32,
+	62, 58, 44, 46, 39, 38, 52, 47,
+	104, 82, 64, 43, 37, 54, 60, 80,
+	65, 67, 61, 52, 52, 53, 62, 65,
 	0, 0, 0, 0, 0, 0, 0, 0,
 }
 
-var DoubledPawnPenaltyMG = 13
+var DoubledPawnPenaltyMG = 11
 var DoubledPawnPenaltyEG = 20
 var IsolatedPawnMG = 5
 var IsolatedPawnEG = 12
-var ConnectedPawnsBonusMG = 17
-var ConnectedPawnsBonusEG = 0
-var PhalanxPawnsBonusMG = 8
-var PhalanxPawnsBonusEG = 7
+var ConnectedPawnsBonusMG = 18
+var ConnectedPawnsBonusEG = -2
+var PhalanxPawnsBonusMG = 9
+var PhalanxPawnsBonusEG = 5
 var BlockedPawnBonusMG = 25
 var BlockedPawnBonusEG = 15
-var PawnLeverMG = -3
+var PawnLeverMG = -4
 var PawnLeverEG = -6
-var BackwardPawnMG = 5
+var BackwardPawnMG = 4
 var BackwardPawnEG = -4
-var PawnStormMG = -1
-var PawnProximityPenaltyMG = -8
+var PawnStormMG = -3
+var PawnProximityPenaltyMG = -14
 var PawnLeverStormPenaltyMG = -9
-
-/* Knight variables */
 var KnightOutpostMG = 20
 var KnightOutpostEG = 15
 var KnightCanAttackPieceMG = -2
 var KnightCanAttackPieceEG = 1
-
-/* Bishop variables */
 var BishopOutpostMG = 15
 var BishopPairBonusMG = 0
-var BishopPairBonusEG = 50
-var BishopXrayKingMG = 1
-var BishopXrayRookMG = 23
+var BishopPairBonusEG = 62
+var BishopXrayKingMG = -3
+var BishopXrayRookMG = 26
 var BishopXrayQueenMG = 18
-var BishopPawnSetupPenaltyMG = 5
-var BishopPawnSetupPenaltyEG = 8
-
-/* Rook variables */
-var StackedRooksMG = 14
-var RookXrayQueenMG = 22
-var ConnectedRooksBonusMG = 16
-var RookSemiOpenFileBonusMG = 15
-var RookOpenFileBonusMG = 25
+var StackedRooksMG = 13
+var RookXrayQueenMG = 20
+var ConnectedRooksBonusMG = 15
+var RookSemiOpenFileBonusMG = 13
+var RookOpenFileBonusMG = 24
 var SeventhRankBonusEG = 19
-
-/* Queen variables ... Pretty empty :'( */
-var centralizedQueenSquares uint64 = 0x183c3c180000
-var CentralizedQueenBonusEG = 25
-var QueenInfiltrationBonusMG = -5
-var QueenInfiltrationBonusEG = 25
-
-/* King variables */
-var KingSemiOpenFilePenalty = 7
-var KingOpenFilePenalty = 2
+var CentralizedQueenBonusEG = 30
+var QueenInfiltrationBonusMG = -16
+var QueenInfiltrationBonusEG = 45
+var KingSemiOpenFilePenalty = 5
+var KingOpenFilePenalty = 1
 var KingMinorPieceDefenseBonus = 2
-var KingPawnDefenseMG = 2
+var KingPawnDefenseMG = 3
 
 // Tempo bonus for side to move (MG and EG applied equally)
-var TempoBonus = 10
+var TempoBonus = 9
 
 var KingSafetyTable = [100]int{
 	0, 1, 1, 3, 3, 5, 7, 9, 12, 15,
 	18, 22, 26, 30, 35, 39, 43, 50, 55, 62,
-	67, 75, 80, 85, 88, 97, 104, 113, 120, 130,
-	138, 148, 167, 177, 188, 199, 210, 222, 234, 245,
-	257, 269, 280, 292, 304, 316, 327, 339, 351, 363,
-	374, 386, 398, 409, 421, 433, 445, 456, 468, 480,
-	491, 497, 497, 500, 500, 500, 500, 500, 500, 500,
+	67, 75, 78, 85, 88, 97, 104, 113, 120, 130,
+	135, 148, 164, 174, 185, 196, 207, 219, 231, 242,
+	254, 266, 277, 289, 301, 313, 324, 336, 348, 360,
+	371, 383, 395, 406, 418, 430, 442, 453, 465, 477,
+	488, 494, 494, 500, 500, 500, 500, 500, 500, 500,
 	500, 500, 500, 500, 500, 500, 500, 500, 500, 500,
 	500, 500, 500, 500, 500, 500, 500, 500, 500, 500,
 	500, 500, 500, 500, 500, 500, 500, 500, 500, 500,

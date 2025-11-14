@@ -11,6 +11,8 @@ import (
 var MaxScore int16 = 32500
 var Checkmate int16 = 20000
 
+const DrawScore int16 = 0
+
 var killerMoveTable KillerStruct
 
 var SearchTime time.Duration
@@ -22,31 +24,27 @@ var FutilityMargins = [3]int16{
 	270, // depth 2
 }
 
-var RazoringMargins = [10]int16{
+var RazoringMargins = [4]int16{
 	0,   // depth 0
-	100, // depth 1
-	125, // depth 2
-	150, // depth 3
-	175, // depth 3
-	200, // depth 3
-	225, // depth 3
-	250, // depth 3
-	275, // depth 3
+	200, // depth 1
+	250, // depth 2
+	300, // depth 3
 }
 
 // Late move pruning
-var LateMovePruningMargins = [7]int{
-	999,
-	999,
-	999,
-	12,
-	16,
-	24,
-	32,
-}
+var LateMovePruningMargins = [6]int{0, 0, 8, 12, 16, 20}
 
 var LMRLegalMovesLimit = 4
 var LMRDepthLimit = 3
+var LMRHistoryReductionScale = 400
+var LMRHistoryLowThreshold = 50
+
+var NullMoveMinDepth int8 = 3
+var NullMoveEvalSlope int16 = 100
+var NullMoveVerificationDepth int8 = 7
+
+var QuiescenceDeltaMargin int16 = 100
+var StaticNullSlope int16 = 85
 
 // Aspiration window variable
 // TBD: Tinker until its "better"; 35 seems to give the best results, although I've
@@ -60,6 +58,9 @@ var GlobalStop = false
 
 func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool, moveOrderingOnly bool) string {
 	initVariables(board)
+	resetCutStats()
+
+	ensureStateStackSynced(board)
 
 	if !TT.isInitialized {
 		TT.init()
@@ -84,6 +85,11 @@ func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useC
 
 	_, bestMove = rootsearch(board, depth, useCustomDepth)
 
+	if PrintCutStats {
+		dumpCutStats()
+		PrintCutStats = false
+	}
+
 	// Debug: probe TT at root and print stored best move (if any)
 	entry := TT.getEntry(board.Hash())
 	if entry != nil && entry.Move != 0 {
@@ -100,6 +106,11 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool) (int, gm.Move) {
 	var alpha int16 = int16(prevSearchScore - aspirationWindowSize)
 	var beta int16 = int16(prevSearchScore + aspirationWindowSize)
 	var bestScore = -MaxScore
+	rootIndex := len(stateStack) - 1
+	if rootIndex < 0 {
+		ensureStateStackSynced(b)
+		rootIndex = len(stateStack) - 1
+	}
 
 	if prevSearchScore != 0 {
 		alpha = int16(prevSearchScore - aspirationWindowSize)
@@ -117,7 +128,7 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool) (int, gm.Move) {
 
 		// Search & and update search time
 		var startTime = time.Now()
-		var score = alphabeta(b, alpha, beta, int8(i), 0, &pvLine, nullMove, false, false, 0)
+		var score = alphabeta(b, alpha, beta, int8(i), 0, &pvLine, nullMove, false, false, 0, rootIndex)
 		timeSpent += time.Since(startTime).Milliseconds()
 
 		// Calculate some numbers for INFO & debugging
@@ -194,7 +205,7 @@ func dumpRootMoveOrdering(board *gm.Board) {
 	}
 }
 
-func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLine *PVLine, prevMove gm.Move, didNull bool, isExtended bool, excludedMove gm.Move) int16 {
+func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLine *PVLine, prevMove gm.Move, didNull bool, isExtended bool, excludedMove gm.Move, rootIndex int) int16 {
 	nodesChecked++
 
 	if nodesChecked&2047 == 0 {
@@ -214,14 +225,21 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 	var isRoot = ply == 0
 	var futilityPruning = false
 
+	if !isRoot {
+		if isDraw(int(ply), rootIndex) {
+			return DrawScore
+		}
+		if alpha < DrawScore && upcomingRepetition(int(ply), rootIndex) {
+			alpha = DrawScore
+		}
+	}
+
 	inCheck := b.OurKingInCheck()
 
 	// Generate legal moves
 	allMoves := b.GenerateLegalMoves()
 
 	posHash := b.Hash()
-	posRepeats := HistoryMap[posHash]
-	inHistory := posRepeats > 0
 
 	// Make sure we extend our search by 1 so we don't end our search while in check ...
 	if inCheck {
@@ -230,23 +248,8 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 
 	// If we reach our target depth, do a quiescene search and return the score
 	if depth <= 0 {
-		score := quiescence(b, alpha, beta, &childPVLine, 30)
+		score := quiescence(b, alpha, beta, &childPVLine, 30, ply, rootIndex)
 		return score
-	}
-
-	/*
-		#################################################################################
-		DRAW DETECTION:
-		Require a count of at least 2 repetitions of the same position declare a draw.
-		#################################################################################
-
-	*/
-	// Repetition draw detection: HistoryMap at this node includes the
-	// current occurrence (parent increments before recursing). Therefore, require
-	// a count of at least 2 repetitions of the same position declare a draw.
-	// This should also help catch any
-	if (posRepeats >= 2 || b.IsDrawBy50()) && !isRoot { // Draw
-		return 0
 	}
 
 	/*
@@ -261,7 +264,8 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 	*/
 	ttEntry := TT.getEntry(posHash)
 	usable, ttScore := TT.useEntry(ttEntry, posHash, depth, alpha, beta, ply, excludedMove)
-	if usable && !isRoot && !inHistory {
+	if usable && !isRoot {
+		cutStats.TTCutoffs++
 		return ttScore
 	}
 	if usable {
@@ -280,16 +284,35 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 
 	var wCount, bCount = hasMinorOrMajorPiece(b)
 	var sideHasPieces bool = (b.Wtomove && wCount > 0) || (!b.Wtomove && bCount > 0)
-	if !inCheck && !isPVNode && !didNull && sideHasPieces && depth >= 2 {
-		unApplyfunc := b.ApplyNullMove()
-		nullHash := b.Hash()
-		HistoryMap[nullHash]++
+	tryNullMove := !inCheck && !isPVNode && !didNull && sideHasPieces && depth >= NullMoveMinDepth
+	if tryNullMove {
+		evalMargin := int16(depth) * NullMoveEvalSlope
+		if int16(staticScore)+evalMargin <= alpha {
+			tryNullMove = false
+		}
+	}
+	if tryNullMove {
+		unApplyfunc := applyNullMoveWithState(b)
 		var R int8 = 2 + (depth / 6)
-		score := -alphabeta(b, -beta, -beta+1, (depth - 1 - R), ply+1, &childPVLine, bestMove, true, isExtended, 0)
+		nullScore := -alphabeta(b, -beta, -beta+1, (depth - 1 - R), ply+1, &childPVLine, bestMove, true, isExtended, 0, rootIndex)
 		unApplyfunc()
-		HistoryMap[nullHash]--
-		if score >= beta && score < Checkmate {
-			return beta
+		if nullScore >= beta && nullScore < Checkmate {
+			if depth >= NullMoveVerificationDepth {
+				verificationDepth := depth - 1 - R
+				if verificationDepth <= 0 {
+					cutStats.NullMoveCutoffs++
+					return beta
+				}
+				var verificationPV PVLine
+				verifyScore := alphabeta(b, beta-1, beta, verificationDepth, ply, &verificationPV, prevMove, true, isExtended, 0, rootIndex)
+				if verifyScore >= beta {
+					cutStats.NullMoveCutoffs++
+					return beta
+				}
+			} else {
+				cutStats.NullMoveCutoffs++
+				return beta
+			}
 		}
 	}
 
@@ -301,14 +324,27 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		#################################################################################
 	*/
 	if !inCheck && !isPVNode && sideHasPieces && absInt16(beta) < Checkmate {
-		var staticFutilityPruneScore int16 = (85 * int16(depth))
+		var staticFutilityPruneScore int16 = (StaticNullSlope * int16(depth))
 		if (int16(staticScore) - staticFutilityPruneScore) >= beta {
+			cutStats.StaticNullCutoffs++
 			return beta
 		}
 	}
 
+	/*
+		#################################################################################
+		SINGULAR EXTENSION:
+		If we have a best move from the transposition table with a reliable score and depth
+		from a previous search, we test whether this move is singular by running a reduced-depth
+		search that excludes this move, using a beta value lowered by a safety margin.
+
+		If none of the remaining moves can reach this lowered beta, we treat the TT move as singular.
+		If so, we search this move only by an extended depth as it seems like the critical move
+		in this variation.
+		#################################################################################
+	*/
 	var singularExtension bool
-	if !isPVNode && !isRoot && !inCheck && !didNull && !isExtended && depth >= 6 && ttEntry.Move != 0 && (ttEntry.Flag == ExactFlag || ttEntry.Flag == BetaFlag) && ttEntry.Depth >= depth-1 {
+	if !isPVNode && !isRoot && !inCheck && !didNull && !isExtended && depth >= 6 && ttEntry.Move != 0 && ttEntry.Flag == ExactFlag && ttEntry.Depth >= depth {
 		ttValue := ttEntry.Score
 		if ttValue > Checkmate {
 			ttValue -= int16(ply)
@@ -322,7 +358,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 			scoreToBeat := ttValue - margin
 			R := 3 + depth/6
 			var verificationPV PVLine
-			scoreSingular := alphabeta(b, scoreToBeat-1, scoreToBeat, depth-1-R, ply, &verificationPV, prevMove, didNull, true, ttEntry.Move)
+			scoreSingular := alphabeta(b, scoreToBeat-1, scoreToBeat, depth-1-R, ply, &verificationPV, prevMove, didNull, true, ttEntry.Move, rootIndex)
 			if scoreSingular < scoreToBeat {
 				singularExtension = true
 			}
@@ -338,12 +374,13 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		If we extend this logic, the same thing applies at other nodes than pre-pre-frontier nodes; so we make it a bit more dynamic.
 		#################################################################################
 	*/
-	if !inCheck && !isPVNode && int(depth) < len(RazoringMargins) {
-		staticFutilityPruneScore := RazoringMargins[depth] * 3
-		if int16(staticScore)+staticFutilityPruneScore < alpha {
-			score := quiescence(b, alpha, beta, &childPVLine, 30)
-			if score < alpha {
-				return alpha
+	if !inCheck && !isPVNode && depth <= 3 {
+		staticFutilityPruneScore := RazoringMargins[depth] + int16(staticScore)
+		if staticFutilityPruneScore < alpha {
+			score := quiescence(b, alpha-1, alpha, &childPVLine, 30, ply, rootIndex)
+			if score <= alpha {
+				cutStats.RazoringCutoffs++
+				return score
 			}
 		}
 	}
@@ -379,7 +416,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 	*/
 
 	if ttEntry.Move == 0 && depth >= 4 && !didNull {
-		score := -alphabeta(b, -beta, -alpha, (depth - 2), ply+1, &childPVLine, prevMove, didNull, isExtended, 0)
+		score := -alphabeta(b, -beta, -alpha, (depth - 2), ply+1, &childPVLine, prevMove, didNull, isExtended, 0, rootIndex)
 		_ = score
 		if len(childPVLine.Moves) > 0 {
 			bestMove = childPVLine.GetPVMove()
@@ -398,6 +435,11 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		// Get the next move
 		orderNextMove(index, &moveList)
 		move := moveList.moves[index].move
+		sideIdx := 0
+		if !b.Wtomove {
+			sideIdx = 1
+		}
+		moveHistoryScore := historyMove[sideIdx][move.From()][move.To()]
 
 		if move == excludedMove {
 			continue
@@ -407,9 +449,8 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 
 		// Prepare variables for move search
 		var isCapture bool = gm.IsCapture(move, b) // Get whether move is a capture, before moving
-		var unapplyFunc = b.Apply(move)
+		var unapplyFunc = applyMoveWithState(b, move)
 		var inCheck = b.OurKingInCheck()
-		var posHash = b.Hash()
 
 		// Tactical moves - if we're capturing, checking or promoting a pawn
 		tactical := (isCapture || inCheck || move.PromotionPieceType() != gm.PieceTypeNone)
@@ -421,35 +462,42 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 			We're most likely interested in the full depth for the first 1 or 2 moves
 			#################################################################################
 		*/
-		if depth <= 2 && !isPVNode && !tactical && legalMoves > LateMovePruningMargins[depth] {
-			unapplyFunc()
-			continue
+		if depth >= 2 && !isPVNode && !tactical && !futilityPruning {
+			lmpDepth := int(depth)
+			if lmpDepth >= len(LateMovePruningMargins) {
+				lmpDepth = len(LateMovePruningMargins) - 1
+			}
+			margin := LateMovePruningMargins[lmpDepth]
+			if margin > 0 && legalMoves > margin {
+				cutStats.LateMovePrunes++
+				unapplyFunc()
+				continue
+			}
 		}
 
 		// Futility pruning
 		if futilityPruning && !tactical && !isPVNode && legalMoves > 1 {
+			cutStats.FutilityPrunes++
 			unapplyFunc()
 			continue
 		}
 
-		HistoryMap[posHash]++
-
 		/*
-			            #################################################################################
-			            LATE MOVE REDUCTION:
-						Assuming good move ordering, the first move is <most likely> the best move.
-						We will therefor spend less time searching moves further down in the move ordering.
+			#################################################################################
+			LATE MOVE REDUCTION:
+			Assuming good move ordering, the first move is <most likely> the best move.
+			We will therefor spend less time searching moves further down in the move ordering.
 
-						If we didn't already get a beta cut-off (Cut-node), most likely we're in an All-node (where we
-						have actually search and not cut ...)! Meaning we want to avoid spending time here.
+			If we didn't already get a beta cut-off (Cut-node), most likely we're in an All-node (where we
+			have actually search and not cut ...)! Meaning we want to avoid spending time here.
 
-						We do a reduced search hoping it will fail low. However, if we manage to raise alpha after
-						doing a reduced search, we will do a full search of that node as that note has the potential to be
-						an interesting path to take in the tree.
+			We do a reduced search hoping it will fail low. However, if we manage to raise alpha after
+			doing a reduced search, we will do a full search of that node as that note has the potential to be
+			an interesting path to take in the tree.
 
-						Great blog-post that helped me wrap my head around this:
-						http://macechess.blogspot.com/2010/08/implementing-late-move-reductions.html
-						#################################################################################
+			Great blog-post that helped me wrap my head around this:
+			http://macechess.blogspot.com/2010/08/implementing-late-move-reductions.html
+			#################################################################################
 		*/
 
 		extendMove := !isExtended && move == ttEntry.Move && singularExtension
@@ -461,7 +509,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 			if extendMove {
 				nextDepth++
 			}
-			score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, didNull, nextExtended, 0)
+			score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, didNull, nextExtended, 0, rootIndex)
 		} else {
 			var reduct int8 = 0
 			if !isPVNode && !tactical && int(depth) >= LMRDepthLimit {
@@ -483,6 +531,25 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 				}
 			}
 
+			if reduct > 0 && moveHistoryScore > 0 {
+				historyBonus := int8(moveHistoryScore / LMRHistoryReductionScale)
+				if historyBonus > 2 {
+					historyBonus = 2
+				}
+				if historyBonus > reduct {
+					historyBonus = reduct
+				}
+				reduct -= historyBonus
+			}
+
+			if moveHistoryScore <= LMRHistoryLowThreshold && legalMoves > LMRLegalMovesLimit {
+				reduct++
+			}
+
+			if reduct < 0 {
+				reduct = 0
+			}
+
 			nextDepth := depth - 1 - reduct
 			if nextDepth < 0 {
 				nextDepth = 0
@@ -491,9 +558,9 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 				nextDepth++
 			}
 
-			score = -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, &childPVLine, move, didNull, nextExtended, 0)
+			score = -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, &childPVLine, move, didNull, nextExtended, 0, rootIndex)
 
-			if score > alpha && reduct > 0 && legalMoves > LMRLegalMovesLimit { // If our search was good at a reduced search
+			if score > alpha && reduct > 0 { // If our search was good at a reduced search
 				nextDepth = depth - 1
 				if nextDepth < 0 {
 					nextDepth = 0
@@ -501,9 +568,9 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 				if extendMove {
 					nextDepth++
 				}
-				score = -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, &childPVLine, move, didNull, nextExtended, 0)
+				score = -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, &childPVLine, move, didNull, nextExtended, 0, rootIndex)
 				if score > alpha {
-					score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, didNull, nextExtended, 0)
+					score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, didNull, nextExtended, 0, rootIndex)
 				}
 			} else if score > alpha && score < beta { // If our search was in range
 				nextDepth = depth - 1
@@ -513,7 +580,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 				if extendMove {
 					nextDepth++
 				}
-				score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, didNull, nextExtended, 0)
+				score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, didNull, nextExtended, 0, rootIndex)
 			}
 		}
 
@@ -524,9 +591,8 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 			bestMove = move
 		}
 
-		HistoryMap[posHash]--
-
 		if score >= beta {
+			cutStats.BetaCutoffs++
 			ttFlag = BetaFlag
 			if !isCapture {
 				InsertKiller(move, ply, &killerMoveTable)
@@ -568,7 +634,7 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 	return bestScore
 }
 
-func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8) int16 {
+func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8, ply int8, rootIndex int) int16 {
 	nodesChecked++
 
 	if nodesChecked&2047 == 0 {
@@ -579,6 +645,16 @@ func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8
 
 	if GlobalStop || searchShouldStop {
 		return 0
+	}
+
+	isRoot := ply == 0
+	if !isRoot {
+		if isDraw(int(ply), rootIndex) {
+			return DrawScore
+		}
+		if alpha < DrawScore && upcomingRepetition(int(ply), rootIndex) {
+			alpha = DrawScore
+		}
 	}
 
 	inCheck := b.OurKingInCheck()
@@ -593,6 +669,7 @@ func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8
 	alpha = max(alpha, standpat)
 
 	if alpha >= beta && !inCheck {
+		cutStats.QStandPatCutoffs++
 		return alpha
 	}
 
@@ -613,9 +690,22 @@ func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8
 			continue
 		}
 
-		unapplyFunc := b.Apply(move)
+		moveGain := pieceValueMG[move.CapturedPiece().Type()]
+		promotionPiece := move.PromotionPiece()
 
-		score := -quiescence(b, -beta, -alpha, &childPVLine, depth-1)
+		// Include promotion gain, if any:
+		if promotionPiece != gm.NoPiece {
+			moveGain += pieceValueMG[promotionPiece.Type()] - pieceValueMG[gm.PieceTypePawn]
+		}
+
+		margin := int16(QuiescenceDeltaMargin + 10*int16(depth))
+		if standpat+int16(moveGain)+margin < alpha {
+			continue
+		}
+
+		unapplyFunc := applyMoveWithState(b, move)
+
+		score := -quiescence(b, -beta, -alpha, &childPVLine, depth-1, ply+1, rootIndex)
 		unapplyFunc()
 
 		if score > bestScore {
@@ -623,6 +713,7 @@ func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8
 		}
 
 		if score >= beta {
+			cutStats.QBetaCutoffs++
 			return beta
 		}
 
@@ -634,4 +725,22 @@ func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8
 	}
 
 	return bestScore
+}
+
+func applyMoveWithState(b *gm.Board, move gm.Move) func() {
+	unapply := b.Apply(move)
+	pushState(b)
+	return func() {
+		unapply()
+		popState()
+	}
+}
+
+func applyNullMoveWithState(b *gm.Board) func() {
+	unapply := b.ApplyNullMove()
+	pushState(b)
+	return func() {
+		unapply()
+		popState()
+	}
 }

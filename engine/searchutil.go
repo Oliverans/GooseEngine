@@ -151,6 +151,7 @@ func getMateOrCPScore(score int) string {
 
 func ResetForNewGame() {
 	TT.clearTT()
+	stateStack = stateStack[:0]
 	var nilMove gm.Move
 	for i := 0; i < 64; i++ {
 		for z := 0; z < 64; z++ {

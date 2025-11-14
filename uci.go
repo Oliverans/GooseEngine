@@ -12,8 +12,6 @@ import (
 )
 
 func main() {
-	//board := gm.ParseFen(gm.Startpos) // the game board
-	//tuner.InitEntry(&board)
 	uciLoop()
 }
 
@@ -21,10 +19,7 @@ func uciLoop() {
 	scanner := bufio.NewScanner(os.Stdin)
 	board := gm.ParseFen(gm.Startpos) // the game board
 	engine.History.History = make([]uint64, 500)
-	//engine.InitVariables(&board)
-	// used for communicating with search routine
 
-	//haltchannel := make(chan bool)
 	var evalOnly = false
 	var moveOrderingOnly = false
 	for scanner.Scan() {
@@ -38,32 +33,44 @@ func uciLoop() {
 			evalOnly = true
 		case "moveordering":
 			moveOrderingOnly = true
+		case "cutstats":
+			engine.PrintCutStats = true
 		case "uci":
 			fmt.Println("id name GooseEngine Alpha version 0.2")
 			fmt.Println("id author Goose")
-			//fmt.Println("option name IsolatedPawnMG type spin default ", engine.IsolatedPawnMG, " min ", engine.Max(0, engine.IsolatedPawnMG-5), " max ", engine.Min(engine.IsolatedPawnMG+5, 100))
-			//fmt.Println("option name IsolatedPawnEG type spin default ", engine.IsolatedPawnEG, " min ", engine.Max(0, engine.IsolatedPawnEG-10), " max ", engine.Min(engine.IsolatedPawnEG+10, 100))
-			//fmt.Println("option name DoubledPawnPenaltyMG type spin default ", engine.DoubledPawnPenaltyMG, " min ", engine.Max(0, engine.DoubledPawnPenaltyMG-5), " max ", engine.Min(engine.DoubledPawnPenaltyMG+5, 15))
-			//fmt.Println("option name DoubledPawnPenaltyEG type spin default ", engine.DoubledPawnPenaltyEG, " min ", engine.Max(5, engine.DoubledPawnPenaltyEG-5), " max ", engine.Min(engine.DoubledPawnPenaltyEG+5, 20))
-			//fmt.Println("option name KnightOutpostMG type spin default ", engine.KnightOutpostMG, " min ", engine.Max(5, engine.KnightOutpostMG-20), " max ", engine.Min(engine.KnightOutpostMG+20, 40))
-			//fmt.Println("option name KnightOutpostEG type spin default ", engine.KnightOutpostEG, " min ", engine.Max(5, engine.KnightOutpostEG-20), " max ", engine.Min(engine.KnightOutpostEG+20, 40))
-			//fmt.Println("option name BishopOutpostMG type spin default ", engine.BishopOutpostMG, " min ", engine.Max(0, engine.BishopOutpostMG-20), " max ", engine.Min(engine.BishopOutpostMG+20, 40))
-			//fmt.Println("option name BishopPairBonusMG type spin default ", engine.BishopPairBonusMG, " min ", engine.Max(5, engine.BishopPairBonusMG-10), " max ", engine.Min(engine.BishopPairBonusMG+10, 20))
-			//fmt.Println("option name BishopPairBonusEG type spin default ", engine.BishopPairBonusEG, " min ", engine.Max(0, engine.BishopPairBonusEG-20), " max ", engine.Min(engine.BishopPairBonusEG+20, 60))
-			//fmt.Println("option name RookSemiOpenFileBonusMG type spin default ", engine.RookSemiOpenFileBonusMG, " min ", engine.Max(0, engine.RookSemiOpenFileBonusMG-20), " max ", engine.Min(engine.RookSemiOpenFileBonusMG+20, 30))
-			//fmt.Println("option name RookOpenFileBonusMG type spin default ", engine.RookOpenFileBonusMG, " min ", engine.Max(0, engine.RookOpenFileBonusMG-20), " max ", engine.Min(engine.RookOpenFileBonusMG+20, 30))
-			//fmt.Println("option name KingSemiOpenFilePenalty type spin default ", engine.KingSemiOpenFilePenalty, " min ", engine.Max(0, engine.KingSemiOpenFilePenalty-5), " max ", engine.Min(engine.KingSemiOpenFilePenalty+5, 20))
-			//fmt.Println("option name KingOpenFilePenalty type spin default ", engine.KingOpenFilePenalty, " min ", engine.Max(0, engine.KingOpenFilePenalty-5), " max ", engine.Min(engine.KingOpenFilePenalty+5, 15))
-			//fmt.Println("option name PawnValueMG type spin default ", engine.PawnValueMG, " min ", engine.PawnValueMG-30, " max ", engine.PawnValueMG+30)
-			//fmt.Println("option name PawnValueEG type spin default ", engine.PawnValueEG, " min ", engine.PawnValueEG-30, " max ", engine.PawnValueEG+30)
-			//fmt.Println("option name KnightValueMG type spin default ", engine.KnightValueMG, " min ", engine.KnightValueMG-150, " max ", engine.KnightValueMG+150)
-			//fmt.Println("option name KnightValueEG type spin default ", engine.KnightValueEG, " min ", engine.KnightValueEG-150, " max ", engine.KnightValueEG+150)
-			//fmt.Println("option name BishopValueMG type spin default ", engine.BishopValueMG, " min ", engine.BishopValueMG-150, " max ", engine.BishopValueMG+150)
-			//fmt.Println("option name BishopValueEG type spin default ", engine.BishopValueEG, " min ", engine.BishopValueEG-150, " max ", engine.BishopValueEG+150)
-			//fmt.Println("option name RookValueMG type spin default ", engine.RookValueMG, " min ", engine.RookValueMG-250, " max ", engine.RookValueMG+250)
-			//fmt.Println("option name RookValueEG type spin default ", engine.RookValueEG, " min ", engine.RookValueEG-250, " max ", engine.RookValueEG+250)
-			//fmt.Println("option name QueenValueMG type spin default ", engine.QueenValueMG, " min ", engine.QueenValueMG-350, " max ", engine.QueenValueMG+350)
-			//fmt.Println("option name QueenValueEG type spin default ", engine.QueenValueEG, " min ", engine.QueenValueEG-350, " max ", engine.QueenValueEG+350)
+
+			// --- Search / pruning parameters exposed as UCI options ---
+
+			// Futility margins (node-level)
+			fmt.Printf("option name FutilityMarginDepth1 type spin default %d min 0 max 1000\n", engine.FutilityMargins[1])
+			fmt.Printf("option name FutilityMarginDepth2 type spin default %d min 0 max 1000\n", engine.FutilityMargins[2])
+
+			// Razoring margins
+			fmt.Printf("option name RazorMarginDepth1 type spin default %d min 0 max 1000\n", engine.RazoringMargins[1])
+			fmt.Printf("option name RazorMarginDepth2 type spin default %d min 0 max 1000\n", engine.RazoringMargins[2])
+			fmt.Printf("option name RazorMarginDepth3 type spin default %d min 0 max 1000\n", engine.RazoringMargins[3])
+
+			// Late Move Pruning (LMP) thresholds
+			// depth = 2,3,4, >=5 (5+ uses the last entry in your table)
+			fmt.Printf("option name LMPDepth2 type spin default %d min 0 max 64\n", engine.LateMovePruningMargins[2])
+			fmt.Printf("option name LMPDepth3 type spin default %d min 0 max 64\n", engine.LateMovePruningMargins[3])
+			fmt.Printf("option name LMPDepth4 type spin default %d min 0 max 64\n", engine.LateMovePruningMargins[4])
+			fmt.Printf("option name LMPDepth5Plus type spin default %d min 0 max 64\n", engine.LateMovePruningMargins[5])
+
+			// LMR (Late Move Reductions) knobs
+			fmt.Printf("option name LMRLegalMovesLimit type spin default %d min 0 max 64\n", engine.LMRLegalMovesLimit)
+			fmt.Printf("option name LMRDepthLimit type spin default %d min 0 max 20\n", engine.LMRDepthLimit)
+			fmt.Printf("option name LMRHistoryReductionScale type spin default %d min 1 max 2000\n", engine.LMRHistoryReductionScale)
+			fmt.Printf("option name LMRHistoryLowThreshold type spin default %d min 0 max 1000\n", engine.LMRHistoryLowThreshold)
+
+			// Null-move pruning knobs
+			fmt.Printf("option name NullMoveMinDepth type spin default %d min 0 max 10\n", engine.NullMoveMinDepth)
+			fmt.Printf("option name NullMoveEvalSlope type spin default %d min 0 max 400\n", engine.NullMoveEvalSlope)
+			fmt.Printf("option name NullMoveVerificationDepth type spin default %d min 0 max 20\n", engine.NullMoveVerificationDepth)
+
+			// (You can later add aspiration window / static-null / qsearch params here
+			//  once you expose them as engine-level variables.)
+
 			fmt.Println("uciok")
 		case "isready":
 			fmt.Println("readyok")
@@ -133,11 +140,11 @@ func uciLoop() {
 					bInc, err = strconv.Atoi(goScanner.Text())
 				case "depth":
 					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option binc")
+						fmt.Println("info string Malformed go command option depth")
 						continue
 					}
 					if err != nil {
-						fmt.Println("info string Malformed go command option; could not convert binc")
+						fmt.Println("info string Malformed go command option; could not convert depth")
 						continue
 					}
 					depthToUse, err = strconv.Atoi(goScanner.Text())
@@ -169,11 +176,9 @@ func uciLoop() {
 				depthToUse = 50
 			}
 
-			var best_move = engine.StartSearch(&board, uint8(depthToUse), timeToUse, incToUse, useCustomDepth, evalOnly, moveOrderingOnly)
-			fmt.Println("bestmove ", best_move)
+			bestMove := engine.StartSearch(&board, uint8(depthToUse), timeToUse, incToUse, useCustomDepth, evalOnly, moveOrderingOnly)
+			fmt.Println("bestmove ", bestMove)
 		case "position":
-			engine.HistoryMap = nil
-			engine.HistoryMap = make(map[uint64]int, 5000)
 			posScanner := bufio.NewScanner(strings.NewReader(line))
 			posScanner.Split(bufio.ScanWords)
 			posScanner.Scan() // skip the first token
@@ -184,6 +189,7 @@ func uciLoop() {
 			if strings.ToLower(posScanner.Text()) == "startpos" {
 				board = gm.ParseFen(gm.Startpos)
 				posScanner.Scan() // advance the scanner to leave it in a consistent state
+				engine.ResetStateTracking(&board)
 			} else if strings.ToLower(posScanner.Text()) == "fen" {
 				fenstr := ""
 				for posScanner.Scan() && strings.ToLower(posScanner.Text()) != "moves" {
@@ -194,6 +200,7 @@ func uciLoop() {
 					continue
 				}
 				board = gm.ParseFen(fenstr)
+				engine.ResetStateTracking(&board)
 			} else {
 				fmt.Println("info string Invalid position subcommand")
 				continue
@@ -232,18 +239,230 @@ func uciLoop() {
 					}
 				}
 				board.Apply(nextMove)
-				engine.HistoryMap[board.Hash()]++
+				engine.RecordState(&board)
 			}
-			//engine.History.History = make([]uint64, (int(board.HalfmoveClock()) + 50))
 			engine.History.HalfclockRepetition = int(board.HalfmoveClock())
 		case "setoption":
 			goScanner := bufio.NewScanner(strings.NewReader(line))
 			goScanner.Split(bufio.ScanWords)
-			goScanner.Scan() // skip the first token
+			goScanner.Scan() // skip the first token ("setoption")
 			var err error
 			for goScanner.Scan() {
 				nextToken := strings.ToLower(goScanner.Text())
 				switch nextToken {
+
+				// --- Search / pruning options ---
+
+				case "futilitymargindepth1":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for FutilityMarginDepth1")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for FutilityMarginDepth1", err)
+						continue
+					}
+					engine.FutilityMargins[1] = int16(val)
+
+				case "futilitymargindepth2":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for FutilityMarginDepth2")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for FutilityMarginDepth2", err)
+						continue
+					}
+					engine.FutilityMargins[2] = int16(val)
+
+				case "razormargindepth1":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for RazorMarginDepth1")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for RazorMarginDepth1", err)
+						continue
+					}
+					engine.RazoringMargins[1] = int16(val)
+
+				case "razormargindepth2":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for RazorMarginDepth2")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for RazorMarginDepth2", err)
+						continue
+					}
+					engine.RazoringMargins[2] = int16(val)
+
+				case "razormargindepth3":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for RazorMarginDepth3")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for RazorMarginDepth3", err)
+						continue
+					}
+					engine.RazoringMargins[3] = int16(val)
+
+				case "lmpdepth2":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for LMPDepth2")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for LMPDepth2", err)
+						continue
+					}
+					engine.LateMovePruningMargins[2] = val
+
+				case "lmpdepth3":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for LMPDepth3")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for LMPDepth3", err)
+						continue
+					}
+					engine.LateMovePruningMargins[3] = val
+
+				case "lmpdepth4":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for LMPDepth4")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for LMPDepth4", err)
+						continue
+					}
+					engine.LateMovePruningMargins[4] = val
+
+				case "lmpdepth5plus":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for LMPDepth5Plus")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for LMPDepth5Plus", err)
+						continue
+					}
+					engine.LateMovePruningMargins[5] = val
+
+				case "lmrlegalmoveslimit":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for LMRLegalMovesLimit")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for LMRLegalMovesLimit", err)
+						continue
+					}
+					engine.LMRLegalMovesLimit = val
+
+				case "lmrdepthlimit":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for LMRDepthLimit")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for LMRDepthLimit", err)
+						continue
+					}
+					engine.LMRDepthLimit = val
+
+				case "lmrhistoryreductionscale":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for LMRHistoryReductionScale")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for LMRHistoryReductionScale", err)
+						continue
+					}
+					engine.LMRHistoryReductionScale = val
+
+				case "lmrhistorylowthreshold":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for LMRHistoryLowThreshold")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for LMRHistoryLowThreshold", err)
+						continue
+					}
+					engine.LMRHistoryLowThreshold = val
+
+				case "nullmovemindepth":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for NullMoveMinDepth")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for NullMoveMinDepth", err)
+						continue
+					}
+					engine.NullMoveMinDepth = int8(val)
+
+				case "nullmoveevalslope":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for NullMoveEvalSlope")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for NullMoveEvalSlope", err)
+						continue
+					}
+					engine.NullMoveEvalSlope = int16(val)
+
+				case "nullmoveverificationdepth":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed setoption for NullMoveVerificationDepth")
+						continue
+					}
+					goScanner.Scan()
+					val, err := strconv.Atoi(goScanner.Text())
+					if err != nil {
+						fmt.Println("info string Malformed value for NullMoveVerificationDepth", err)
+						continue
+					}
+					engine.NullMoveVerificationDepth = int8(val)
+
+				// --- (Existing eval tuning options below; left as-is, but note the casing fixes) ---
+
 				case "isolatedpawnmg":
 					if !goScanner.Scan() {
 						fmt.Println("info string Malformed go command option")
@@ -265,7 +484,7 @@ func uciLoop() {
 					}
 					goScanner.Scan()
 					engine.DoubledPawnPenaltyMG, err = strconv.Atoi(goScanner.Text())
-				case "DoubledPawnPenaltyEG":
+				case "doubledpawnpenaltyeg":
 					if !goScanner.Scan() {
 						fmt.Println("info string Malformed go command option")
 						continue

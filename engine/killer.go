@@ -4,7 +4,6 @@ import (
 	gm "chess-engine/goosemg"
 )
 
-var HistoryMap map[uint64]int = make(map[uint64]int, 5000)
 var History HistoryStruct
 
 type KillerStruct struct {
