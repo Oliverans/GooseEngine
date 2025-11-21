@@ -65,8 +65,6 @@ func uciLoop() {
 
 			// Null-move pruning knobs
 			fmt.Printf("option name NullMoveMinDepth type spin default %d min 0 max 10\n", engine.NullMoveMinDepth)
-			fmt.Printf("option name NullMoveEvalSlope type spin default %d min 0 max 400\n", engine.NullMoveEvalSlope)
-			fmt.Printf("option name NullMoveVerificationDepth type spin default %d min 0 max 20\n", engine.NullMoveVerificationDepth)
 
 			// (You can later add aspiration window / static-null / qsearch params here
 			//  once you expose them as engine-level variables.)
@@ -158,14 +156,14 @@ func uciLoop() {
 				if wTime > 0 {
 					timeToUse = wTime
 				} else {
-					timeToUse = 300000
+					timeToUse = 100000
 				}
 				incToUse = wInc
 			} else {
 				if bTime > 0 {
 					timeToUse = bTime
 				} else {
-					timeToUse = 300000
+					timeToUse = 100000
 				}
 				incToUse = bInc
 			}
@@ -434,32 +432,6 @@ func uciLoop() {
 						continue
 					}
 					engine.NullMoveMinDepth = int8(val)
-
-				case "nullmoveevalslope":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed setoption for NullMoveEvalSlope")
-						continue
-					}
-					goScanner.Scan()
-					val, err := strconv.Atoi(goScanner.Text())
-					if err != nil {
-						fmt.Println("info string Malformed value for NullMoveEvalSlope", err)
-						continue
-					}
-					engine.NullMoveEvalSlope = int16(val)
-
-				case "nullmoveverificationdepth":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed setoption for NullMoveVerificationDepth")
-						continue
-					}
-					goScanner.Scan()
-					val, err := strconv.Atoi(goScanner.Text())
-					if err != nil {
-						fmt.Println("info string Malformed value for NullMoveVerificationDepth", err)
-						continue
-					}
-					engine.NullMoveVerificationDepth = int8(val)
 
 				// --- (Existing eval tuning options below; left as-is, but note the casing fixes) ---
 

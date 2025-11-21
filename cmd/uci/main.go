@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"chess-engine/engine"
-	"chess-engine/engine/nnue"
-	"chess-engine/engine/search"
 )
 
 func atoi(s string) int { v, _ := strconv.Atoi(s); return v }

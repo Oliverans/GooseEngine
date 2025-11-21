@@ -9,13 +9,14 @@ const (
 )
 
 type TimeHandler struct {
-	remainingTime    int
-	fullmoveNumber   int
-	increment        int
-	timeForMove      time.Time
-	stopSearch       bool
-	isInitialized    bool
-	usingCustomDepth bool
+	remainingTime               int
+	fullmoveNumber              int
+	increment                   int
+	timeForMove                 time.Time
+	stopSearch                  bool
+	isInitialized               bool
+	usingCustomDepth            bool
+	currentMoveAllocationMillis int64
 }
 
 func (th *TimeHandler) initTimemanagement(remaniningTime int, increment int, fullmoveNumber int, useCustomDepth bool) {
@@ -25,6 +26,7 @@ func (th *TimeHandler) initTimemanagement(remaniningTime int, increment int, ful
 	th.stopSearch = false
 	th.isInitialized = true
 	th.usingCustomDepth = useCustomDepth
+	th.currentMoveAllocationMillis = 0
 }
 
 func (th *TimeHandler) StartTime(fullmoveNumber int) {
@@ -69,8 +71,10 @@ func (th *TimeHandler) StartTime(fullmoveNumber int) {
 	}
 
 	if th.remainingTime == 0 {
-		th.timeForMove = time.Now().Add(time.Duration(5000) * time.Millisecond) // 5 second searches for testing ...
+		th.currentMoveAllocationMillis = 5000
+		th.timeForMove = time.Now().Add(time.Duration(th.currentMoveAllocationMillis) * time.Millisecond) // 5 second searches for testing ...
 	} else {
+		th.currentMoveAllocationMillis = int64(moveTime)
 		th.timeForMove = time.Now().Add(time.Duration(moveTime) * time.Millisecond)
 	}
 }
@@ -90,4 +94,15 @@ func (th *TimeHandler) Update(extraTime int64) {
 
 func (th *TimeHandler) TimeStatus() bool {
 	return !th.usingCustomDepth && !th.timeForMove.IsZero() && th.timeForMove.Before(time.Now())
+}
+
+func (th *TimeHandler) ExtendForAspiration() {
+	if th.usingCustomDepth {
+		return
+	}
+	extra := th.currentMoveAllocationMillis
+	if extra <= 0 {
+		extra = 100
+	}
+	th.Update(extra)
 }

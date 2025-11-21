@@ -168,3 +168,74 @@ func ResetForNewGame() {
 	}
 	prevSearchScore = 0
 }
+
+func dumpRootMoveOrdering(board *gm.Board) {
+	legalMoves := board.GenerateLegalMoves()
+	var nullMove gm.Move
+	scoredMoves := scoreMovesList(board, legalMoves, 0, 0, nullMove, nullMove)
+	for i := uint8(0); i < uint8(len(scoredMoves.moves)); i++ {
+		orderNextMove(i, &scoredMoves)
+	}
+
+	fmt.Println("info string move ordering (start position)")
+	for idx, entry := range scoredMoves.moves {
+		fmt.Printf("info string #%d %s score=%d\n", idx+1, entry.move.String(), entry.score)
+	}
+}
+
+func computeLMRReduction(
+	depth int8,
+	legalMoves int,
+	moveIdx int,
+	isPVNode bool,
+	tactical bool,
+	historyScore int,
+) int8 {
+	// No reduction in these cases
+	if isPVNode || tactical || int(depth) < LMRDepthLimit || legalMoves <= 2 {
+		return 0
+	}
+
+	// Clamp depth index into LMR table
+	d := int(depth)
+	if d >= len(LMR) {
+		d = len(LMR) - 1
+	}
+	if d < 0 {
+		d = 0
+	}
+
+	// Prefer using "moves searched" as column rather than raw index
+	m := legalMoves - 1
+	row := LMR[d]
+	if m < 0 {
+		m = 0
+	}
+	if m >= len(row) {
+		m = len(row) - 1
+	}
+
+	r := row[m]
+
+	// History bonus: good moves get less reduction
+	if r > 0 && historyScore > 0 {
+		bonus := int8(historyScore / LMRHistoryReductionScale)
+		if bonus > 2 {
+			bonus = 2
+		}
+		if bonus > r {
+			bonus = r
+		}
+		r -= bonus
+	}
+
+	// Really bad late moves get a bit more reduction
+	if historyScore <= LMRHistoryLowThreshold && legalMoves > LMRLegalMovesLimit {
+		r++
+	}
+
+	if r < 0 {
+		r = 0
+	}
+	return r
+}

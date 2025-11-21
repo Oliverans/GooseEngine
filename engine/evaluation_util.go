@@ -319,11 +319,37 @@ func getBackwardPawnsBitboards(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB 
 	return wBackward, bBackward
 }
 
-// getPawnLeverBitboards marks pawns that can immediately capture an enemy pawn.
-func getPawnLeverBitboards(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB uint64) (wLever uint64, bLever uint64) {
-	wLever = wPawnAttackBB & b.Black.Pawns
-	bLever = bPawnAttackBB & b.White.Pawns
-	return wLever, bLever
+// getPawnLeverBitboards identifies lever pawns for each side and also returns
+// pawns whose advance squares are targeted by multiple enemy pawns (pre-condition
+// for weak levers).
+func getPawnLeverBitboards(b *gm.Board) (wLever uint64, bLever uint64, wMultiLever uint64, bMultiLever uint64) {
+	// Precompute directional pawn attacks
+	wPawnAttackWest, wPawnAttackEast := PawnCaptureBitboards(b.White.Pawns, true)
+	bPawnAttackWest, bPawnAttackEast := PawnCaptureBitboards(b.Black.Pawns, false)
+
+	// Squares directly in front of each pawn
+	wFront := b.White.Pawns << 8
+	bFront := b.Black.Pawns >> 8
+
+	// Enemy pawns attacking the square in front of our pawn (lever candidates)
+	wFrontWestTargets := wFront & bPawnAttackWest
+	wFrontEastTargets := wFront & bPawnAttackEast
+	wLeverFromWest := (wFrontWestTargets << 7) & b.Black.Pawns
+	wLeverFromEast := (wFrontEastTargets << 9) & b.Black.Pawns
+	wLever = wLeverFromWest | wLeverFromEast
+
+	bFrontWestTargets := bFront & wPawnAttackWest
+	bFrontEastTargets := bFront & wPawnAttackEast
+	bLeverFromWest := (bFrontWestTargets >> 9) & b.White.Pawns
+	bLeverFromEast := (bFrontEastTargets >> 7) & b.White.Pawns
+	bLever = bLeverFromWest | bLeverFromEast
+
+	// Pawns whose advance squares are attacked by both enemy pawn directions
+	wMultiTargets := wFront & bPawnAttackWest & bPawnAttackEast
+	bMultiTargets := bFront & wPawnAttackWest & wPawnAttackEast
+	wMultiLever = (wMultiTargets >> 8) & b.White.Pawns
+	bMultiLever = (bMultiTargets << 8) & b.Black.Pawns
+	return wLever, bLever, wMultiLever, bMultiLever
 }
 
 // getRookConnectedFiles returns file masks where each side has two or more rooks
