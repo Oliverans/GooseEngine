@@ -10,7 +10,6 @@ func initVariables(_ *gm.Board) {
 	// Search tables ...
 	InitLMRTable()
 	initPositionBB()
-	setPieceValues()
 }
 
 func initPositionBB() {
@@ -39,45 +38,21 @@ func initPositionBB() {
 
 // Late-move reduction tables
 func InitLMRTable() {
-	for depth := 1; depth < 100; depth++ {
-		for moveCnt := 3; moveCnt < 100; moveCnt++ {
-			// Current calculations comes from Weiss engine ....
-			/*
-				Modern engines have a different reduction of search depending on whether there's a capture or a quiet move
+	for depth := 1; depth < 64; depth++ {
+		for moveCnt := 1; moveCnt < 64; moveCnt++ {
+			base := 0.0
+			if depth >= 2 && moveCnt >= 2 {
+				base = 0.8 + math.Log(float64(depth))*math.Log(float64(moveCnt))/2.5
+			}
+			r := int(base + 0.5) // round
 
-				Blunder engine uses the following (more simple) formula:
-				max(2, depth/4) + moveCnt/12
-
-				Weiss engine uses the following formula for quiet and captures respectively:
-				1.82 + log10(depth) * log10(moveCnt) / 2.68
-				0.38 + log10(depth) * log10(moveCnt) / 2.93
-
-			*/
-			//LMR[0][depth][moveCnt] = int8(max(2, depth/4) + moveCnt/12) //int8(1.82 + math.Log10(float64(depth))*math.Log10(float64(moveCnt))/2.68)
-			LMR[depth][moveCnt] = int8(max(2, depth/4) + moveCnt/12) // int8(0.38 + math.Log10(float64(depth))*math.Log10(float64(moveCnt))/2.93)
-		}
-	}
-}
-
-// If we set any of the piece values to a custom value, we apply it here...
-func setPieceValues() {
-	for _, pieceType := range pieceList {
-		switch pieceType {
-		case gm.PieceTypePawn:
-			pieceValueMG[pieceType] = PawnValueMG
-			pieceValueEG[pieceType] = PawnValueEG
-		case gm.PieceTypeKnight:
-			pieceValueMG[pieceType] = KnightValueMG
-			pieceValueEG[pieceType] = KnightValueEG
-		case gm.PieceTypeBishop:
-			pieceValueMG[pieceType] = BishopValueMG
-			pieceValueEG[pieceType] = BishopValueMG
-		case gm.PieceTypeRook:
-			pieceValueMG[pieceType] = RookValueMG
-			pieceValueEG[pieceType] = RookValueEG
-		case gm.PieceTypeQueen:
-			pieceValueMG[pieceType] = QueenValueMG
-			pieceValueEG[pieceType] = QueenValueEG
+			if r < 0 {
+				r = 0
+			}
+			if r > depth-1 {
+				r = depth - 1
+			}
+			LMR[depth][moveCnt] = int8(r)
 		}
 	}
 }

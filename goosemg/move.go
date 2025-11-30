@@ -1,5 +1,7 @@
 package goosemg
 
+import "math/bits"
+
 // Move encodes a chess move in a 32-bit value.
 type Move uint32
 
@@ -75,4 +77,208 @@ func (m Move) String() string {
 		str += string(ch)
 	}
 	return str
+}
+
+// GivesCheck reports whether the move (assumed legal for the current side to move)
+// results in the opponent's king being in check. It performs a lightweight
+// post-move attack query without mutating board state.
+func (b *Board) GivesCheck(m Move) bool {
+	us := int(b.sideToMove)
+	them := 1 - us
+
+	kingBB := b.kings[them]
+	if kingBB == 0 {
+		return false
+	}
+	ksq := bits.TrailingZeros64(kingBB)
+
+	from := m.From()
+	to := m.To()
+	moved := m.MovedPiece()
+	promo := m.PromotionPiece()
+	flag := m.Flags()
+	captured := m.CapturedPiece()
+
+	fromBB := uint64(1) << uint(from)
+	toBB := uint64(1) << uint(to)
+
+	// Local copies of our piece bitboards and occupancy.
+	pawnsUs := b.pawns[us]
+	knightsUs := b.knights[us]
+	bishopsUs := b.bishops[us]
+	rooksUs := b.rooks[us]
+	queensUs := b.queens[us]
+	kingsUs := b.kings[us]
+
+	occUs := b.occupancy[us]
+	occThem := b.occupancy[them]
+
+	// Handle capture (including en passant) on opponent occupancy.
+	if flag == FlagEnPassant {
+		var capSq Square
+		if b.sideToMove == White {
+			capSq = to - 8
+		} else {
+			capSq = to + 8
+		}
+		occThem &^= uint64(1) << uint(capSq)
+	} else if captured != NoPiece {
+		occThem &^= toBB
+	}
+
+	// Remove the moving piece from its origin.
+	occUs &^= fromBB
+	switch typeOf(moved) {
+	case 1:
+		pawnsUs &^= fromBB
+	case 2:
+		knightsUs &^= fromBB
+	case 3:
+		bishopsUs &^= fromBB
+	case 4:
+		rooksUs &^= fromBB
+	case 5:
+		queensUs &^= fromBB
+	case 6:
+		kingsUs &^= fromBB
+	}
+
+	// Add the piece on its destination (with promotion applied).
+	pieceTo := moved
+	if promo != NoPiece {
+		pieceTo = promo
+	}
+	toType := typeOf(pieceTo)
+	occUs |= toBB
+	switch toType {
+	case 1:
+		pawnsUs |= toBB
+	case 2:
+		knightsUs |= toBB
+	case 3:
+		bishopsUs |= toBB
+	case 4:
+		rooksUs |= toBB
+	case 5:
+		queensUs |= toBB
+	case 6:
+		kingsUs |= toBB
+	}
+
+	// Castling rook movement.
+	if flag == FlagCastle {
+		rFrom, rTo := NoSquare, NoSquare
+		if moved == WhiteKing {
+			if to == 6 {
+				rFrom, rTo = 7, 5
+			} else if to == 2 {
+				rFrom, rTo = 0, 3
+			}
+		} else if moved == BlackKing {
+			if to == 62 {
+				rFrom, rTo = 63, 61
+			} else if to == 58 {
+				rFrom, rTo = 56, 59
+			}
+		}
+		if rFrom != NoSquare {
+			rFromBB := uint64(1) << uint(rFrom)
+			rToBB := uint64(1) << uint(rTo)
+			rooksUs &^= rFromBB
+			occUs &^= rFromBB
+			rooksUs |= rToBB
+			occUs |= rToBB
+		}
+	}
+
+	occAll := occUs | occThem
+
+	// Pawn attacks (use reverse tables like isSquareAttackedWithOcc).
+	if b.sideToMove == White {
+		if pawnAttacks[Black][ksq]&pawnsUs != 0 {
+			return true
+		}
+	} else {
+		if pawnAttacks[White][ksq]&pawnsUs != 0 {
+			return true
+		}
+	}
+
+	// Knights.
+	if knightMoves[ksq]&knightsUs != 0 {
+		return true
+	}
+
+	// Kings (needed for castling delivering check).
+	if kingMoves[ksq]&kingsUs != 0 {
+		return true
+	}
+
+	// Rook/queen attacks.
+	rq := rooksUs | queensUs
+	if rq != 0 {
+		// N
+		if blockers := rookRays[ksq][0] & occAll; blockers != 0 {
+			lsb := blockers & -blockers
+			if lsb&rq != 0 {
+				return true
+			}
+		}
+		// S
+		if blockers := rookRays[ksq][1] & occAll; blockers != 0 {
+			first := 63 - bits.LeadingZeros64(blockers)
+			if (uint64(1)<<uint(first))&rq != 0 {
+				return true
+			}
+		}
+		// E
+		if blockers := rookRays[ksq][2] & occAll; blockers != 0 {
+			lsb := blockers & -blockers
+			if lsb&rq != 0 {
+				return true
+			}
+		}
+		// W
+		if blockers := rookRays[ksq][3] & occAll; blockers != 0 {
+			first := 63 - bits.LeadingZeros64(blockers)
+			if (uint64(1)<<uint(first))&rq != 0 {
+				return true
+			}
+		}
+	}
+
+	// Bishop/queen attacks.
+	bq := bishopsUs | queensUs
+	if bq != 0 {
+		// NE
+		if blockers := bishopRays[ksq][0] & occAll; blockers != 0 {
+			lsb := blockers & -blockers
+			if lsb&bq != 0 {
+				return true
+			}
+		}
+		// NW
+		if blockers := bishopRays[ksq][1] & occAll; blockers != 0 {
+			lsb := blockers & -blockers
+			if lsb&bq != 0 {
+				return true
+			}
+		}
+		// SE
+		if blockers := bishopRays[ksq][2] & occAll; blockers != 0 {
+			first := 63 - bits.LeadingZeros64(blockers)
+			if (uint64(1)<<uint(first))&bq != 0 {
+				return true
+			}
+		}
+		// SW
+		if blockers := bishopRays[ksq][3] & occAll; blockers != 0 {
+			first := 63 - bits.LeadingZeros64(blockers)
+			if (uint64(1)<<uint(first))&bq != 0 {
+				return true
+			}
+		}
+	}
+
+	return false
 }

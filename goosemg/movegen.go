@@ -1,6 +1,8 @@
 package goosemg
 
-import "math/bits"
+import (
+	"math/bits"
+)
 
 // Precomputed attack masks for knights and kings from each square.
 var knightMoves [64]uint64
@@ -25,6 +27,18 @@ var rookMask [64]uint64
 var bishopMask [64]uint64
 var rookAttTable [64][]uint64
 var bishopAttTable [64][]uint64
+
+const (
+	Rank1Mask uint64 = 0x00000000000000FF
+	Rank2Mask uint64 = 0x000000000000FF00
+	Rank7Mask uint64 = 0x00FF000000000000
+	Rank8Mask uint64 = 0xFF00000000000000
+
+	FileAMask uint64 = 0x0101010101010101
+	FileHMask uint64 = 0x8080808080808080
+)
+
+var useBMI2 bool
 
 func init() {
 	initAttackTables()
@@ -265,7 +279,21 @@ func initSliderTables() {
 }
 
 // software pext: extract bits of x at positions where mask has 1s, packed into low bits
+// useBMI2PEXT toggles hardware-accelerated PEXT when available at runtime.
+var useBMI2PEXT bool
+
+// pext extracts bits of x at positions where mask has 1s, packed into low bits.
+// If BMI2 is available on the current CPU, it uses the PEXT instruction through
+// a tiny assembly helper; otherwise it falls back to a software implementation.
 func pext(x, mask uint64) uint64 {
+	if useBMI2PEXT {
+		return pextBMI2(x, mask)
+	}
+	return pextSoft(x, mask)
+}
+
+// pextSoft is the generic software implementation of parallel bit extract.
+func pextSoft(x, mask uint64) uint64 {
 	var res uint64
 	var idx uint
 	m := mask
@@ -281,7 +309,14 @@ func pext(x, mask uint64) uint64 {
 	return res
 }
 
-// software pdep: deposit low bits of x into positions of mask
+// pextBMI2 is provided in pext_amd64.s on amd64 and uses the BMI2 PEXTQ instruction.
+//
+//go:noescape
+func pextBMI2(x, mask uint64) uint64
+
+// software pdep: deposit low bits of x into positions of mask. This is only used at
+// initialization time when building the slider attack tables, so a generic version
+// is sufficient even on CPUs with BMI2.
 func pdep(x, mask uint64) uint64 {
 	var res uint64
 	var idx uint
@@ -297,7 +332,6 @@ func pdep(x, mask uint64) uint64 {
 	}
 	return res
 }
-
 func rookAttacksMagic(sq int, occ uint64) uint64 {
 	idx := pext(occ, rookMask[sq])
 	return rookAttTable[sq][idx]
@@ -579,15 +613,22 @@ func (b *Board) IsSquareAttacked(sq Square, by Color) bool {
 }
 
 func (b *Board) isSquareAttackedWithOcc(s int, by Color, occ uint64) bool {
+	return b.isSquareAttackedWithOccAndPawns(s, by, occ, b.pawns[int(by)])
+}
+
+// isSquareAttackedWithOccAndPawns mirrors isSquareAttackedWithOcc but lets callers
+// provide a custom pawn bitboard (used by en passant simulation to ignore the
+// pawn that would be captured).
+func (b *Board) isSquareAttackedWithOccAndPawns(s int, by Color, occ uint64, pawnMask uint64) bool {
 	byIdx := int(by)
 
 	// Pawn attacks via reverse mask (fewer branches)
 	if by == White {
-		if (pawnAttacks[Black][s] & b.pawns[byIdx]) != 0 {
+		if (pawnAttacks[Black][s] & pawnMask) != 0 {
 			return true
 		}
 	} else {
-		if (pawnAttacks[White][s] & b.pawns[byIdx]) != 0 {
+		if (pawnAttacks[White][s] & pawnMask) != 0 {
 			return true
 		}
 	}
@@ -706,103 +747,264 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 	if kingBB != 0 {
 		ks = bits.TrailingZeros64(kingBB)
 	}
+	kRank, kFile := -1, -1
+	if ks >= 0 {
+		kRank = ks / 8
+		kFile = ks & 7
+	}
+
+	// Precompute side-specific slider piece codes to avoid repeated piece table lookups.
+	var knightPiece, bishopPiece, rookPiece, queenPiece Piece
+	if side == White {
+		knightPiece, bishopPiece, rookPiece, queenPiece = WhiteKnight, WhiteBishop, WhiteRook, WhiteQueen
+	} else {
+		knightPiece, bishopPiece, rookPiece, queenPiece = BlackKnight, BlackBishop, BlackRook, BlackQueen
+	}
 
 	// Compute check/pin state for pruning
 	inCheck, doubleCheck, checkMask, pinLine := b.computeCheckAndPins(side, allOcc)
 
 	// Pawns
-	pawns := b.pawns[us]
-	for pawns != 0 {
-		from := popLSB(&pawns)
-		fromSq := Square(from)
-		movedPiece := b.pieces[from]
-		pinMask := pinLine[from]
+	// Pawns (bulk bitboard generation)
+	if !doubleCheck {
+		pawns := b.pawns[us]
 
 		if side == White {
-			one := from + 8
-			if one < 64 && ((allOcc>>uint(one))&1) == 0 {
-				// Promotion or quiet push
-				if one/8 == 7 {
-					// promotions: Q R B N
-					toBB := uint64(1) << uint(one)
-					if !doubleCheck && (pinMask == 0 || (toBB&pinMask) != 0) && (!inCheck || (toBB&checkMask) != 0) {
-						if filter != genCaptures {
-							moves = append(moves,
-								NewMove(fromSq, Square(one), movedPiece, NoPiece, WhiteQueen, FlagNone),
-								NewMove(fromSq, Square(one), movedPiece, NoPiece, WhiteRook, FlagNone),
-								NewMove(fromSq, Square(one), movedPiece, NoPiece, WhiteBishop, FlagNone),
-								NewMove(fromSq, Square(one), movedPiece, NoPiece, WhiteKnight, FlagNone),
-							)
-						}
+			// ----------------------
+			// White pawn pushes
+			// ----------------------
+			if filter != genCaptures {
+				// Single pushes: one rank forward into empty squares
+				singlePush := (pawns << 8) & ^allOcc
+
+				// Promotions vs non-promotions
+				promoPushes := singlePush & Rank8Mask
+				quietPushes := singlePush & ^Rank8Mask
+
+				// Double pushes: from rank 2, two ranks forward, both squares empty
+				fromRank2 := pawns & Rank2Mask
+				oneStepFromRank2 := (fromRank2 << 8) & ^allOcc
+				doublePush := (oneStepFromRank2 << 8) & ^allOcc
+
+				// Quiet non-promotion pushes
+				for bb := quietPushes; bb != 0; {
+					to := popLSB(&bb)
+					from := to - 8
+					fromSq := Square(from)
+					movedPiece := b.pieces[from]
+					pinMask := pinLine[from]
+
+					toBB := uint64(1) << uint(to)
+					if pinMask != 0 && (toBB&pinMask) == 0 {
+						continue
 					}
-				} else {
-					toBB := uint64(1) << uint(one)
-					if !doubleCheck && (pinMask == 0 || (toBB&pinMask) != 0) && (!inCheck || (toBB&checkMask) != 0) {
-						if filter != genCaptures {
-							moves = append(moves, NewMove(fromSq, Square(one), movedPiece, NoPiece, NoPiece, FlagNone))
-						}
+					if inCheck && (toBB&checkMask) == 0 {
+						continue
 					}
-					// double push
-					if from/8 == 1 {
-						two := from + 16
-						if ((allOcc >> uint(two)) & 1) == 0 {
-							toBB2 := uint64(1) << uint(two)
-							if !doubleCheck && (pinMask == 0 || (toBB2&pinMask) != 0) && (!inCheck || (toBB2&checkMask) != 0) {
-								if filter != genCaptures {
-									moves = append(moves, NewMove(fromSq, Square(two), movedPiece, NoPiece, NoPiece, FlagNone))
+
+					moves = append(moves, NewMove(fromSq, Square(to), movedPiece, NoPiece, NoPiece, FlagNone))
+				}
+
+				// Double pushes
+				for bb := doublePush; bb != 0; {
+					to := popLSB(&bb)
+					from := to - 16
+					fromSq := Square(from)
+					movedPiece := b.pieces[from]
+					pinMask := pinLine[from]
+
+					toBB := uint64(1) << uint(to)
+					if pinMask != 0 && (toBB&pinMask) == 0 {
+						continue
+					}
+					if inCheck && (toBB&checkMask) == 0 {
+						continue
+					}
+
+					moves = append(moves, NewMove(fromSq, Square(to), movedPiece, NoPiece, NoPiece, FlagNone))
+				}
+
+				// Quiet promotions (no capture)
+				for bb := promoPushes; bb != 0; {
+					to := popLSB(&bb)
+					from := to - 8
+					fromSq := Square(from)
+					movedPiece := b.pieces[from]
+					pinMask := pinLine[from]
+
+					toBB := uint64(1) << uint(to)
+					if pinMask != 0 && (toBB&pinMask) == 0 {
+						continue
+					}
+					if inCheck && (toBB&checkMask) == 0 {
+						continue
+					}
+
+					moves = append(moves,
+						NewMove(fromSq, Square(to), movedPiece, NoPiece, WhiteQueen, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, NoPiece, WhiteRook, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, NoPiece, WhiteBishop, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, NoPiece, WhiteKnight, FlagNone),
+					)
+				}
+			}
+
+			// ----------------------
+			// White pawn captures
+			// ----------------------
+			if filter != genQuiets {
+				// Potential capture destinations
+				leftAttacks := (pawns & ^FileAMask) << 7
+				rightAttacks := (pawns & ^FileHMask) << 9
+
+				leftCaps := leftAttacks & oppOcc
+				rightCaps := rightAttacks & oppOcc
+
+				// Non-promotion captures
+				leftNormals := leftCaps & ^Rank8Mask
+				rightNormals := rightCaps & ^Rank8Mask
+
+				// Promotion captures
+				leftPromos := leftCaps & Rank8Mask
+				rightPromos := rightCaps & Rank8Mask
+
+				// Normal left captures
+				for bb := leftNormals; bb != 0; {
+					to := popLSB(&bb)
+					from := to - 7 // to = from + 7
+					fromSq := Square(from)
+					movedPiece := b.pieces[from]
+					capPiece := b.pieces[to]
+					pinMask := pinLine[from]
+
+					toBB := uint64(1) << uint(to)
+					if pinMask != 0 && (toBB&pinMask) == 0 {
+						continue
+					}
+					if inCheck && (toBB&checkMask) == 0 {
+						continue
+					}
+
+					moves = append(moves, NewMove(fromSq, Square(to), movedPiece, capPiece, NoPiece, FlagNone))
+				}
+
+				// Normal right captures
+				for bb := rightNormals; bb != 0; {
+					to := popLSB(&bb)
+					from := to - 9 // to = from + 9
+					fromSq := Square(from)
+					movedPiece := b.pieces[from]
+					capPiece := b.pieces[to]
+					pinMask := pinLine[from]
+
+					toBB := uint64(1) << uint(to)
+					if pinMask != 0 && (toBB&pinMask) == 0 {
+						continue
+					}
+					if inCheck && (toBB&checkMask) == 0 {
+						continue
+					}
+
+					moves = append(moves, NewMove(fromSq, Square(to), movedPiece, capPiece, NoPiece, FlagNone))
+				}
+
+				// Promotion captures (left)
+				for bb := leftPromos; bb != 0; {
+					to := popLSB(&bb)
+					from := to - 7
+					fromSq := Square(from)
+					movedPiece := b.pieces[from]
+					capPiece := b.pieces[to]
+					pinMask := pinLine[from]
+
+					toBB := uint64(1) << uint(to)
+					if pinMask != 0 && (toBB&pinMask) == 0 {
+						continue
+					}
+					if inCheck && (toBB&checkMask) == 0 {
+						continue
+					}
+
+					moves = append(moves,
+						NewMove(fromSq, Square(to), movedPiece, capPiece, WhiteQueen, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, capPiece, WhiteRook, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, capPiece, WhiteBishop, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, capPiece, WhiteKnight, FlagNone),
+					)
+				}
+
+				// Promotion captures (right)
+				for bb := rightPromos; bb != 0; {
+					to := popLSB(&bb)
+					from := to - 9
+					fromSq := Square(from)
+					movedPiece := b.pieces[from]
+					capPiece := b.pieces[to]
+					pinMask := pinLine[from]
+
+					toBB := uint64(1) << uint(to)
+					if pinMask != 0 && (toBB&pinMask) == 0 {
+						continue
+					}
+					if inCheck && (toBB&checkMask) == 0 {
+						continue
+					}
+
+					moves = append(moves,
+						NewMove(fromSq, Square(to), movedPiece, capPiece, WhiteQueen, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, capPiece, WhiteRook, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, capPiece, WhiteBishop, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, capPiece, WhiteKnight, FlagNone),
+					)
+				}
+
+				// En passant (white)
+				if b.enPassantSquare != NoSquare {
+					ep := int(b.enPassantSquare)
+					epBB := uint64(1) << uint(ep)
+					epFile := ep % 8
+
+					// Left EP capture: from = ep - 7
+					if epFile < 7 {
+						from := ep - 7
+						if from >= 0 && from < 64 && ((pawns>>uint(from))&1) != 0 {
+							fromSq := Square(from)
+							movedPiece := b.pieces[from]
+							pinMask := pinLine[from]
+
+							if pinMask == 0 || (epBB&pinMask) != 0 {
+								// simulate: remove from, remove captured pawn at ep-8, add to
+								occp := allOcc
+								occp &^= (uint64(1) << uint(from))
+								capSq := ep - 8
+								occp &^= (uint64(1) << uint(capSq))
+								occp |= epBB
+								pawnMask := b.pawns[them] &^ (uint64(1) << uint(capSq))
+
+								if ks >= 0 && !b.isSquareAttackedWithOccAndPawns(ks, Color(them), occp, pawnMask) {
+									moves = append(moves, NewMove(fromSq, Square(ep), movedPiece, BlackPawn, NoPiece, FlagEnPassant))
 								}
 							}
 						}
 					}
-				}
-			}
 
-			// Captures
-			caps := pawnAttacks[White][from]
+					// Right EP capture: from = ep - 9
+					if epFile > 0 {
+						from := ep - 9
+						if from >= 0 && from < 64 && ((pawns>>uint(from))&1) != 0 {
+							fromSq := Square(from)
+							movedPiece := b.pieces[from]
+							pinMask := pinLine[from]
 
-			// normal captures (exclude EP square)
-			capTargets := caps & oppOcc
-			for capTargets != 0 {
-				to := popLSB(&capTargets)
-				toSq := Square(to)
-				capPiece := b.pieces[to]
-				toBB := uint64(1) << uint(to)
+							if pinMask == 0 || (epBB&pinMask) != 0 {
+								occp := allOcc
+								occp &^= (uint64(1) << uint(from))
+								capSq := ep - 8
+								occp &^= (uint64(1) << uint(capSq))
+								occp |= epBB
+								pawnMask := b.pawns[them] &^ (uint64(1) << uint(capSq))
 
-				if doubleCheck || (pinMask != 0 && (toBB&pinMask) == 0) || (inCheck && (toBB&checkMask) == 0) {
-					continue
-				}
-
-				if to/8 == 7 {
-					if filter != genQuiets {
-						moves = append(moves,
-							NewMove(fromSq, toSq, movedPiece, capPiece, WhiteQueen, FlagNone),
-							NewMove(fromSq, toSq, movedPiece, capPiece, WhiteRook, FlagNone),
-							NewMove(fromSq, toSq, movedPiece, capPiece, WhiteBishop, FlagNone),
-							NewMove(fromSq, toSq, movedPiece, capPiece, WhiteKnight, FlagNone),
-						)
-					}
-				} else {
-					if filter != genQuiets {
-						moves = append(moves, NewMove(fromSq, toSq, movedPiece, capPiece, NoPiece, FlagNone))
-					}
-				}
-			}
-
-			// en passant (simulate occupancy change + king safety)
-			if b.enPassantSquare != NoSquare {
-				ep := int(b.enPassantSquare)
-				if (caps & (1 << uint(ep))) != 0 {
-					toBB := uint64(1) << uint(ep)
-					if !(doubleCheck || (pinMask != 0 && (toBB&pinMask) == 0)) {
-						if filter != genQuiets {
-							// simulate: remove from, remove captured pawn at ep-8, add to
-							occp := allOcc
-							occp &^= (uint64(1) << uint(from))
-							capSq := ep - 8
-							occp &^= (uint64(1) << uint(capSq))
-							occp |= (uint64(1) << uint(ep))
-							if ks >= 0 {
-								if !b.isSquareAttackedWithOcc(ks, Color(them), occp) {
+								if ks >= 0 && !b.isSquareAttackedWithOccAndPawns(ks, Color(them), occp, pawnMask) {
 									moves = append(moves, NewMove(fromSq, Square(ep), movedPiece, BlackPawn, NoPiece, FlagEnPassant))
 								}
 							}
@@ -811,84 +1013,238 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 				}
 			}
 		} else {
+			// ----------------------
 			// Black pawns
-			one := from - 8
-			if one >= 0 && ((allOcc>>uint(one))&1) == 0 {
-				if one/8 == 0 {
-					toBB := uint64(1) << uint(one)
-					if !doubleCheck && (pinMask == 0 || (toBB&pinMask) != 0) && (!inCheck || (toBB&checkMask) != 0) {
-						if filter != genCaptures {
-							moves = append(moves,
-								NewMove(fromSq, Square(one), movedPiece, NoPiece, BlackQueen, FlagNone),
-								NewMove(fromSq, Square(one), movedPiece, NoPiece, BlackRook, FlagNone),
-								NewMove(fromSq, Square(one), movedPiece, NoPiece, BlackBishop, FlagNone),
-								NewMove(fromSq, Square(one), movedPiece, NoPiece, BlackKnight, FlagNone),
-							)
-						}
+			// ----------------------
+
+			if filter != genCaptures {
+				// Single pushes: one rank forward (down) into empty squares
+				singlePush := (pawns >> 8) & ^allOcc
+
+				// Promotions vs non-promotions
+				promoPushes := singlePush & Rank1Mask
+				quietPushes := singlePush & ^Rank1Mask
+
+				// Double pushes: from rank 7, two ranks down, both squares empty
+				fromRank7 := pawns & Rank7Mask
+				oneStepFromRank7 := (fromRank7 >> 8) & ^allOcc
+				doublePush := (oneStepFromRank7 >> 8) & ^allOcc
+
+				// Quiet non-promotion pushes
+				for bb := quietPushes; bb != 0; {
+					to := popLSB(&bb)
+					from := to + 8
+					fromSq := Square(from)
+					movedPiece := b.pieces[from]
+					pinMask := pinLine[from]
+
+					toBB := uint64(1) << uint(to)
+					if pinMask != 0 && (toBB&pinMask) == 0 {
+						continue
 					}
-				} else {
-					toBB := uint64(1) << uint(one)
-					if !doubleCheck && (pinMask == 0 || (toBB&pinMask) != 0) && (!inCheck || (toBB&checkMask) != 0) {
-						if filter != genCaptures {
-							moves = append(moves, NewMove(fromSq, Square(one), movedPiece, NoPiece, NoPiece, FlagNone))
-						}
+					if inCheck && (toBB&checkMask) == 0 {
+						continue
 					}
-					if from/8 == 6 {
-						two := from - 16
-						if ((allOcc >> uint(two)) & 1) == 0 {
-							toBB2 := uint64(1) << uint(two)
-							if !doubleCheck && (pinMask == 0 || (toBB2&pinMask) != 0) && (!inCheck || (toBB2&checkMask) != 0) {
-								if filter != genCaptures {
-									moves = append(moves, NewMove(fromSq, Square(two), movedPiece, NoPiece, NoPiece, FlagNone))
+
+					moves = append(moves, NewMove(fromSq, Square(to), movedPiece, NoPiece, NoPiece, FlagNone))
+				}
+
+				// Double pushes
+				for bb := doublePush; bb != 0; {
+					to := popLSB(&bb)
+					from := to + 16
+					fromSq := Square(from)
+					movedPiece := b.pieces[from]
+					pinMask := pinLine[from]
+
+					toBB := uint64(1) << uint(to)
+					if pinMask != 0 && (toBB&pinMask) == 0 {
+						continue
+					}
+					if inCheck && (toBB&checkMask) == 0 {
+						continue
+					}
+
+					moves = append(moves, NewMove(fromSq, Square(to), movedPiece, NoPiece, NoPiece, FlagNone))
+				}
+
+				// Quiet promotions (no capture)
+				for bb := promoPushes; bb != 0; {
+					to := popLSB(&bb)
+					from := to + 8
+					fromSq := Square(from)
+					movedPiece := b.pieces[from]
+					pinMask := pinLine[from]
+
+					toBB := uint64(1) << uint(to)
+					if pinMask != 0 && (toBB&pinMask) == 0 {
+						continue
+					}
+					if inCheck && (toBB&checkMask) == 0 {
+						continue
+					}
+
+					moves = append(moves,
+						NewMove(fromSq, Square(to), movedPiece, NoPiece, BlackQueen, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, NoPiece, BlackRook, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, NoPiece, BlackBishop, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, NoPiece, BlackKnight, FlagNone),
+					)
+				}
+			}
+
+			// ----------------------
+			// Black pawn captures
+			// ----------------------
+			if filter != genQuiets {
+				leftAttacks := (pawns & ^FileAMask) >> 9
+				rightAttacks := (pawns & ^FileHMask) >> 7
+
+				leftCaps := leftAttacks & oppOcc
+				rightCaps := rightAttacks & oppOcc
+
+				leftNormals := leftCaps & ^Rank1Mask
+				rightNormals := rightCaps & ^Rank1Mask
+
+				leftPromos := leftCaps & Rank1Mask
+				rightPromos := rightCaps & Rank1Mask
+
+				// Normal left captures
+				for bb := leftNormals; bb != 0; {
+					to := popLSB(&bb)
+					from := to + 9 // to = from - 9
+					fromSq := Square(from)
+					movedPiece := b.pieces[from]
+					capPiece := b.pieces[to]
+					pinMask := pinLine[from]
+
+					toBB := uint64(1) << uint(to)
+					if pinMask != 0 && (toBB&pinMask) == 0 {
+						continue
+					}
+					if inCheck && (toBB&checkMask) == 0 {
+						continue
+					}
+
+					moves = append(moves, NewMove(fromSq, Square(to), movedPiece, capPiece, NoPiece, FlagNone))
+				}
+
+				// Normal right captures
+				for bb := rightNormals; bb != 0; {
+					to := popLSB(&bb)
+					from := to + 7 // to = from - 7
+					fromSq := Square(from)
+					movedPiece := b.pieces[from]
+					capPiece := b.pieces[to]
+					pinMask := pinLine[from]
+
+					toBB := uint64(1) << uint(to)
+					if pinMask != 0 && (toBB&pinMask) == 0 {
+						continue
+					}
+					if inCheck && (toBB&checkMask) == 0 {
+						continue
+					}
+
+					moves = append(moves, NewMove(fromSq, Square(to), movedPiece, capPiece, NoPiece, FlagNone))
+				}
+
+				// Promotion captures (left)
+				for bb := leftPromos; bb != 0; {
+					to := popLSB(&bb)
+					from := to + 9
+					fromSq := Square(from)
+					movedPiece := b.pieces[from]
+					capPiece := b.pieces[to]
+					pinMask := pinLine[from]
+
+					toBB := uint64(1) << uint(to)
+					if pinMask != 0 && (toBB&pinMask) == 0 {
+						continue
+					}
+					if inCheck && (toBB&checkMask) == 0 {
+						continue
+					}
+
+					moves = append(moves,
+						NewMove(fromSq, Square(to), movedPiece, capPiece, BlackQueen, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, capPiece, BlackRook, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, capPiece, BlackBishop, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, capPiece, BlackKnight, FlagNone),
+					)
+				}
+
+				// Promotion captures (right)
+				for bb := rightPromos; bb != 0; {
+					to := popLSB(&bb)
+					from := to + 7
+					fromSq := Square(from)
+					movedPiece := b.pieces[from]
+					capPiece := b.pieces[to]
+					pinMask := pinLine[from]
+
+					toBB := uint64(1) << uint(to)
+					if pinMask != 0 && (toBB&pinMask) == 0 {
+						continue
+					}
+					if inCheck && (toBB&checkMask) == 0 {
+						continue
+					}
+
+					moves = append(moves,
+						NewMove(fromSq, Square(to), movedPiece, capPiece, BlackQueen, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, capPiece, BlackRook, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, capPiece, BlackBishop, FlagNone),
+						NewMove(fromSq, Square(to), movedPiece, capPiece, BlackKnight, FlagNone),
+					)
+				}
+
+				// En passant for black
+				if b.enPassantSquare != NoSquare {
+					ep := int(b.enPassantSquare)
+					epBB := uint64(1) << uint(ep)
+					epFile := ep % 8
+
+					// Left EP capture: from = ep + 9 (black captures down-left)
+					if epFile < 7 {
+						from := ep + 9
+						if from >= 0 && from < 64 && ((pawns>>uint(from))&1) != 0 {
+							fromSq := Square(from)
+							movedPiece := b.pieces[from]
+							pinMask := pinLine[from]
+
+							if pinMask == 0 || (epBB&pinMask) != 0 {
+								occp := allOcc
+								occp &^= (uint64(1) << uint(from))
+								capSq := ep + 8
+								occp &^= (uint64(1) << uint(capSq))
+								occp |= epBB
+								pawnMask := b.pawns[them] &^ (uint64(1) << uint(capSq))
+
+								if ks >= 0 && !b.isSquareAttackedWithOccAndPawns(ks, Color(them), occp, pawnMask) {
+									moves = append(moves, NewMove(fromSq, Square(ep), movedPiece, WhitePawn, NoPiece, FlagEnPassant))
 								}
 							}
 						}
 					}
-				}
-			}
 
-			caps := pawnAttacks[Black][from]
-			capTargets := caps & oppOcc
-			for capTargets != 0 {
-				to := popLSB(&capTargets)
-				toSq := Square(to)
-				capPiece := b.pieces[to]
-				toBB := uint64(1) << uint(to)
+					// Right EP capture: from = ep + 7 (black captures down-right)
+					if epFile > 0 {
+						from := ep + 7
+						if from >= 0 && from < 64 && ((pawns>>uint(from))&1) != 0 {
+							fromSq := Square(from)
+							movedPiece := b.pieces[from]
+							pinMask := pinLine[from]
 
-				if doubleCheck || (pinMask != 0 && (toBB&pinMask) == 0) || (inCheck && (toBB&checkMask) == 0) {
-					continue
-				}
+							if pinMask == 0 || (epBB&pinMask) != 0 {
+								occp := allOcc
+								occp &^= (uint64(1) << uint(from))
+								capSq := ep + 8
+								occp &^= (uint64(1) << uint(capSq))
+								occp |= epBB
+								pawnMask := b.pawns[them] &^ (uint64(1) << uint(capSq))
 
-				if to/8 == 0 {
-					if filter != genQuiets {
-						moves = append(moves,
-							NewMove(fromSq, toSq, movedPiece, capPiece, BlackQueen, FlagNone),
-							NewMove(fromSq, toSq, movedPiece, capPiece, BlackRook, FlagNone),
-							NewMove(fromSq, toSq, movedPiece, capPiece, BlackBishop, FlagNone),
-							NewMove(fromSq, toSq, movedPiece, capPiece, BlackKnight, FlagNone),
-						)
-					}
-				} else {
-					if filter != genQuiets {
-						moves = append(moves, NewMove(fromSq, toSq, movedPiece, capPiece, NoPiece, FlagNone))
-					}
-				}
-			}
-
-			if b.enPassantSquare != NoSquare {
-				ep := int(b.enPassantSquare)
-				if (caps & (1 << uint(ep))) != 0 {
-					toBB := uint64(1) << uint(ep)
-					if !(doubleCheck || (pinMask != 0 && (toBB&pinMask) == 0)) {
-						if filter != genQuiets {
-							// simulate: remove from, remove captured pawn at ep+8, add to
-							occp := allOcc
-							occp &^= (uint64(1) << uint(from))
-							capSq := ep + 8
-							occp &^= (uint64(1) << uint(capSq))
-							occp |= (uint64(1) << uint(ep))
-							if ks >= 0 {
-								if !b.isSquareAttackedWithOcc(ks, Color(them), occp) {
+								if ks >= 0 && !b.isSquareAttackedWithOccAndPawns(ks, Color(them), occp, pawnMask) {
 									moves = append(moves, NewMove(fromSq, Square(ep), movedPiece, WhitePawn, NoPiece, FlagEnPassant))
 								}
 							}
@@ -905,18 +1261,23 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 		for knights != 0 {
 			from := popLSB(&knights)
 			fromSq := Square(from)
-			movedPiece := b.pieces[from]
-			pinMask := pinLine[from]
+
+			// If this knight is directionally pinned, it cannot move at all:
+			// any knight move would leave the pin line between our king and an enemy slider.
+			if pinLine[from] != 0 {
+				continue
+			}
+
+			movedPiece := knightPiece
 
 			targets := knightMoves[from] &^ ownOcc
-			if pinMask != 0 {
-				targets &= pinMask
-			}
 			if inCheck {
 				targets &= checkMask
 			}
 			if filter == genCaptures {
 				targets &= oppOcc
+			} else if filter == genQuiets {
+				targets &^= oppOcc
 			}
 
 			for t := targets; t != 0; {
@@ -940,8 +1301,22 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 		for bishops != 0 {
 			from := popLSB(&bishops)
 			fromSq := Square(from)
-			movedPiece := b.pieces[from]
 			pinMask := pinLine[from]
+
+			// If this bishop is pinned along a rank or file (i.e. not on a diagonal with our king),
+			// it cannot move at all because every bishop move leaves the pin line.
+			if pinMask != 0 && kRank >= 0 {
+				fromRank := from / 8
+				fromFile := from & 7
+				dr := fromRank - kRank
+				df := fromFile - kFile
+				isDiag := dr != 0 && df != 0 && (dr == df || dr == -df)
+				if !isDiag {
+					continue
+				}
+			}
+
+			movedPiece := bishopPiece
 
 			targets := bishopAttacksMagic(from, allOcc) &^ ownOcc
 			if pinMask != 0 {
@@ -978,8 +1353,22 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 		for rooks != 0 {
 			from := popLSB(&rooks)
 			fromSq := Square(from)
-			movedPiece := b.pieces[from]
 			pinMask := pinLine[from]
+
+			// If this rook is pinned along a diagonal, it cannot move at all; every rook move
+			// would step off the diagonal pin line between our king and the attacker.
+			if pinMask != 0 && kRank >= 0 {
+				fromRank := from / 8
+				fromFile := from & 7
+				dr := fromRank - kRank
+				df := fromFile - kFile
+				isDiag := dr != 0 && df != 0 && (dr == df || dr == -df)
+				if isDiag {
+					continue
+				}
+			}
+
+			movedPiece := rookPiece
 
 			targets := rookAttacksMagic(from, allOcc) &^ ownOcc
 			if pinMask != 0 {
@@ -1016,10 +1405,37 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 		for queens != 0 {
 			from := popLSB(&queens)
 			fromSq := Square(from)
-			movedPiece := b.pieces[from]
 			pinMask := pinLine[from]
 
-			targets := (rookAttacksMagic(from, allOcc) | bishopAttacksMagic(from, allOcc)) &^ ownOcc
+			var targets uint64
+
+			if pinMask != 0 && kRank >= 0 {
+				fromRank := from / 8
+				fromFile := from & 7
+				dr := fromRank - kRank
+				df := fromFile - kFile
+				sameRank := dr == 0
+				sameFile := df == 0
+				isDiag := dr != 0 && df != 0 && (dr == df || dr == -df)
+
+				switch {
+				case sameRank || sameFile:
+					// Pinned along a rank/file: only rook-like moves are legal.
+					targets = rookAttacksMagic(from, allOcc)
+				case isDiag:
+					// Pinned along a diagonal: only bishop-like moves are legal.
+					targets = bishopAttacksMagic(from, allOcc)
+				default:
+					// Fallback: in weird cases just generate full queen moves.
+					targets = rookAttacksMagic(from, allOcc) | bishopAttacksMagic(from, allOcc)
+				}
+			} else {
+				targets = rookAttacksMagic(from, allOcc) | bishopAttacksMagic(from, allOcc)
+			}
+
+			movedPiece := queenPiece
+
+			targets &^= ownOcc
 			if pinMask != 0 {
 				targets &= pinMask
 			}

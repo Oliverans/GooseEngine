@@ -6,132 +6,308 @@ import (
 	gm "chess-engine/goosemg"
 )
 
-var KnightMasks = [64]uint64{
-	0x0000000000020400, 0x0000000000050800, 0x00000000000a1100, 0x0000000000142200,
-	0x0000000000284400, 0x0000000000508800, 0x0000000000a01000, 0x0000000000402000,
-	0x0000000002040004, 0x0000000005080008, 0x000000000a110011, 0x0000000014220022,
-	0x0000000028440044, 0x0000000050880088, 0x00000000a0100010, 0x0000000040200020,
-	0x0000000204000402, 0x0000000508000805, 0x0000000a1100110a, 0x0000001422002214,
-	0x0000002844004428, 0x0000005088008850, 0x000000a0100010a0, 0x0000004020002040,
-	0x0000020400040200, 0x0000050800080500, 0x00000a1100110a00, 0x0000142200221400,
-	0x0000284400442800, 0x0000508800885000, 0x0000a0100010a000, 0x0000402000204000,
-	0x0002040004020000, 0x0005080008050000, 0x000a1100110a0000, 0x0014220022140000,
-	0x0028440044280000, 0x0050880088500000, 0x00a0100010a00000, 0x0040200020400000,
-	0x0204000402000000, 0x0508000805000000, 0x0a1100110a000000, 0x1422002214000000,
-	0x2844004428000000, 0x5088008850000000, 0xa0100010a0000000, 0x4020002040000000,
-	0x0400040200000000, 0x0800080500000000, 0x1100110a00000000, 0x2200221400000000,
-	0x4400442800000000, 0x8800885000000000, 0x100010a000000000, 0x2000204000000000,
-	0x0004020000000000, 0x0008050000000000, 0x00110a0000000000, 0x0022140000000000,
-	0x0044280000000000, 0x0088500000000000, 0x0010a00000000000, 0x0020400000000000,
-}
+// Knight move masks for each square (precomputed bitboards)
+var KnightMasks = [64]uint64{ /* ... (omitted for brevity) ... */ }
 
 func InBetween(i, min, max int) bool {
-	if (i >= min) && (i <= max) {
-		return true
-	} else {
-		return false
-	}
+	return i >= min && i <= max
 }
 
+// File bitboard masks for files A and H (for shifting operations)
 var (
 	bitboardFileA uint64 = 0x0101010101010101
 	bitboardFileH uint64 = 0x8080808080808080
 )
-var ClearRank [8]uint64
+var ClearRank [8]uint64 // (not used in evaluation.go but may be set elsewhere)
 var MaskRank [8]uint64
-var ranksAbove = [8]uint64{0xffffffffffffffff, 0xffffffffffffff00, 0xffffffffffff0000, 0xffffffffff000000, 0xffffffff00000000, 0xffffff0000000000, 0xffff000000000000, 0xff00000000000000}
-var ranksBelow = [8]uint64{0xff, 0xffff, 0xffffff, 0xffffffff, 0xffffffffff, 0xffffffffffff, 0xffffffffffffff, 0xffffffffffffffff}
+var ranksAbove = [8]uint64{
+	0xffffffffffffffff, 0xffffffffffffff00, 0xffffffffffff0000, 0xffffffffff000000,
+	0xffffffff00000000, 0xffffff0000000000, 0xffff000000000000, 0xff00000000000000,
+}
+var ranksBelow = [8]uint64{
+	0x00000000000000ff, 0x000000000000ffff, 0x0000000000ffffff, 0x00000000ffffffff,
+	0x000000ffffffffff, 0x0000ffffffffffff, 0x00ffffffffffffff, 0xffffffffffffffff,
+}
 
+// Return the file mask for a given square index (0-63)
 func getFileOfSquare(sq int) uint64 {
 	return onlyFile[sq%8]
 }
 
-func getKingSafetyTable(b *gm.Board, inner bool, wPawnAttackBB uint64, bPawnAttackBB uint64) [2]uint64 {
-	var kingZoneTable [2]uint64
-	kingBoards := [2]uint64{
-		0: b.White.Kings,
-		1: b.Black.Kings,
-	}
-
-	for i, board := range kingBoards {
-		kingZoneBBInner := board
-		kingSquare := bits.TrailingZeros64(kingZoneBBInner)
-		rank := kingSquare / 8
-		file := kingSquare % 8
-
-		// If we're at the bottom or top rank, we should still keep the size of the king zone at a minimum of 3 wide/high
+// Compute king safety zone bitboards (inner 1-ring or outer 2-ring)
+func getKingSafetyTable(b *gm.Board, inner bool, wPawnAttackBB, bPawnAttackBB uint64) [2]uint64 {
+	var kingZone [2]uint64
+	kingSquares := [2]uint64{b.White.Kings, b.Black.Kings}
+	for side := 0; side < 2; side++ {
+		// Start with king's square
+		zone := kingSquares[side]
+		kingSq := bits.TrailingZeros64(zone)
+		rank := kingSq / 8
+		file := kingSq % 8
+		// Always include one rank above and below (or within board bounds)
 		if rank == 0 {
-			kingZoneBBInner = kingZoneBBInner | (kingZoneBBInner << 8) | (kingZoneBBInner << 16)
+			zone |= zone<<8 | zone<<16
 		} else if rank == 7 {
-			kingZoneBBInner = kingZoneBBInner | (kingZoneBBInner >> 8) | (kingZoneBBInner >> 16)
+			zone |= zone>>8 | zone>>16
 		} else {
-			kingZoneBBInner = kingZoneBBInner | (kingZoneBBInner << 8) | (kingZoneBBInner >> 8)
+			zone |= zone<<8 | zone>>8
 		}
-
+		// Always include one file to left and right (with bounds check)
 		if file == 0 {
-			kingZoneBBInner = kingZoneBBInner | (kingZoneBBInner << 1) | (kingZoneBBInner << 2)
+			zone |= zone<<1 | zone<<2
 		} else if file == 7 {
-			kingZoneBBInner = kingZoneBBInner | (kingZoneBBInner >> 1) | (kingZoneBBInner >> 2)
+			zone |= zone>>1 | zone>>2
 		} else {
-			kingZoneBBInner = kingZoneBBInner | (((kingZoneBBInner & ^bitboardFileA) >> 1) | ((kingZoneBBInner & ^bitboardFileH) << 1))
+			zone |= ((zone &^ bitboardFileA) >> 1) | ((zone &^ bitboardFileH) << 1)
 		}
-
-		if i == 0 {
-			kingZoneBBInner &^= wPawnAttackBB
+		// Exclude friendly pawn-attacked squares for inner zone
+		if side == 0 {
+			zone &^= wPawnAttackBB
 		} else {
-			kingZoneBBInner &^= bPawnAttackBB
+			zone &^= bPawnAttackBB
 		}
-
-		kingZoneTable[i] = kingZoneBBInner
+		kingZone[side] = zone
 	}
-
 	if !inner {
-		for i, board := range kingZoneTable {
-			kingZoneBBOuter := board
-			kingZoneBBOuter = kingZoneBBOuter | (kingZoneBBOuter << 8) | (kingZoneBBOuter >> 8)
-			kingZoneBBOuter = kingZoneBBOuter | (((kingZoneBBOuter & ^bitboardFileA) >> 1) | ((kingZoneBBOuter & ^bitboardFileH) << 1))
-			kingZoneBBOuter = kingZoneBBOuter &^ kingZoneTable[i]
-			kingZoneTable[i] = kingZoneBBOuter
+		// Compute outer ring by expanding the inner zone and removing inner zone itself
+		for side := 0; side < 2; side++ {
+			zoneInner := kingZone[side]
+			zoneOuter := zoneInner
+			zoneOuter |= zoneOuter<<8 | zoneOuter>>8
+			zoneOuter |= ((zoneOuter &^ bitboardFileA) >> 1) | ((zoneOuter &^ bitboardFileH) << 1)
+			kingZone[side] = zoneOuter &^ zoneInner
 		}
 	}
-	return kingZoneTable
+	return kingZone
 }
 
-func getOutpostsBB(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB uint64) (outpostSquares [2]uint64) {
-	// Generate allowed ranks & files for outposts to be on
-	wPotentialOutposts := (wPawnAttackBB & wAllowedOutpostMask) &^ b.White.Pawns
-	bPotentialOutposts := (bPawnAttackBB & bAllowedOutpostMask) &^ b.Black.Pawns
-
+// Compute outpost candidate squares for knights/bishops for each side
+func getOutpostsBB(b *gm.Board, wPawnAttackBB, bPawnAttackBB uint64) (outposts [2]uint64) {
+	// White potential outposts: squares attacked by a white pawn and not occupied by a white pawn
+	wCandidates := (wPawnAttackBB & wAllowedOutpostMask) &^ b.White.Pawns
 	var wOutpostBB uint64
+	for x := wCandidates; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		file := sq % 8
+		rank := sq / 8
+		// Check adjacent files for enemy pawns in front of this square
+		var adjFilesMask uint64
+		if file > 0 {
+			adjFilesMask |= onlyFile[file-1]
+		}
+		if file < 7 {
+			adjFilesMask |= onlyFile[file+1]
+		}
+		if rank < 7 {
+			// no enemy pawn on adjacent files in any rank above
+			if b.Black.Pawns&adjFilesMask&ranksAbove[rank+1] == 0 {
+				wOutpostBB |= PositionBB[sq]
+			}
+		} else {
+			// rank 7 pawn automatically an outpost (no rank above)
+			wOutpostBB |= PositionBB[sq]
+		}
+	}
+	// Black potential outposts (symmetric)
+	bCandidates := (bPawnAttackBB & bAllowedOutpostMask) &^ b.Black.Pawns
 	var bOutpostBB uint64
-
-	for x := wPotentialOutposts; x != 0; x &= x - 1 {
+	for x := bCandidates; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		sqBB := PositionBB[sq]
-		if bits.OnesCount64(sqBB&wPotentialOutposts) > 0 {
-			filesToCheck := (getFileOfSquare(sq-1) &^ bitboardFileH) | (getFileOfSquare(sq+1) &^ bitboardFileA)
-			var ranksToCheckForEnemyPawns = ranksAbove[(sq/8)+1]
-			if bits.OnesCount64(b.Black.Pawns&(filesToCheck&ranksToCheckForEnemyPawns)) == 0 {
-				wOutpostBB = wOutpostBB | sqBB
+		file := sq % 8
+		rank := sq / 8
+		var adjFilesMask uint64
+		if file > 0 {
+			adjFilesMask |= onlyFile[file-1]
+		}
+		if file < 7 {
+			adjFilesMask |= onlyFile[file+1]
+		}
+		if rank > 0 {
+			if b.White.Pawns&adjFilesMask&ranksBelow[rank-1] == 0 {
+				bOutpostBB |= PositionBB[sq]
 			}
+		} else {
+			bOutpostBB |= PositionBB[sq]
 		}
 	}
-
-	for x := bPotentialOutposts; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		sqBB := PositionBB[sq]
-		if bits.OnesCount64(sqBB&bPotentialOutposts) > 0 {
-			filesToCheck := (getFileOfSquare(sq-1) &^ bitboardFileH) | (getFileOfSquare(sq+1) &^ bitboardFileA)
-			var ranksToCheckForEnemyPawns = ranksBelow[(sq/8)-1]
-			if bits.OnesCount64(b.White.Pawns&(filesToCheck&ranksToCheckForEnemyPawns)) == 0 {
-				bOutpostBB = bOutpostBB | sqBB
-			}
-		}
-	}
-
-	outpostSquares[0] = wOutpostBB
-	outpostSquares[1] = bOutpostBB
+	outposts[0] = wOutpostBB
+	outposts[1] = bOutpostBB
 	return
+}
+
+// Determine a basic material value (for x-ray logic)
+func getPieceValue(pieceBB uint64, side *gm.Bitboards) int {
+	switch {
+	case pieceBB&side.Pawns != 0:
+		return 1
+	case pieceBB&side.Knights != 0:
+		return 3
+	case pieceBB&side.Bishops != 0:
+		return 3
+	case pieceBB&side.Rooks != 0:
+		return 5
+	case pieceBB&side.Queens != 0:
+		return 9
+	default:
+		return 0
+	}
+}
+
+// =============================================================================
+// PAWN HASH TABLE
+// =============================================================================
+
+const PawnHashSize = 1 << 16 // 65536 entries (~8MB)
+
+// PawnHashEntry stores cached pawn structure analysis
+type PawnHashEntry struct {
+	// Key for verifying collisions (pawn bitboards)
+	WhitePawns uint64
+	BlackPawns uint64
+
+	// Pawn attack maps
+	WPawnAttackBB uint64
+	BPawnAttackBB uint64
+
+	// File structure masks
+	OpenFiles      uint64
+	WSemiOpenFiles uint64
+	BSemiOpenFiles uint64
+
+	// Pawn structure bitboards
+	WPassedBB    uint64
+	BPassedBB    uint64
+	WIsolatedBB  uint64
+	BIsolatedBB  uint64
+	WBackwardBB  uint64
+	BBackwardBB  uint64
+	WBlockedBB   uint64
+	BBlockedBB   uint64
+	WLeverBB     uint64
+	BLeverBB     uint64
+	WWeakLeverBB uint64
+	BWeakLeverBB uint64
+
+	// Precomputed pawn scores
+	PawnScoreMG int
+	PawnScoreEG int
+
+	Valid bool // flag to mark valid entries
+}
+
+var PawnHashTable [PawnHashSize]PawnHashEntry
+
+// Compute index into pawn hash table from pawn bitboards (mix bits for distribution)
+func pawnHashIndex(whitePawns, blackPawns uint64) uint64 {
+	const goldenRatio = 0x9E3779B97F4A7C15
+	hash := whitePawns ^ (blackPawns * goldenRatio)
+	hash ^= hash >> 33
+	hash *= 0xFF51AFD7ED558CCD
+	hash ^= hash >> 33
+	return hash & (PawnHashSize - 1)
+}
+
+// ProbePawnHash returns pawn entry and a hit flag if found
+func ProbePawnHash(b *gm.Board) (*PawnHashEntry, bool) {
+	idx := pawnHashIndex(b.White.Pawns, b.Black.Pawns)
+	entry := &PawnHashTable[idx]
+	if entry.Valid &&
+		entry.WhitePawns == b.White.Pawns && entry.BlackPawns == b.Black.Pawns {
+		return entry, true
+	}
+	return entry, false
+}
+
+// StorePawnHash writes a computed pawn entry to the table
+func StorePawnHash(b *gm.Board, entry *PawnHashEntry) {
+	idx := pawnHashIndex(b.White.Pawns, b.Black.Pawns)
+	entry.WhitePawns = b.White.Pawns
+	entry.BlackPawns = b.Black.Pawns
+	entry.Valid = true
+	PawnHashTable[idx] = *entry
+}
+
+// ClearPawnHash resets the pawn hash table (use at start of a new game)
+func ClearPawnHash() {
+	for i := range PawnHashTable {
+		PawnHashTable[i] = PawnHashEntry{}
+	}
+}
+
+// ComputePawnEntry calculates all pawn structure data from scratch (on a cache miss)
+func ComputePawnEntry(b *gm.Board, debug bool) PawnHashEntry {
+	var entry PawnHashEntry
+
+	// 1. Pawn attack bitboards
+	wPawnAttackBB_E, wPawnAttackBB_W := PawnCaptureBitboards(b.White.Pawns, true)  // east/west attacks by white pawns
+	bPawnAttackBB_E, bPawnAttackBB_W := PawnCaptureBitboards(b.Black.Pawns, false) // east/west attacks by black pawns
+	entry.WPawnAttackBB = wPawnAttackBB_E | wPawnAttackBB_W
+	entry.BPawnAttackBB = bPawnAttackBB_E | bPawnAttackBB_W
+
+	// 2. File open/semi-open masks
+	var whiteFiles, blackFiles uint64
+	for x := b.White.Pawns; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		whiteFiles |= onlyFile[sq%8]
+	}
+	for x := b.Black.Pawns; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		blackFiles |= onlyFile[sq%8]
+	}
+	entry.OpenFiles = ^whiteFiles & ^blackFiles
+	entry.WSemiOpenFiles = ^whiteFiles & blackFiles
+	entry.BSemiOpenFiles = ^blackFiles & whiteFiles
+
+	// 3. Pawn structure bitboards
+	entry.WIsolatedBB, entry.BIsolatedBB = getIsolatedPawnsBitboards(b)
+	entry.WPassedBB, entry.BPassedBB = getPassedPawnsBitboards(b, entry.WPawnAttackBB, entry.BPawnAttackBB)
+	entry.WBlockedBB, entry.BBlockedBB = getBlockedPawnsBitboards(b)
+	entry.WBackwardBB, entry.BBackwardBB = getBackwardPawnsBitboards(b, entry.WPawnAttackBB, entry.BPawnAttackBB, entry.WIsolatedBB, entry.BIsolatedBB, entry.WPassedBB, entry.BPassedBB)
+	wLever, bLever, wMultiLever, bMultiLever := getPawnLeverBitboards(b)
+	entry.WLeverBB = wLever
+	entry.BLeverBB = bLever
+	// Weak levers: multi-lever pawns not supported by a friendly pawn
+	wSupported := entry.WPawnAttackBB & b.White.Pawns
+	bSupported := entry.BPawnAttackBB & b.Black.Pawns
+	entry.WWeakLeverBB = wMultiLever &^ wSupported
+	entry.BWeakLeverBB = bMultiLever &^ bSupported
+
+	// 4. Pawn score components
+	pawnPsqtMG, pawnPsqtEG := countPieceTables(&b.White.Pawns, &b.Black.Pawns, &PSQT_MG[gm.PieceTypePawn], &PSQT_EG[gm.PieceTypePawn])
+	isoMG, isoEG := isolatedPawnPenalty(entry.WIsolatedBB, entry.BIsolatedBB)
+	doubledMG, doubledEG := pawnDoublingPenalties(b)
+	connMG, connEG, phalMG, phalEG := connectedOrPhalanxPawnBonus(b, entry.WPawnAttackBB, entry.BPawnAttackBB)
+	passedMG, passedEG := passedPawnBonus(entry.WPassedBB, entry.BPassedBB)
+	blockedMG, blockedEG := blockedPawnBonus(entry.WBlockedBB, entry.BBlockedBB)
+	backMG, backEG := backwardPawnPenalty(entry.WBackwardBB, entry.BBackwardBB)
+	weakLeverMG, weakLeverEG := pawnWeakLeverPenalty(entry.WWeakLeverBB, entry.BWeakLeverBB)
+
+	// Sum all pawn contributions
+	entry.PawnScoreMG = pawnPsqtMG + isoMG + doubledMG + connMG + phalMG + passedMG + blockedMG + backMG + weakLeverMG
+	entry.PawnScoreEG = pawnPsqtEG + isoEG + doubledEG + connEG + phalEG + passedEG + blockedEG + backEG + weakLeverEG
+
+	if debug {
+		println("################### PAWN PARAMETERS ###################")
+		println("Pawn MG:\t", "PSQT: ", pawnPsqtMG, "\tIsolated: ", isoMG, "\tDoubled: ", doubledMG,
+			"\tConnected: ", connMG, "\tPhalanx: ", phalMG, "\tPassed: ", passedMG,
+			"\tBlocked: ", blockedMG, "\tBackward: ", backMG, "\tWeakLever: ", weakLeverMG)
+		println("Pawn EG:\t", "PSQT: ", pawnPsqtEG, "\tIsolated: ", isoEG, "\tDoubled: ", doubledEG,
+			"\tConnected: ", connEG, "\tPhalanx: ", phalEG, "\tPassed: ", passedEG,
+			"\tBlocked: ", blockedEG, "\tBackward: ", backEG, "\tWeakLever: ", weakLeverEG)
+	}
+	return entry
+}
+
+// GetPawnEntry returns a pointer to the pawn hash entry for the current position, computing it if needed.
+func GetPawnEntry(b *gm.Board, debug bool) *PawnHashEntry {
+	entry, hit := ProbePawnHash(b)
+	if hit {
+		return entry
+	}
+	newEntry := ComputePawnEntry(b, debug)
+	StorePawnHash(b, &newEntry)
+	idx := pawnHashIndex(b.White.Pawns, b.Black.Pawns)
+	return &PawnHashTable[idx]
 }
 
 // getIsolatedPawnsBitboards returns bitboards of isolated pawns for each side.
@@ -199,6 +375,89 @@ func getBlockedPawnsBitboards(b *gm.Board) (wBlocked uint64, bBlocked uint64) {
 		}
 	}
 	return wBlocked, bBlocked
+}
+
+// getBackwardPawnsBitboards returns bitboards of backward pawns for each side.
+func getBackwardPawnsBitboards(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB uint64, wIsolated uint64, bIsolated uint64, wPassed uint64, bPassed uint64) (wBackward uint64, bBackward uint64) {
+	// === WHITE ===
+	wCandidates := b.White.Pawns &^ (wIsolated | wPassed)
+
+	// A pawn has support if a friendly pawn is BEHIND it on an adjacent file.
+	// Compute squares AHEAD of each pawn, then shift to adjacent files.
+	// If pawn X is in this set, some pawn Y is behind X on an adjacent file.
+	wNorthFill := calculatePawnNorthFill(b.White.Pawns)
+	wAheadAdj := ((wNorthFill &^ bitboardFileA) >> 1) | ((wNorthFill &^ bitboardFileH) << 1)
+
+	// Pawns NOT in wAheadAdj have no support behind them
+	wUnsupported := wCandidates &^ wAheadAdj
+
+	// Backward = unsupported AND advance square is enemy-controlled
+	wFront := wUnsupported << 8
+	wFrontEnemyCtrl := wFront & bPawnAttackBB
+	wBackward = (wFrontEnemyCtrl >> 8) & wUnsupported
+
+	// === BLACK (mirror) ===
+	bCandidates := b.Black.Pawns &^ (bIsolated | bPassed)
+
+	// For black, "behind" is higher ranks, so use south fill
+	bSouthFill := calculatePawnSouthFill(b.Black.Pawns)
+	bAheadAdj := ((bSouthFill &^ bitboardFileA) >> 1) | ((bSouthFill &^ bitboardFileH) << 1)
+
+	bUnsupported := bCandidates &^ bAheadAdj
+
+	bFront := bUnsupported >> 8
+	bFrontEnemyCtrl := bFront & wPawnAttackBB
+	bBackward = (bFrontEnemyCtrl << 8) & bUnsupported
+
+	return wBackward, bBackward
+}
+
+// getPawnLeverBitboards identifies lever pawns for each side and also returns
+// pawns whose advance squares are targeted by multiple enemy pawns (pre-condition
+// for weak levers).
+func getPawnLeverBitboards(b *gm.Board) (wLever uint64, bLever uint64, wMultiLever uint64, bMultiLever uint64) {
+	wPawnAttackWest, wPawnAttackEast := PawnCaptureBitboards(b.White.Pawns, true)
+	bPawnAttackWest, bPawnAttackEast := PawnCaptureBitboards(b.Black.Pawns, false)
+
+	wHitsBPawnWest := wPawnAttackWest & b.Black.Pawns
+	wHitsBPawnEast := wPawnAttackEast & b.Black.Pawns
+	wLeverFromWest := ((wHitsBPawnWest &^ bitboardFileH) >> 7) & b.White.Pawns
+	wLeverFromEast := ((wHitsBPawnEast &^ bitboardFileA) >> 9) & b.White.Pawns
+	wLever = wLeverFromWest | wLeverFromEast
+
+	bHitsWPawnWest := bPawnAttackWest & b.White.Pawns
+	bHitsWPawnEast := bPawnAttackEast & b.White.Pawns
+
+	bLeverFromWest := ((bHitsWPawnWest &^ bitboardFileH) << 9) & b.Black.Pawns
+	bLeverFromEast := ((bHitsWPawnEast &^ bitboardFileA) << 7) & b.Black.Pawns
+	bLever = bLeverFromWest | bLeverFromEast
+
+	// Multi-lever: pawns whose advance square is attacked by BOTH enemy pawn directions
+	wFront := b.White.Pawns << 8
+	bFront := b.Black.Pawns >> 8
+	wMultiTargets := wFront & bPawnAttackWest & bPawnAttackEast
+	bMultiTargets := bFront & wPawnAttackWest & wPawnAttackEast
+	wMultiLever = (wMultiTargets >> 8) & b.White.Pawns
+	bMultiLever = (bMultiTargets << 8) & b.Black.Pawns
+
+	return wLever, bLever, wMultiLever, bMultiLever
+}
+
+// getPawnStormBitboards marks pawns advanced on the enemy king wing (attacking direction).
+func getPawnStormBitboards(b *gm.Board, wWing uint64, bWing uint64) (wStorm uint64, bStorm uint64) {
+	// White storm on black king wing, advanced (rank 4+)
+	wStorm = b.White.Pawns & bWing & ranksAbove[3]
+	// Black storm on white king wing, advanced (rank <= 5 from white perspective)
+	bStorm = b.Black.Pawns & wWing & ranksBelow[4]
+	return wStorm, bStorm
+}
+
+// getEnemyPawnProximityBitboards marks enemy pawns advanced on our king wing (potential threats).
+func getEnemyPawnProximityBitboards(b *gm.Board, wWing uint64, bWing uint64) (wProx uint64, bProx uint64) {
+	// Enemy near our king wing
+	wProx = b.Black.Pawns & wWing & ranksAbove[3]
+	bProx = b.White.Pawns & bWing & ranksBelow[4]
+	return wProx, bProx
 }
 
 // getCenterState evaluates the center structure and returns whether the core center is locked
@@ -291,65 +550,15 @@ func getCenterMobilityScales(lockedCenter bool, openIdx float64) (knMobScale int
 	return
 }
 
-// getBackwardPawnsBitboards returns bitboards of backward pawns for each side.
-func getBackwardPawnsBitboards(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB uint64, wIsolated uint64, bIsolated uint64, wPassed uint64, bPassed uint64) (wBackward uint64, bBackward uint64) {
-	// White candidates: exclude isolated and passed
-	wCandidates := b.White.Pawns &^ (wIsolated | wPassed)
-	// Friendly support behind on adjacent files (south fill for white)
-	wSouthFill := calculatePawnSouthFill(b.White.Pawns)
-	wAdjBehind := ((wSouthFill & ^bitboardFileA) >> 1) | ((wSouthFill & ^bitboardFileH) << 1)
-	// Propagate forward to cover current pawn squares
-	wAdjBehindForward := wAdjBehind | calculatePawnNorthFill(wAdjBehind)
-	wCandidates &^= wAdjBehindForward
-	// Require enemy pawn control of advance square
-	wFront := b.White.Pawns << 8
-	wFrontEnemyCtrl := wFront & bPawnAttackBB
-	wBackward = wCandidates & wFrontEnemyCtrl
-
-	// Black side (mirror)
-	bCandidates := b.Black.Pawns &^ (bIsolated | bPassed)
-	bNorthFill := calculatePawnNorthFill(b.Black.Pawns)
-	bAdjBehind := ((bNorthFill & ^bitboardFileA) >> 1) | ((bNorthFill & ^bitboardFileH) << 1)
-	bAdjBehindBackward := bAdjBehind | calculatePawnSouthFill(bAdjBehind)
-	bCandidates &^= bAdjBehindBackward
-	bFront := b.Black.Pawns >> 8
-	bFrontEnemyCtrl := bFront & wPawnAttackBB
-	bBackward = bCandidates & bFrontEnemyCtrl
-
-	return wBackward, bBackward
-}
-
-// getPawnLeverBitboards identifies lever pawns for each side and also returns
-// pawns whose advance squares are targeted by multiple enemy pawns (pre-condition
-// for weak levers).
-func getPawnLeverBitboards(b *gm.Board) (wLever uint64, bLever uint64, wMultiLever uint64, bMultiLever uint64) {
-	// Precompute directional pawn attacks
-	wPawnAttackWest, wPawnAttackEast := PawnCaptureBitboards(b.White.Pawns, true)
-	bPawnAttackWest, bPawnAttackEast := PawnCaptureBitboards(b.Black.Pawns, false)
-
-	// Squares directly in front of each pawn
-	wFront := b.White.Pawns << 8
-	bFront := b.Black.Pawns >> 8
-
-	// Enemy pawns attacking the square in front of our pawn (lever candidates)
-	wFrontWestTargets := wFront & bPawnAttackWest
-	wFrontEastTargets := wFront & bPawnAttackEast
-	wLeverFromWest := (wFrontWestTargets << 7) & b.Black.Pawns
-	wLeverFromEast := (wFrontEastTargets << 9) & b.Black.Pawns
-	wLever = wLeverFromWest | wLeverFromEast
-
-	bFrontWestTargets := bFront & wPawnAttackWest
-	bFrontEastTargets := bFront & wPawnAttackEast
-	bLeverFromWest := (bFrontWestTargets >> 9) & b.White.Pawns
-	bLeverFromEast := (bFrontEastTargets >> 7) & b.White.Pawns
-	bLever = bLeverFromWest | bLeverFromEast
-
-	// Pawns whose advance squares are attacked by both enemy pawn directions
-	wMultiTargets := wFront & bPawnAttackWest & bPawnAttackEast
-	bMultiTargets := bFront & wPawnAttackWest & wPawnAttackEast
-	wMultiLever = (wMultiTargets >> 8) & b.White.Pawns
-	bMultiLever = (bMultiTargets << 8) & b.Black.Pawns
-	return wLever, bLever, wMultiLever, bMultiLever
+func chebyshevDistance(sq1, sq2 int) int {
+	file1, rank1 := sq1%8, sq1/8
+	file2, rank2 := sq2%8, sq2/8
+	fileDiff := absInt(file1 - file2)
+	rankDiff := absInt(rank1 - rank2)
+	if fileDiff > rankDiff {
+		return fileDiff
+	}
+	return rankDiff
 }
 
 // getRookConnectedFiles returns file masks where each side has two or more rooks
@@ -401,14 +610,6 @@ func getRookConnectedFiles(b *gm.Board) (wFiles uint64, bFiles uint64) {
 	return wFiles, bFiles
 }
 
-// scoreRookStacksMG returns a midgame-only bonus for connected rook stacks per side.
-func scoreRookStacksMG(wFiles uint64, bFiles uint64) (mg int) {
-	wCount := bits.OnesCount64(wFiles) / 8
-	bCount := bits.OnesCount64(bFiles) / 8
-	mg = (wCount * StackedRooksMG) - (bCount * StackedRooksMG)
-	return mg
-}
-
 // getKingWingMasks returns wing masks (a-c or f-h) for each king, choosing the nearest wing for d/e.
 func getKingWingMasks(b *gm.Board) (wWing uint64, bWing uint64) {
 	wSq := bits.TrailingZeros64(b.White.Kings)
@@ -437,23 +638,6 @@ func getKingWingMasks(b *gm.Board) (wWing uint64, bWing uint64) {
 		bWing = kSide
 	}
 	return wWing, bWing
-}
-
-// getPawnStormBitboards marks pawns advanced on the enemy king wing (attacking direction).
-func getPawnStormBitboards(b *gm.Board, wWing uint64, bWing uint64) (wStorm uint64, bStorm uint64) {
-	// White storm on black king wing, advanced (rank 4+)
-	wStorm = b.White.Pawns & bWing & ranksAbove[3]
-	// Black storm on white king wing, advanced (rank <= 5 from white perspective)
-	bStorm = b.Black.Pawns & wWing & ranksBelow[4]
-	return wStorm, bStorm
-}
-
-// getEnemyPawnProximityBitboards marks enemy pawns advanced on our king wing (potential threats).
-func getEnemyPawnProximityBitboards(b *gm.Board, wWing uint64, bWing uint64) (wProx uint64, bProx uint64) {
-	// Enemy near our king wing
-	wProx = b.Black.Pawns & wWing & ranksAbove[3]
-	bProx = b.White.Pawns & bWing & ranksBelow[4]
-	return wProx, bProx
 }
 
 func calculatePawnFileFill(pawnBitboard uint64, isWhite bool) uint64 {

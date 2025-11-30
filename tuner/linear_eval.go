@@ -288,30 +288,52 @@ func (le *LinearEval) Eval(pos *Position) float64 {
 		mg += float64(pawnDefDiff) * le.KingPawnDefenseMG
 	}
 
-	// Phase 5: Extras
-	if le.Toggles.ExtrasEval {
+	// Phase 5/6/7: Extras (split by stage toggles)
+	if le.Toggles.Extras4Eval || le.Toggles.Extras6Eval || le.Toggles.Extras7Eval {
 		exMG, exEG := eng.ExtrasDiffs((*gm.Board)(pos))
 		le.cache.exMG = exMG
 		le.cache.exEG = exEG
-		mg += float64(exMG[0]) * le.KnightOutpostMG
-		eg += float64(exEG[0]) * le.KnightOutpostEG
-		mg += float64(exMG[1]) * le.KnightThreatsMG
-		eg += float64(exEG[1]) * le.KnightThreatsEG
-		mg += float64(exMG[2]) * le.StackedRooksMG
-		mg += float64(exMG[3]) * le.RookXrayQueenMG
-		mg += float64(exMG[4]) * le.ConnectedRooksMG
-		// seventh-rank MG not used; skip exMG[5]
-		mg += float64(exMG[6]) * le.BishopOutpostMG
-		// Bishop x-ray counts (MG-only)
-		bxK, bxR, bxQ := eng.BishopXrayCounts((*gm.Board)(pos))
-		mg += float64(bxK) * le.BishopXrayKingMG
-		mg += float64(bxR) * le.BishopXrayRookMG
-		mg += float64(bxQ) * le.BishopXrayQueenMG
-		// Pawn storm / proximity / lever-storm (MG-only)
-		stDiff, prDiff, lvDiff := eng.PawnStormProxLeverDiffs((*gm.Board)(pos))
-		mg += float64(stDiff) * le.PawnStormMG
-		mg += float64(prDiff) * le.PawnProximityMG
-		mg += float64(lvDiff) * le.PawnLeverStormMG
+
+		// Stage 4 extras: simple piece activity
+		if le.Toggles.Extras4Eval {
+			mg += float64(exMG[0]) * le.KnightOutpostMG
+			eg += float64(exEG[0]) * le.KnightOutpostEG
+			mg += float64(exMG[1]) * le.KnightThreatsMG
+			eg += float64(exEG[1]) * le.KnightThreatsEG
+			mg += float64(exMG[6]) * le.BishopOutpostMG
+		}
+
+		// Stage 7 extras: rook/queen structure + bishop xrays
+		if le.Toggles.Extras7Eval {
+			mg += float64(exMG[2]) * le.StackedRooksMG
+			mg += float64(exMG[3]) * le.RookXrayQueenMG
+			mg += float64(exMG[4]) * le.ConnectedRooksMG
+			bxK, bxR, bxQ := eng.BishopXrayCounts((*gm.Board)(pos))
+			mg += float64(bxK) * le.BishopXrayKingMG
+			mg += float64(bxR) * le.BishopXrayRookMG
+			mg += float64(bxQ) * le.BishopXrayQueenMG
+		}
+
+		// Stage 6 extras: aggressive pawn storms/proximity
+		if le.Toggles.Extras6Eval {
+			stDiff, prDiff, lvDiff := eng.PawnStormProxLeverDiffs((*gm.Board)(pos))
+			mg += float64(stDiff) * le.PawnStormMG
+			mg += float64(prDiff) * le.PawnProximityMG
+			mg += float64(lvDiff) * le.PawnLeverStormMG
+		}
+
+		// Stage 4 mobility scaling (uses mobility signals)
+		if le.Toggles.Extras4Eval {
+			var mMG [7]int
+			if le.cache.pos == (*gm.Board)(pos) {
+				mMG = le.cache.mobMG
+			} else {
+				mMG, _, _, _ = eng.MobAtkDiffs((*gm.Board)(pos))
+			}
+			knDelta, biDelta := eng.CenterMobilityScales((*gm.Board)(pos))
+			mg += float64(mMG[N]*knDelta) * le.KnightMobCenterMG
+			mg += float64(mMG[B]*biDelta) * le.BishopMobCenterMG
+		}
 	}
 
 	// Phase 6: Material imbalance scalars
@@ -628,42 +650,51 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 		g[off+3] += scale * mgf * float64(pawnDefDiff)
 	}
 
-	// Phase 5: Extras
+	// Phase 5/6/7: Extras
 	off += 4
 	var exMG [7]int
 	var exEG [2]int
-	if le.cache.pos == (*gm.Board)(pos) {
-		exMG, exEG = le.cache.exMG, le.cache.exEG
-	} else {
-		exMG, exEG = eng.ExtrasDiffs((*gm.Board)(pos))
-	}
-	if le.Toggles.ExtrasTrain {
-		g[off+0] += scale * mgf * float64(exMG[0])
-		g[off+1] += scale * egf * float64(exEG[0])
-		g[off+2] += scale * mgf * float64(exMG[1])
-		g[off+3] += scale * egf * float64(exEG[1])
-		g[off+4] += scale * mgf * float64(exMG[2])
-		g[off+5] += scale * mgf * float64(exMG[3]) // RookXrayQueenMG
-		g[off+6] += scale * mgf * float64(exMG[4]) // ConnectedRooksMG
-		g[off+7] += scale * mgf * float64(exMG[6]) // BishopOutpostMG
-		// Additional extras from engine bridges
-		bxK, bxR, bxQ := eng.BishopXrayCounts((*gm.Board)(pos))
-		stDiff, prDiff, lvDiff := eng.PawnStormProxLeverDiffs((*gm.Board)(pos))
-		g[off+8] += scale * mgf * float64(bxK)
-		g[off+9] += scale * mgf * float64(bxR)
-		g[off+10] += scale * mgf * float64(bxQ)
-		g[off+11] += scale * mgf * float64(stDiff)
-		g[off+12] += scale * mgf * float64(prDiff)
-		g[off+13] += scale * mgf * float64(lvDiff)
-		var mMG [7]int
+	extrasTrain := le.Toggles.Extras4Train || le.Toggles.Extras6Train || le.Toggles.Extras7Train
+	if extrasTrain {
 		if le.cache.pos == (*gm.Board)(pos) {
-			mMG = le.cache.mobMG
+			exMG, exEG = le.cache.exMG, le.cache.exEG
 		} else {
-			mMG, _, _, _ = eng.MobAtkDiffs((*gm.Board)(pos))
+			exMG, exEG = eng.ExtrasDiffs((*gm.Board)(pos))
 		}
-		knDelta, biDelta := eng.CenterMobilityScales((*gm.Board)(pos))
-		g[off+14] += scale * mgf * float64(mMG[N]*knDelta)
-		g[off+15] += scale * mgf * float64(mMG[B]*biDelta)
+		// Stage 4 extras
+		if le.Toggles.Extras4Train {
+			g[off+0] += scale * mgf * float64(exMG[0])
+			g[off+1] += scale * egf * float64(exEG[0])
+			g[off+2] += scale * mgf * float64(exMG[1])
+			g[off+3] += scale * egf * float64(exEG[1])
+			g[off+7] += scale * mgf * float64(exMG[6]) // BishopOutpostMG
+			var mMG [7]int
+			if le.cache.pos == (*gm.Board)(pos) {
+				mMG = le.cache.mobMG
+			} else {
+				mMG, _, _, _ = eng.MobAtkDiffs((*gm.Board)(pos))
+			}
+			knDelta, biDelta := eng.CenterMobilityScales((*gm.Board)(pos))
+			g[off+14] += scale * mgf * float64(mMG[N]*knDelta)
+			g[off+15] += scale * mgf * float64(mMG[B]*biDelta)
+		}
+		// Stage 7 extras
+		if le.Toggles.Extras7Train {
+			g[off+4] += scale * mgf * float64(exMG[2])
+			g[off+5] += scale * mgf * float64(exMG[3]) // RookXrayQueenMG
+			g[off+6] += scale * mgf * float64(exMG[4]) // ConnectedRooksMG
+			bxK, bxR, bxQ := eng.BishopXrayCounts((*gm.Board)(pos))
+			g[off+8] += scale * mgf * float64(bxK)
+			g[off+9] += scale * mgf * float64(bxR)
+			g[off+10] += scale * mgf * float64(bxQ)
+		}
+		// Stage 6 extras
+		if le.Toggles.Extras6Train {
+			stDiff, prDiff, lvDiff := eng.PawnStormProxLeverDiffs((*gm.Board)(pos))
+			g[off+11] += scale * mgf * float64(stDiff)
+			g[off+12] += scale * mgf * float64(prDiff)
+			g[off+13] += scale * mgf * float64(lvDiff)
+		}
 	}
 
 	off += 16

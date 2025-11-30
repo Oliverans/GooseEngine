@@ -77,6 +77,8 @@ func (th *TimeHandler) StartTime(fullmoveNumber int) {
 		th.currentMoveAllocationMillis = int64(moveTime)
 		th.timeForMove = time.Now().Add(time.Duration(moveTime) * time.Millisecond)
 	}
+
+	//println("Time: ", time.Until(th.timeForMove).Milliseconds())
 }
 
 func (th *TimeHandler) Update(extraTime int64) {

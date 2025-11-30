@@ -11,9 +11,9 @@ var nodesChecked = 0
 var LMR = [MaxDepth + 1][100]int8{}
 var counterMove [2][64][64]gm.Move
 var historyMove [2][64][64]int
-var historyMaxVal = 10000 // Ensure we stay below the captures, countermoves etc
+var historyMaxVal = 8000 // Cap to prevent overflow, triggers aging
 
-// God damn it Golang, why do I need to write my own Clamp function :(
+// Clamp helper function
 func Clamp(f, low, high int8) int8 {
 	if f < low {
 		return low
@@ -34,9 +34,12 @@ type HistoryStruct struct {
 HISTORY/COUNTER MOVES
 If a move was a cut-node (above beta), and not a capture, we keep track of two things:
 The move that countered us (previous move made) - a counter move
-A historical score of the move - since we know it was a good move to keep track of, we make sure we can use this for move ordering later
+A historical score of the move - since we know it was a good move to keep track of, we use this for move ordering
 */
 func storeCounter(sideToMove bool, prevMove gm.Move, move gm.Move) {
+	if prevMove == 0 {
+		return
+	}
 	from := gm.Square(prevMove.From())
 	to := gm.Square(prevMove.To())
 	if sideToMove {
@@ -47,26 +50,56 @@ func storeCounter(sideToMove bool, prevMove gm.Move, move gm.Move) {
 }
 
 // Increment the history score for the given move if it caused a beta-cutoff and is quiet.
+// OPTIMIZATION: Use depth^2 bonus, common in modern engines
 func incrementHistoryScore(sideToMove bool, move gm.Move, depth int8) {
 	sideIdx := 0
 	if !sideToMove {
 		sideIdx = 1
 	}
 
-	historyMove[sideIdx][move.From()][move.To()] += int(depth * depth)
+	bonus := int(depth) * int(depth)
+
+	// Gravity: reduce the impact of very old history
+	currentVal := historyMove[sideIdx][move.From()][move.To()]
+	bonus = bonus - currentVal*bonus/historyMaxVal
+
+	historyMove[sideIdx][move.From()][move.To()] += bonus
+
 	if historyMove[sideIdx][move.From()][move.To()] >= historyMaxVal {
 		ageHistoryTable(sideToMove)
 	}
 }
 
-// Decrement the history score for the given move if it didn't cause a beta-cutoff and is quiet.
+// OPTIMIZATION: Decrement history for moves that failed to cause a cutoff
+// This is the "history malus" - penalize moves that were tried but didn't work
+func decrementHistoryScoreBy(sideToMove bool, move gm.Move, depth int8) {
+	sideIdx := 0
+	if !sideToMove {
+		sideIdx = 1
+	}
+
+	malus := int(depth) * int(depth)
+
+	// Gravity: reduce the impact
+	currentVal := historyMove[sideIdx][move.From()][move.To()]
+	malus = malus + currentVal*malus/historyMaxVal
+
+	historyMove[sideIdx][move.From()][move.To()] -= malus
+
+	// Allow negative values but cap them
+	if historyMove[sideIdx][move.From()][move.To()] < -historyMaxVal {
+		historyMove[sideIdx][move.From()][move.To()] = -historyMaxVal
+	}
+}
+
+// Legacy function for compatibility - decrements by small amount
 func decrementHistoryScore(sideToMove bool, move gm.Move) {
 	sideIdx := 0
 	if !sideToMove {
 		sideIdx = 1
 	}
 
-	if historyMove[sideIdx][move.From()][move.To()] > 0 {
+	if historyMove[sideIdx][move.From()][move.To()] > -historyMaxVal {
 		historyMove[sideIdx][move.From()][move.To()]--
 	}
 }
@@ -109,8 +142,8 @@ func Max(x, y int) int {
 }
 
 func hasMinorOrMajorPiece(b *gm.Board) (wCount int, bCount int) {
-	wCount += bits.OnesCount64(b.White.Bishops | b.White.Knights | b.White.Rooks | b.White.Queens)
-	bCount += bits.OnesCount64(b.Black.Bishops | b.Black.Knights | b.Black.Rooks | b.Black.Queens)
+	wCount = bits.OnesCount64(b.White.Bishops | b.White.Knights | b.White.Rooks | b.White.Queens)
+	bCount = bits.OnesCount64(b.Black.Bishops | b.Black.Knights | b.Black.Rooks | b.Black.Queens)
 	return wCount, bCount
 }
 
@@ -125,7 +158,7 @@ func getPVLineString(pvLine PVLine) (theMoves string) {
 	return theMoves
 }
 
-// Taken from Blunder chess engine and just slightly modified, since I'm very lazy; works great though :)
+// Taken from Blunder chess engine and slightly modified
 func getMateOrCPScore(score int) string {
 	mateValue := int(MaxScore)
 	mateThreshold := int(Checkmate)
@@ -138,7 +171,7 @@ func getMateOrCPScore(score int) string {
 		mateInN := (pliesToMate + 1) / 2
 		return fmt.Sprintf("mate %d", mateInN)
 	} else if score <= -mateThreshold {
-		pliesToMate := mateValue + score // score is negative here
+		pliesToMate := mateValue + score
 		if pliesToMate < 0 {
 			pliesToMate = 0
 		}
@@ -151,6 +184,7 @@ func getMateOrCPScore(score int) string {
 
 func ResetForNewGame() {
 	TT.clearTT()
+	ClearPawnHash()
 	stateStack = stateStack[:0]
 	var nilMove gm.Move
 	for i := 0; i < 64; i++ {
@@ -183,59 +217,63 @@ func dumpRootMoveOrdering(board *gm.Board) {
 	}
 }
 
-func computeLMRReduction(
-	depth int8,
-	legalMoves int,
-	moveIdx int,
-	isPVNode bool,
-	tactical bool,
-	historyScore int,
-) int8 {
-	// No reduction in these cases
-	if isPVNode || tactical || int(depth) < LMRDepthLimit || legalMoves <= 2 {
+// OPTIMIZATION: Improved LMR reduction computation
+// Uses the precomputed LMR table with dynamic adjustments
+func computeLMRReduction(depth int8, legalMoves int, moveIdx int, isPVNode bool, tactical bool, historyScore int) int8 {
+	// No reduction for tactical moves or very shallow depths
+	if tactical || depth < 2 {
 		return 0
 	}
 
-	// Clamp depth index into LMR table
-	d := int(depth)
-	if d >= len(LMR) {
-		d = len(LMR) - 1
-	}
-	if d < 0 {
-		d = 0
+	// Clamp indices into LMR table bounds
+	d := Max(1, Min(int(depth), MaxDepth))
+	m := Max(1, Min(legalMoves, 99))
+
+	// Get base reduction from precomputed table
+	r := LMR[d][m]
+
+	// PV nodes get less reduction
+	if isPVNode {
+		r--
 	}
 
-	// Prefer using "moves searched" as column rather than raw index
-	m := legalMoves - 1
-	row := LMR[d]
-	if m < 0 {
-		m = 0
+	// History-based adjustments
+	// Good history: reduce less (this move has been good before)
+	if historyScore > 500 {
+		r--
 	}
-	if m >= len(row) {
-		m = len(row) - 1
-	}
-
-	r := row[m]
-
-	// History bonus: good moves get less reduction
-	if r > 0 && historyScore > 0 {
-		bonus := int8(historyScore / LMRHistoryReductionScale)
-		if bonus > 2 {
-			bonus = 2
-		}
-		if bonus > r {
-			bonus = r
-		}
-		r -= bonus
+	if historyScore > 1500 {
+		r--
 	}
 
-	// Really bad late moves get a bit more reduction
-	if historyScore <= LMRHistoryLowThreshold && legalMoves > LMRLegalMovesLimit {
+	// Bad history: reduce more (this move has failed before)
+	if historyScore < -200 {
+		r++
+	}
+	if historyScore < -500 {
 		r++
 	}
 
+	// Very late moves can be reduced more aggressively
+	if legalMoves > 10 && !isPVNode {
+		r++
+	}
+
+	// Ensure bounds
 	if r < 0 {
 		r = 0
 	}
+	if r > depth-1 {
+		r = depth - 1
+	}
+
 	return r
+}
+
+// Check if a move is a killer move
+func IsKiller(move gm.Move, ply int8, killerTable *KillerStruct) bool {
+	if ply >= int8(len(killerTable.KillerMoves)) {
+		return false
+	}
+	return killerTable.KillerMoves[ply][0] == move || killerTable.KillerMoves[ply][1] == move
 }

@@ -58,10 +58,7 @@ func uciLoop() {
 			fmt.Printf("option name LMPDepth5Plus type spin default %d min 0 max 64\n", engine.LateMovePruningMargins[5])
 
 			// LMR (Late Move Reductions) knobs
-			fmt.Printf("option name LMRLegalMovesLimit type spin default %d min 0 max 64\n", engine.LMRLegalMovesLimit)
 			fmt.Printf("option name LMRDepthLimit type spin default %d min 0 max 20\n", engine.LMRDepthLimit)
-			fmt.Printf("option name LMRHistoryReductionScale type spin default %d min 1 max 2000\n", engine.LMRHistoryReductionScale)
-			fmt.Printf("option name LMRHistoryLowThreshold type spin default %d min 0 max 1000\n", engine.LMRHistoryLowThreshold)
 
 			// Null-move pruning knobs
 			fmt.Printf("option name NullMoveMinDepth type spin default %d min 0 max 10\n", engine.NullMoveMinDepth)
@@ -156,14 +153,14 @@ func uciLoop() {
 				if wTime > 0 {
 					timeToUse = wTime
 				} else {
-					timeToUse = 100000
+					timeToUse = 250000
 				}
 				incToUse = wInc
 			} else {
 				if bTime > 0 {
 					timeToUse = bTime
 				} else {
-					timeToUse = 100000
+					timeToUse = 250000
 				}
 				incToUse = bInc
 			}
@@ -244,7 +241,6 @@ func uciLoop() {
 			goScanner := bufio.NewScanner(strings.NewReader(line))
 			goScanner.Split(bufio.ScanWords)
 			goScanner.Scan() // skip the first token ("setoption")
-			var err error
 			for goScanner.Scan() {
 				nextToken := strings.ToLower(goScanner.Text())
 				switch nextToken {
@@ -368,19 +364,6 @@ func uciLoop() {
 					}
 					engine.LateMovePruningMargins[5] = val
 
-				case "lmrlegalmoveslimit":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed setoption for LMRLegalMovesLimit")
-						continue
-					}
-					goScanner.Scan()
-					val, err := strconv.Atoi(goScanner.Text())
-					if err != nil {
-						fmt.Println("info string Malformed value for LMRLegalMovesLimit", err)
-						continue
-					}
-					engine.LMRLegalMovesLimit = val
-
 				case "lmrdepthlimit":
 					if !goScanner.Scan() {
 						fmt.Println("info string Malformed setoption for LMRDepthLimit")
@@ -392,33 +375,7 @@ func uciLoop() {
 						fmt.Println("info string Malformed value for LMRDepthLimit", err)
 						continue
 					}
-					engine.LMRDepthLimit = val
-
-				case "lmrhistoryreductionscale":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed setoption for LMRHistoryReductionScale")
-						continue
-					}
-					goScanner.Scan()
-					val, err := strconv.Atoi(goScanner.Text())
-					if err != nil {
-						fmt.Println("info string Malformed value for LMRHistoryReductionScale", err)
-						continue
-					}
-					engine.LMRHistoryReductionScale = val
-
-				case "lmrhistorylowthreshold":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed setoption for LMRHistoryLowThreshold")
-						continue
-					}
-					goScanner.Scan()
-					val, err := strconv.Atoi(goScanner.Text())
-					if err != nil {
-						fmt.Println("info string Malformed value for LMRHistoryLowThreshold", err)
-						continue
-					}
-					engine.LMRHistoryLowThreshold = val
+					engine.LMRDepthLimit = int8(val)
 
 				case "nullmovemindepth":
 					if !goScanner.Scan() {
@@ -433,169 +390,7 @@ func uciLoop() {
 					}
 					engine.NullMoveMinDepth = int8(val)
 
-				// --- (Existing eval tuning options below; left as-is, but note the casing fixes) ---
-
-				case "isolatedpawnmg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option")
-						continue
-					}
-					goScanner.Scan()
-					engine.IsolatedPawnMG, err = strconv.Atoi(goScanner.Text())
-				case "isolatedpawneg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option")
-						continue
-					}
-					goScanner.Scan()
-					engine.IsolatedPawnEG, err = strconv.Atoi(goScanner.Text())
-				case "doubledpawnpenaltymg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option")
-						continue
-					}
-					goScanner.Scan()
-					engine.DoubledPawnPenaltyMG, err = strconv.Atoi(goScanner.Text())
-				case "doubledpawnpenaltyeg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option")
-						continue
-					}
-					goScanner.Scan()
-					engine.DoubledPawnPenaltyEG, err = strconv.Atoi(goScanner.Text())
-				case "knightoutpostmg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option")
-						continue
-					}
-					goScanner.Scan()
-					engine.KnightOutpostMG, err = strconv.Atoi(goScanner.Text())
-				case "knightoutposteg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option")
-						continue
-					}
-					goScanner.Scan()
-					engine.KnightOutpostEG, err = strconv.Atoi(goScanner.Text())
-				case "bishopoutpostmg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option")
-						continue
-					}
-					goScanner.Scan()
-					engine.BishopOutpostMG, err = strconv.Atoi(goScanner.Text())
-				case "bishoppairbonusmg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option")
-						continue
-					}
-					goScanner.Scan()
-					engine.BishopPairBonusMG, err = strconv.Atoi(goScanner.Text())
-				case "bishoppairbonuseg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option")
-						continue
-					}
-					goScanner.Scan()
-					engine.BishopPairBonusEG, err = strconv.Atoi(goScanner.Text())
-				case "rooksemiopenfilebonusmg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option")
-						continue
-					}
-					goScanner.Scan()
-					engine.RookSemiOpenFileBonusMG, err = strconv.Atoi(goScanner.Text())
-				case "rookopenfilebonusmg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option")
-						continue
-					}
-					goScanner.Scan()
-					engine.RookOpenFileBonusMG, err = strconv.Atoi(goScanner.Text())
-				case "kingsemiopenfilepenalty":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option")
-						continue
-					}
-					goScanner.Scan()
-					engine.KingSemiOpenFilePenalty, err = strconv.Atoi(goScanner.Text())
-				case "kingopenfilepenalty":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option")
-						continue
-					}
-					goScanner.Scan()
-					engine.KingOpenFilePenalty, err = strconv.Atoi(goScanner.Text())
-				case "pawnvaluemg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option", err)
-						continue
-					}
-					goScanner.Scan()
-					engine.PawnValueMG, err = strconv.Atoi(goScanner.Text())
-				case "pawnvalueeg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option", err)
-						continue
-					}
-					goScanner.Scan()
-					engine.PawnValueEG, err = strconv.Atoi(goScanner.Text())
-				case "knightvaluemg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option", err)
-						continue
-					}
-					goScanner.Scan()
-					engine.KnightValueMG, err = strconv.Atoi(goScanner.Text())
-				case "knightvalueeg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option", err)
-						continue
-					}
-					goScanner.Scan()
-					engine.KnightValueEG, err = strconv.Atoi(goScanner.Text())
-				case "bishopvaluemg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option", err)
-						continue
-					}
-					goScanner.Scan()
-					engine.BishopValueMG, err = strconv.Atoi(goScanner.Text())
-				case "bishopvalueeg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option", err)
-						continue
-					}
-					goScanner.Scan()
-					engine.BishopValueEG, err = strconv.Atoi(goScanner.Text())
-				case "rookvaluemg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option", err)
-						continue
-					}
-					goScanner.Scan()
-					engine.RookValueMG, err = strconv.Atoi(goScanner.Text())
-				case "rookvalueeg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option", err)
-						continue
-					}
-					goScanner.Scan()
-					engine.RookValueEG, err = strconv.Atoi(goScanner.Text())
-				case "queenvaluemg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option", err)
-						continue
-					}
-					goScanner.Scan()
-					engine.QueenValueMG, err = strconv.Atoi(goScanner.Text())
-				case "queenvalueeg":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option", err)
-						continue
-					}
-					goScanner.Scan()
-					engine.QueenValueEG, err = strconv.Atoi(goScanner.Text())
+					// --- (Existing eval tuning options below; left as-is, but note the casing fixes) ---
 				}
 			}
 		default:
