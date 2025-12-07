@@ -54,9 +54,7 @@ func (le *LinearEval) writeP1ScalarsToTheta(off int) int {
 	le.theta[off+3] = le.RookOpenFileMG
 	le.theta[off+4] = le.SeventhRankEG
 	le.theta[off+5] = le.QueenCentralizedEG
-	le.theta[off+6] = le.QueenInfiltrationMG
-	le.theta[off+7] = le.QueenInfiltrationEG
-	return off + 8
+	return off + 6
 }
 
 func (le *LinearEval) writePawnStructToTheta(off int) int {
@@ -70,13 +68,11 @@ func (le *LinearEval) writePawnStructToTheta(off int) int {
 	le.theta[off+7] = le.PhalanxEG
 	le.theta[off+8] = le.BlockedMG
 	le.theta[off+9] = le.BlockedEG
-	le.theta[off+10] = le.PawnLeverMG
-	le.theta[off+11] = le.PawnLeverEG
-	le.theta[off+12] = le.WeakLeverMG
-	le.theta[off+13] = le.WeakLeverEG
-	le.theta[off+14] = le.BackwardMG
-	le.theta[off+15] = le.BackwardEG
-	return off + 16
+	le.theta[off+10] = le.WeakLeverMG
+	le.theta[off+11] = le.WeakLeverEG
+	le.theta[off+12] = le.BackwardMG
+	le.theta[off+13] = le.BackwardEG
+	return off + 14
 }
 
 func (le *LinearEval) writeMobilityToTheta(off int) int {
@@ -106,25 +102,33 @@ func (le *LinearEval) writeKingCorrToTheta(off int) int {
 	return off + 4
 }
 
+func (le *LinearEval) writeKingEndgameToTheta(off int) int {
+	le.theta[off+0] = le.KingEndgameCenterEG
+	le.theta[off+1] = le.KingMopUpEG
+	return off + 2
+}
+
+func (le *LinearEval) readKingEndgameFromTheta(off int) int {
+	le.KingEndgameCenterEG = le.theta[off+0]
+	le.KingMopUpEG = le.theta[off+1]
+	return off + 2
+}
+
 func (le *LinearEval) writeExtrasToTheta(off int) int {
 	le.theta[off+0] = le.KnightOutpostMG
 	le.theta[off+1] = le.KnightOutpostEG
 	le.theta[off+2] = le.KnightThreatsMG
 	le.theta[off+3] = le.KnightThreatsEG
-	le.theta[off+4] = le.StackedRooksMG
-	le.theta[off+5] = le.RookXrayQueenMG
-	le.theta[off+6] = le.ConnectedRooksMG
+	le.theta[off+4] = le.KnightTropismMG
+	le.theta[off+5] = le.KnightTropismEG
+	le.theta[off+6] = le.StackedRooksMG
 	le.theta[off+7] = le.BishopOutpostMG
 	// New extras
-	le.theta[off+8] = le.BishopXrayKingMG
-	le.theta[off+9] = le.BishopXrayRookMG
-	le.theta[off+10] = le.BishopXrayQueenMG
-	le.theta[off+11] = le.PawnStormMG
-	le.theta[off+12] = le.PawnProximityMG
-	le.theta[off+13] = le.PawnLeverStormMG
-	le.theta[off+14] = le.KnightMobCenterMG
-	le.theta[off+15] = le.BishopMobCenterMG
-	return off + 16
+	le.theta[off+8] = le.PawnStormMG
+	le.theta[off+9] = le.PawnProximityMG
+	le.theta[off+10] = le.KnightMobCenterMG
+	le.theta[off+11] = le.BishopMobCenterMG
+	return off + 12
 }
 
 func (le *LinearEval) writeImbalanceToTheta(off int) int {
@@ -144,10 +148,12 @@ func (le *LinearEval) writeImbalanceToTheta(off int) int {
 }
 
 func (le *LinearEval) writeWeakTempoToTheta(off int) int {
-	le.theta[off+0] = le.WeakSquaresMG
-	le.theta[off+1] = le.WeakKingSquaresMG
-	le.theta[off+2] = le.Tempo
-	return off + 3
+	le.theta[off+0] = le.SpaceMG
+	le.theta[off+1] = le.SpaceEG
+	le.theta[off+2] = le.WeakKingSquaresMG
+	le.theta[off+3] = le.WeakKingSquaresEG
+	le.theta[off+4] = le.Tempo
+	return off + 5
 }
 
 // ---- Reads (theta -> struct) ----
@@ -195,9 +201,7 @@ func (le *LinearEval) readP1ScalarsFromTheta(off int) int {
 	le.RookOpenFileMG = le.theta[off+3]
 	le.SeventhRankEG = le.theta[off+4]
 	le.QueenCentralizedEG = le.theta[off+5]
-	le.QueenInfiltrationMG = le.theta[off+6]
-	le.QueenInfiltrationEG = le.theta[off+7]
-	return off + 8
+	return off + 6
 }
 
 func (le *LinearEval) readPawnStructFromTheta(off int) int {
@@ -211,13 +215,11 @@ func (le *LinearEval) readPawnStructFromTheta(off int) int {
 	le.PhalanxEG = le.theta[off+7]
 	le.BlockedMG = le.theta[off+8]
 	le.BlockedEG = le.theta[off+9]
-	le.PawnLeverMG = le.theta[off+10]
-	le.PawnLeverEG = le.theta[off+11]
-	le.WeakLeverMG = le.theta[off+12]
-	le.WeakLeverEG = le.theta[off+13]
-	le.BackwardMG = le.theta[off+14]
-	le.BackwardEG = le.theta[off+15]
-	return off + 16
+	le.WeakLeverMG = le.theta[off+10]
+	le.WeakLeverEG = le.theta[off+11]
+	le.BackwardMG = le.theta[off+12]
+	le.BackwardEG = le.theta[off+13]
+	return off + 14
 }
 
 func (le *LinearEval) readMobilityFromTheta(off int) int {
@@ -252,27 +254,25 @@ func (le *LinearEval) readExtrasFromTheta(off int) int {
 	le.KnightOutpostEG = le.theta[off+1]
 	le.KnightThreatsMG = le.theta[off+2]
 	le.KnightThreatsEG = le.theta[off+3]
-	le.StackedRooksMG = le.theta[off+4]
-	le.RookXrayQueenMG = le.theta[off+5]
-	le.ConnectedRooksMG = le.theta[off+6]
+	le.KnightTropismMG = le.theta[off+4]
+	le.KnightTropismEG = le.theta[off+5]
+	le.StackedRooksMG = le.theta[off+6]
 	le.BishopOutpostMG = le.theta[off+7]
 	// New extras
-	le.BishopXrayKingMG = le.theta[off+8]
-	le.BishopXrayRookMG = le.theta[off+9]
-	le.BishopXrayQueenMG = le.theta[off+10]
-	le.PawnStormMG = le.theta[off+11]
-	le.PawnProximityMG = le.theta[off+12]
-	le.PawnLeverStormMG = le.theta[off+13]
-	le.KnightMobCenterMG = le.theta[off+14]
-	le.BishopMobCenterMG = le.theta[off+15]
-	return off + 16
+	le.PawnStormMG = le.theta[off+8]
+	le.PawnProximityMG = le.theta[off+9]
+	le.KnightMobCenterMG = le.theta[off+10]
+	le.BishopMobCenterMG = le.theta[off+11]
+	return off + 12
 }
 
 func (le *LinearEval) readWeakTempoFromTheta(off int) int {
-	le.WeakSquaresMG = le.theta[off+0]
-	le.WeakKingSquaresMG = le.theta[off+1]
-	le.Tempo = le.theta[off+2]
-	return off + 3
+	le.SpaceMG = le.theta[off+0]
+	le.SpaceEG = le.theta[off+1]
+	le.WeakKingSquaresMG = le.theta[off+2]
+	le.WeakKingSquaresEG = le.theta[off+3]
+	le.Tempo = le.theta[off+4]
+	return off + 5
 }
 
 func (le *LinearEval) readImbalanceFromTheta(off int) int {

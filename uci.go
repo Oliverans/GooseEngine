@@ -173,6 +173,12 @@ func uciLoop() {
 
 			bestMove := engine.StartSearch(&board, uint8(depthToUse), timeToUse, incToUse, useCustomDepth, evalOnly, moveOrderingOnly)
 			fmt.Println("bestmove ", bestMove)
+
+			// Reset after search (while not incrementing time ...)
+			engine.ResetCutStats()
+			engine.AgeHistory()
+			engine.ClearKillers(&engine.KillerMoveTable)
+			engine.TT.NewSearch()
 		case "position":
 			posScanner := bufio.NewScanner(strings.NewReader(line))
 			posScanner.Split(bufio.ScanWords)
@@ -258,7 +264,7 @@ func uciLoop() {
 						fmt.Println("info string Malformed value for FutilityMarginDepth1", err)
 						continue
 					}
-					engine.FutilityMargins[1] = int16(val)
+					engine.FutilityMargins[1] = int32(val)
 
 				case "futilitymargindepth2":
 					if !goScanner.Scan() {
@@ -271,7 +277,7 @@ func uciLoop() {
 						fmt.Println("info string Malformed value for FutilityMarginDepth2", err)
 						continue
 					}
-					engine.FutilityMargins[2] = int16(val)
+					engine.FutilityMargins[2] = int32(val)
 
 				case "razormargindepth1":
 					if !goScanner.Scan() {
@@ -284,7 +290,7 @@ func uciLoop() {
 						fmt.Println("info string Malformed value for RazorMarginDepth1", err)
 						continue
 					}
-					engine.RazoringMargins[1] = int16(val)
+					engine.RazoringMargins[1] = int32(val)
 
 				case "razormargindepth2":
 					if !goScanner.Scan() {
@@ -297,7 +303,7 @@ func uciLoop() {
 						fmt.Println("info string Malformed value for RazorMarginDepth2", err)
 						continue
 					}
-					engine.RazoringMargins[2] = int16(val)
+					engine.RazoringMargins[2] = int32(val)
 
 				case "razormargindepth3":
 					if !goScanner.Scan() {
@@ -310,7 +316,7 @@ func uciLoop() {
 						fmt.Println("info string Malformed value for RazorMarginDepth3", err)
 						continue
 					}
-					engine.RazoringMargins[3] = int16(val)
+					engine.RazoringMargins[3] = int32(val)
 
 				case "lmpdepth2":
 					if !goScanner.Scan() {

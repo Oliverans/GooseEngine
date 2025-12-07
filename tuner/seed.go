@@ -56,8 +56,6 @@ func SeedFromEngineDefaults(le *LinearEval, pst *PST) {
 	le.RookOpenFileMG = float64(eng.DefaultRookOpenFileBonusMG())
 	le.SeventhRankEG = float64(eng.DefaultSeventhRankBonusEG())
 	le.QueenCentralizedEG = float64(eng.DefaultCentralizedQueenBonusEG())
-	le.QueenInfiltrationMG = float64(eng.DefaultQueenInfiltrationBonusMG())
-	le.QueenInfiltrationEG = float64(eng.DefaultQueenInfiltrationBonusEG())
 
 	// Phase 2 pawn structure
 	le.DoubledMG = float64(eng.DefaultDoubledPawnPenaltyMG())
@@ -70,8 +68,6 @@ func SeedFromEngineDefaults(le *LinearEval, pst *PST) {
 	le.PhalanxEG = float64(eng.DefaultPhalanxPawnsBonusEG())
 	le.BlockedMG = float64(eng.DefaultBlockedPawnBonusMG())
 	le.BlockedEG = float64(eng.DefaultBlockedPawnBonusEG())
-	le.PawnLeverMG = float64(eng.DefaultPawnLeverMG())
-	le.PawnLeverEG = float64(eng.DefaultPawnLeverEG())
 	le.WeakLeverMG = float64(eng.DefaultWeakLeverPenaltyMG())
 	le.WeakLeverEG = float64(eng.DefaultWeakLeverPenaltyEG())
 	le.BackwardMG = float64(eng.DefaultBackwardPawnMG())
@@ -95,6 +91,8 @@ func SeedFromEngineDefaults(le *LinearEval, pst *PST) {
 	le.KingOpenFilePenalty = float64(eng.DefaultKingOpenFilePenalty())
 	le.KingMinorPieceDefense = float64(eng.DefaultKingMinorPieceDefenseBonus())
 	le.KingPawnDefenseMG = float64(eng.DefaultKingPawnDefenseMG())
+	le.KingEndgameCenterEG = 1.0
+	le.KingMopUpEG = 1.0
 
 	// Phase 5: Extras
 	le.KnightOutpostMG = float64(eng.DefaultKnightOutpostMG())
@@ -102,30 +100,20 @@ func SeedFromEngineDefaults(le *LinearEval, pst *PST) {
 	le.BishopOutpostMG = float64(eng.DefaultBishopOutpostMG())
 	le.KnightThreatsMG = float64(eng.DefaultKnightCanAttackPieceMG())
 	le.KnightThreatsEG = float64(eng.DefaultKnightCanAttackPieceEG())
+	le.KnightTropismMG = float64(eng.KnightTropismMG)
+	le.KnightTropismEG = float64(eng.KnightTropismEG)
 	le.StackedRooksMG = float64(eng.DefaultStackedRooksMG())
-	le.RookXrayQueenMG = float64(eng.DefaultRookXrayQueenMG())
-	le.ConnectedRooksMG = float64(eng.DefaultConnectedRooksBonusMG())
 	// SeventhRankMG has no engine default; seed 0
 	// New extras
-	le.BishopXrayKingMG = float64(eng.DefaultBishopXrayKingMG())
-	le.BishopXrayRookMG = float64(eng.DefaultBishopXrayRookMG())
-	le.BishopXrayQueenMG = float64(eng.DefaultBishopXrayQueenMG())
 	le.PawnStormMG = float64(eng.DefaultPawnStormMG())
 	le.PawnProximityMG = float64(eng.DefaultPawnProximityPenaltyMG())
-	le.PawnLeverStormMG = float64(eng.DefaultPawnLeverStormPenaltyMG())
 	// Center mobility tuning starts at 0 (no change from base engine behavior)
 
-	// Phase 6: Weak squares + Tempo
-	if ws := eng.DefaultWeakSquaresPenaltyMG(); ws != 0 {
-		le.WeakSquaresMG = float64(ws)
-	} else {
-		le.WeakSquaresMG = 2
-	}
-	if wks := eng.DefaultWeakKingSquaresPenaltyMG(); wks != 0 {
-		le.WeakKingSquaresMG = float64(wks)
-	} else {
-		le.WeakKingSquaresMG = 5
-	}
+	// Phase 6: Space/weak-king + Tempo
+	le.SpaceMG = float64(eng.DefaultSpaceBonusMG())
+	le.SpaceEG = float64(eng.DefaultSpaceBonusEG())
+	le.WeakKingSquaresMG = float64(eng.DefaultWeakKingSquarePenaltyMG())
+	le.WeakKingSquaresEG = float64(eng.DefaultWeakKingSquarePenaltyEG())
 	if tb := eng.DefaultTempoBonus(); tb != 0 {
 		le.Tempo = float64(tb)
 	} else {

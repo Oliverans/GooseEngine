@@ -6,11 +6,11 @@ package tuner
 //   - Material MG/EG (6 each)
 //   - Passed pawn MG/EG (64 each)
 //   - Phase 1 scalars (8)
-//   - Pawn structure scalars (16)
+//   - Pawn structure scalars (14)
 //   - Mobility MG/EG (7 each)
 //   - King safety table (100) and correlates (4)
-//   - Extras (16) and material imbalance scalars (12)
-//   - Weak squares + tempo (3)
+//   - Extras (15) and material imbalance scalars (12)
+//   - Space/weak-king + tempo (5)
 func (le *LinearEval) Params() []float64 {
 	if le == nil {
 		return nil
@@ -29,6 +29,7 @@ func (le *LinearEval) Params() []float64 {
 		off = le.writeMobilityToTheta(off)
 		off = le.writeKingTableToTheta(off)
 		off = le.writeKingCorrToTheta(off)
+		off = le.writeKingEndgameToTheta(off)
 		off = le.writeExtrasToTheta(off)
 		off = le.writeImbalanceToTheta(off)
 		off = le.writeWeakTempoToTheta(off)
@@ -65,6 +66,7 @@ func (le *LinearEval) SetParams(p []float64) {
 		off = le.readMobilityFromTheta(off)
 		off = le.readKingTableFromTheta(off)
 		off = le.readKingCorrFromTheta(off)
+		off = le.readKingEndgameFromTheta(off)
 		off = le.readExtrasFromTheta(off)
 		off = le.readImbalanceFromTheta(off)
 		off = le.readWeakTempoFromTheta(off)

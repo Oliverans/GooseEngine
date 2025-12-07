@@ -7,14 +7,15 @@ type Layout struct {
 	MaterialMGStart, MaterialEGStart int // 6, 6
 	PasserMGStart, PasserEGStart     int // 64, 64
 	P1Start                          int // 8
-	PawnStructStart                  int // 16
+	PawnStructStart                  int // 14
 	MobilityMGStart, MobilityEGStart int // 7, 7
 	KingTableStart                   int // 100
 	KingCorrStart                    int // 4
-	ExtrasStart                      int // 16
+	KingEndgameStart                 int // 2
+	ExtrasStart                      int // 17
 	ImbalanceStart                   int // 12
-	WeakTempoStart                   int // 3
-	Total                            int // 1081
+	WeakTempoStart                   int // 5
+	Total                            int // 1084
 }
 
 func computeLayout() Layout {
@@ -35,7 +36,7 @@ func computeLayout() Layout {
 	l.P1Start = off
 	off += 8
 	l.PawnStructStart = off
-	off += 16
+	off += 14
 	l.MobilityMGStart = off
 	off += 7
 	l.MobilityEGStart = off
@@ -44,12 +45,14 @@ func computeLayout() Layout {
 	off += 100
 	l.KingCorrStart = off
 	off += 4
+	l.KingEndgameStart = off
+	off += 2
 	l.ExtrasStart = off
-	off += 16
+	off += 17
 	l.ImbalanceStart = off
 	off += 12
 	l.WeakTempoStart = off
-	off += 3
+	off += 5
 	l.Total = off
 	return l
 }

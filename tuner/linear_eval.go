@@ -21,14 +21,12 @@ type LinearEval struct {
 	PasserEG [64]float64
 
 	// Phase 1 scalar terms
-	BishopPairMG        float64
-	BishopPairEG        float64
-	RookSemiOpenFileMG  float64
-	RookOpenFileMG      float64
-	SeventhRankEG       float64
-	QueenCentralizedEG  float64
-	QueenInfiltrationMG float64
-	QueenInfiltrationEG float64
+	BishopPairMG       float64
+	BishopPairEG       float64
+	RookSemiOpenFileMG float64
+	RookOpenFileMG     float64
+	SeventhRankEG      float64
+	QueenCentralizedEG float64
 
 	// Phase 2: Pawn structure scalars (MG/EG)
 	DoubledMG   float64
@@ -41,8 +39,6 @@ type LinearEval struct {
 	PhalanxEG   float64
 	BlockedMG   float64
 	BlockedEG   float64
-	PawnLeverMG float64
-	PawnLeverEG float64
 	WeakLeverMG float64
 	WeakLeverEG float64
 	BackwardMG  float64
@@ -62,23 +58,21 @@ type LinearEval struct {
 	KingOpenFilePenalty     float64
 	KingMinorPieceDefense   float64
 	KingPawnDefenseMG       float64
+	KingEndgameCenterEG     float64
+	KingMopUpEG             float64
 
 	// Phase 5: Extras (piece-related scalars)
-	KnightOutpostMG  float64
-	KnightOutpostEG  float64
-	BishopOutpostMG  float64
-	KnightThreatsMG  float64
-	KnightThreatsEG  float64
-	StackedRooksMG   float64
-	RookXrayQueenMG  float64
-	ConnectedRooksMG float64
+	KnightOutpostMG float64
+	KnightOutpostEG float64
+	BishopOutpostMG float64
+	KnightThreatsMG float64
+	KnightThreatsEG float64
+	StackedRooksMG  float64
+	KnightTropismMG float64
+	KnightTropismEG float64
 	// New extras/tunables
-	BishopXrayKingMG  float64
-	BishopXrayRookMG  float64
-	BishopXrayQueenMG float64
 	PawnStormMG       float64
 	PawnProximityMG   float64
-	PawnLeverStormMG  float64
 	KnightMobCenterMG float64
 	BishopMobCenterMG float64
 
@@ -115,9 +109,11 @@ type LinearEval struct {
 	Toggles PhaseToggles
 	layout  Layout
 
-	// Phase 6: Weak squares + Tempo
-	WeakSquaresMG     float64
+	// Phase 6: Space/weak-king + Tempo
+	SpaceMG           float64
+	SpaceEG           float64
 	WeakKingSquaresMG float64
+	WeakKingSquaresEG float64
 	Tempo             float64
 }
 
@@ -219,11 +215,7 @@ func (le *LinearEval) Eval(pos *Position) float64 {
 		bc := float64(bits.OnesCount64(pos.Black.Queens & centerMask))
 		eg += (wc - bc) * le.QueenCentralizedEG
 		// Queen infiltration (MG/EG), aligned with engine: queen occupies
-		// enemy weak squares in enemy half, outside enemy pawn attack span.
-		wInf, bInf := eng.QueenInfiltrationCounts((*gm.Board)(pos))
-		diffInf := float64(wInf - bInf)
-		mg += diffInf * le.QueenInfiltrationMG
-		eg += diffInf * le.QueenInfiltrationEG
+		// (QueenInfiltration removed)
 	}
 
 	// Phase 2: Pawn structure scalars (via engine wrappers)
@@ -239,8 +231,6 @@ func (le *LinearEval) Eval(pos *Position) float64 {
 		eg += float64(egDiffs[3]) * le.PhalanxEG
 		mg += float64(mgDiffs[4]) * le.BlockedMG
 		eg += float64(egDiffs[4]) * le.BlockedEG
-		mg += float64(mgDiffs[5]) * le.PawnLeverMG
-		eg += float64(egDiffs[5]) * le.PawnLeverEG
 		mg += float64(mgDiffs[6]) * le.WeakLeverMG
 		eg += float64(egDiffs[6]) * le.WeakLeverEG
 		mg += float64(mgDiffs[7]) * le.BackwardMG
@@ -287,6 +277,11 @@ func (le *LinearEval) Eval(pos *Position) float64 {
 		mg += float64(minorDefDiff) * le.KingMinorPieceDefense
 		mg += float64(pawnDefDiff) * le.KingPawnDefenseMG
 	}
+	if le.Toggles.KingEndgameEval {
+		cmdDiff, mopDiff := eng.EndgameKingTerms((*gm.Board)(pos))
+		eg += float64(cmdDiff) * le.KingEndgameCenterEG
+		eg += float64(mopDiff) * le.KingMopUpEG
+	}
 
 	// Phase 5/6/7: Extras (split by stage toggles)
 	if le.Toggles.Extras4Eval || le.Toggles.Extras6Eval || le.Toggles.Extras7Eval {
@@ -300,26 +295,22 @@ func (le *LinearEval) Eval(pos *Position) float64 {
 			eg += float64(exEG[0]) * le.KnightOutpostEG
 			mg += float64(exMG[1]) * le.KnightThreatsMG
 			eg += float64(exEG[1]) * le.KnightThreatsEG
+			tMG, tEG := eng.KnightTropismDiffs((*gm.Board)(pos))
+			mg += float64(tMG) * le.KnightTropismMG
+			eg += float64(tEG) * le.KnightTropismEG
 			mg += float64(exMG[6]) * le.BishopOutpostMG
 		}
 
-		// Stage 7 extras: rook/queen structure + bishop xrays
+		// Stage 7 extras: rook/queen structure
 		if le.Toggles.Extras7Eval {
 			mg += float64(exMG[2]) * le.StackedRooksMG
-			mg += float64(exMG[3]) * le.RookXrayQueenMG
-			mg += float64(exMG[4]) * le.ConnectedRooksMG
-			bxK, bxR, bxQ := eng.BishopXrayCounts((*gm.Board)(pos))
-			mg += float64(bxK) * le.BishopXrayKingMG
-			mg += float64(bxR) * le.BishopXrayRookMG
-			mg += float64(bxQ) * le.BishopXrayQueenMG
 		}
 
 		// Stage 6 extras: aggressive pawn storms/proximity
 		if le.Toggles.Extras6Eval {
-			stDiff, prDiff, lvDiff := eng.PawnStormProxLeverDiffs((*gm.Board)(pos))
+			stDiff, prDiff, _ := eng.PawnStormProxLeverDiffs((*gm.Board)(pos))
 			mg += float64(stDiff) * le.PawnStormMG
 			mg += float64(prDiff) * le.PawnProximityMG
-			mg += float64(lvDiff) * le.PawnLeverStormMG
 		}
 
 		// Stage 4 mobility scaling (uses mobility signals)
@@ -355,11 +346,13 @@ func (le *LinearEval) Eval(pos *Position) float64 {
 		eg += float64(imbEG[5]) * le.ImbalanceQueenManyMinorsEG
 	}
 
-	// Phase 6: Weak squares + Tempo
+	// Phase 6: Space/weak-king + Tempo
 	if le.Toggles.WeakTempoEval {
-		ws, wks := eng.WeakSquaresCounts((*gm.Board)(pos))
-		mg += float64(ws) * le.WeakSquaresMG
-		mg += float64(wks) * le.WeakKingSquaresMG
+		spaceDiff, weakKingDiff := eng.SpaceAndWeakKingDiffs((*gm.Board)(pos))
+		mg += float64(spaceDiff) * le.SpaceMG
+		eg += float64(spaceDiff) * le.SpaceEG
+		mg += float64(weakKingDiff) * le.WeakKingSquaresMG
+		eg += float64(weakKingDiff) * le.WeakKingSquaresEG
 		if pos.Wtomove {
 			mg += le.Tempo
 			eg += le.Tempo
@@ -386,14 +379,15 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 	const matSlots = 6
 	const passSlots = 64
 	const extraScalars = 8
-	const pawnStructScalars = 16
+	const pawnStructScalars = 14
 	const phase3 = 14 // mobility MG/EG (14)
 	const ksSlots = 100
 	const ksCorr = 4
-	const extras5 = 16
+	const kingEndgame = 2
+	const extras5 = 17
 	const imbalanceScalars = 12
-	const weakTempo = 3
-	minLen := egBase + pieceCount*slotsPerPiece + matSlots*2 + passSlots*2 + extraScalars + pawnStructScalars + phase3 + ksSlots + ksCorr + extras5 + imbalanceScalars + weakTempo
+	const weakTempo = 5
+	minLen := egBase + pieceCount*slotsPerPiece + matSlots*2 + passSlots*2 + extraScalars + pawnStructScalars + phase3 + ksSlots + ksCorr + kingEndgame + extras5 + imbalanceScalars + weakTempo
 	if len(g) < minLen {
 		return
 	}
@@ -554,25 +548,11 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 		wc := float64(bits.OnesCount64(pos.White.Queens & centerMask))
 		bc := float64(bits.OnesCount64(pos.Black.Queens & centerMask))
 		g[off+5] += scale * egf * (wc - bc)
-		// Queen infiltration (MG/EG)
-		wInf, bInf := 0, 0
-		for q := pos.White.Queens; q != 0; q &= q - 1 {
-			if (bits.TrailingZeros64(q) / 8) >= 5 {
-				wInf++
-			}
-		}
-		for q := pos.Black.Queens; q != 0; q &= q - 1 {
-			if (bits.TrailingZeros64(q) / 8) <= 2 {
-				bInf++
-			}
-		}
-		diffInf := float64(wInf - bInf)
-		g[off+6] += scale * mgf * diffInf
-		g[off+7] += scale * egf * diffInf
+		// (QueenInfiltration gradient removed)
 	}
 
 	// Phase 2 pawn structure gradients (append after Phase 1 scalars)
-	off += 8
+	off += 6
 	var mgDiffs [8]int
 	var egDiffs [8]int
 	if le.cache.pos == (*gm.Board)(pos) {
@@ -591,15 +571,13 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 		g[off+7] += scale * egf * float64(egDiffs[3])
 		g[off+8] += scale * mgf * float64(mgDiffs[4])
 		g[off+9] += scale * egf * float64(egDiffs[4])
-		g[off+10] += scale * mgf * float64(mgDiffs[5])
-		g[off+11] += scale * egf * float64(egDiffs[5])
-		g[off+12] += scale * mgf * float64(mgDiffs[6])
-		g[off+13] += scale * egf * float64(egDiffs[6])
-		g[off+14] += scale * mgf * float64(mgDiffs[7])
-		g[off+15] += scale * egf * float64(egDiffs[7])
+		g[off+10] += scale * mgf * float64(mgDiffs[6])
+		g[off+11] += scale * egf * float64(egDiffs[6])
+		g[off+12] += scale * mgf * float64(mgDiffs[7])
+		g[off+13] += scale * egf * float64(egDiffs[7])
 	}
 
-	off += 16
+	off += 14
 
 	// Phase 3 gradients (mobility only, 14 slots total)
 	var mobMG, mobEG [7]int
@@ -650,8 +628,16 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 		g[off+3] += scale * mgf * float64(pawnDefDiff)
 	}
 
-	// Phase 5/6/7: Extras
+	// Endgame king terms (EG-only)
 	off += 4
+	if le.Toggles.KingEndgameTrain {
+		cmdDiff, mopDiff := eng.EndgameKingTerms((*gm.Board)(pos))
+		g[off+0] += scale * egf * float64(cmdDiff)
+		g[off+1] += scale * egf * float64(mopDiff)
+	}
+	off += 2
+
+	// Phase 5/6/7: Extras
 	var exMG [7]int
 	var exEG [2]int
 	extrasTrain := le.Toggles.Extras4Train || le.Toggles.Extras6Train || le.Toggles.Extras7Train
@@ -667,7 +653,10 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 			g[off+1] += scale * egf * float64(exEG[0])
 			g[off+2] += scale * mgf * float64(exMG[1])
 			g[off+3] += scale * egf * float64(exEG[1])
-			g[off+7] += scale * mgf * float64(exMG[6]) // BishopOutpostMG
+			tMG, tEG := eng.KnightTropismDiffs((*gm.Board)(pos))
+			g[off+4] += scale * mgf * float64(tMG)
+			g[off+5] += scale * egf * float64(tEG)
+			g[off+9] += scale * mgf * float64(exMG[6]) // BishopOutpostMG
 			var mMG [7]int
 			if le.cache.pos == (*gm.Board)(pos) {
 				mMG = le.cache.mobMG
@@ -675,29 +664,22 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 				mMG, _, _, _ = eng.MobAtkDiffs((*gm.Board)(pos))
 			}
 			knDelta, biDelta := eng.CenterMobilityScales((*gm.Board)(pos))
-			g[off+14] += scale * mgf * float64(mMG[N]*knDelta)
-			g[off+15] += scale * mgf * float64(mMG[B]*biDelta)
+			g[off+15] += scale * mgf * float64(mMG[N]*knDelta)
+			g[off+16] += scale * mgf * float64(mMG[B]*biDelta)
 		}
 		// Stage 7 extras
 		if le.Toggles.Extras7Train {
-			g[off+4] += scale * mgf * float64(exMG[2])
-			g[off+5] += scale * mgf * float64(exMG[3]) // RookXrayQueenMG
-			g[off+6] += scale * mgf * float64(exMG[4]) // ConnectedRooksMG
-			bxK, bxR, bxQ := eng.BishopXrayCounts((*gm.Board)(pos))
-			g[off+8] += scale * mgf * float64(bxK)
-			g[off+9] += scale * mgf * float64(bxR)
-			g[off+10] += scale * mgf * float64(bxQ)
+			g[off+6] += scale * mgf * float64(exMG[2]) // StackedRooksMG
 		}
 		// Stage 6 extras
 		if le.Toggles.Extras6Train {
-			stDiff, prDiff, lvDiff := eng.PawnStormProxLeverDiffs((*gm.Board)(pos))
-			g[off+11] += scale * mgf * float64(stDiff)
-			g[off+12] += scale * mgf * float64(prDiff)
-			g[off+13] += scale * mgf * float64(lvDiff)
+			stDiff, prDiff, _ := eng.PawnStormProxLeverDiffs((*gm.Board)(pos))
+			g[off+13] += scale * mgf * float64(stDiff)
+			g[off+14] += scale * mgf * float64(prDiff)
 		}
 	}
 
-	off += 16
+	off += 17
 
 	// Phase 6: Material imbalance
 	var imbMG [6]int
@@ -723,15 +705,17 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 	}
 	off += 12
 
-	// Phase 7: Weak squares + Tempo
+	// Phase 7: Space/weak-king + Tempo
 	if le.Toggles.WeakTempoTrain {
-		ws, wks := eng.WeakSquaresCounts((*gm.Board)(pos))
-		g[off+0] += scale * mgf * float64(ws)
-		g[off+1] += scale * mgf * float64(wks)
+		spaceDiff, weakKingDiff := eng.SpaceAndWeakKingDiffs((*gm.Board)(pos))
+		g[off+0] += scale * mgf * float64(spaceDiff)
+		g[off+1] += scale * egf * float64(spaceDiff)
+		g[off+2] += scale * mgf * float64(weakKingDiff)
+		g[off+3] += scale * egf * float64(weakKingDiff)
 		if pos.Wtomove {
-			g[off+2] += scale * (mgf + egf)
+			g[off+4] += scale * (mgf + egf)
 		} else {
-			g[off+2] -= scale * (mgf + egf)
+			g[off+4] -= scale * (mgf + egf)
 		}
 	}
 }

@@ -4,9 +4,10 @@ import (
 	gm "chess-engine/goosemg"
 )
 
+// CHANGE 1: Use int32 for score to handle negative history values correctly
 type move struct {
 	move  gm.Move
-	score uint16
+	score int32
 }
 
 type moveList struct {
@@ -14,29 +15,44 @@ type moveList struct {
 }
 
 // Most Valuable Victim - Least Valuable Aggressor; used to score & sort captures
-var mvvLva [7][7]uint16 = [7][7]uint16{
+// CHANGE 2: Slightly wider spread for better differentiation
+var mvvLva [7][7]int32 = [7][7]int32{
 	{0, 0, 0, 0, 0, 0, 0},
-	{0, 14, 13, 12, 11, 10, 0}, // victim Pawn
-	{0, 24, 23, 22, 21, 20, 0}, // victim Knight
-	{0, 34, 33, 32, 31, 30, 0}, // victim Bishop
-	{0, 44, 43, 42, 41, 40, 0}, // victim Rook
-	{0, 54, 53, 52, 51, 50, 0}, // victim Queen
-	{0, 0, 0, 0, 0, 0, 0},      // victim King
+	{0, 105, 104, 103, 102, 101, 100}, // victim Pawn
+	{0, 205, 204, 203, 202, 201, 200}, // victim Knight
+	{0, 305, 304, 303, 302, 301, 300}, // victim Bishop
+	{0, 405, 404, 403, 402, 401, 400}, // victim Rook
+	{0, 505, 504, 503, 502, 501, 500}, // victim Queen
+	{0, 0, 0, 0, 0, 0, 0},             // victim King
 }
 
 var SortingCaptures int
 var SortingNormal int
 
-// Capture offset, also used for promotions; used for captures & PV moves.
-// Should always be above quiet move heuristics.
-var captureOffset uint16 = 20000
+// Score tiers (from highest to lowest priority):
+// 1. PV/TT move:      2,000,000,000 (MaxInt32 essentially)
+// 2. Queen promo:     1,000,000 + piece value
+// 3. Winning captures: 900,000 + MVV-LVA + SEE bonus
+// 4. Equal captures:   800,000 + MVV-LVA
+// 5. Killer 1:         700,000
+// 6. Killer 2:         690,000
+// 7. Counter move:     600,000 + history
+// 8. Quiet moves:      500,000 + history (can go negative but still above losing captures)
+// 9. Losing captures:  100,000 + MVV-LVA (still tried, but last)
+// 10. Under-promos:     50,000 + piece value
 
-// Offset values for prioritizing quiet move heuristics.
-var killerOffset uint16 = 2000
-var counterOffset uint16 = 1000
-
-// Quiet moves need a base offset so they always score above losing captures.
-var quietOffset uint16 = 5000
+const (
+	scorePVMove         int32 = 2_000_000_000
+	scoreQueenPromo     int32 = 1_000_000
+	scoreWinningCapture int32 = 900_000
+	scoreEqualCapture   int32 = 800_000
+	scoreKiller1        int32 = 700_000
+	scoreKiller2        int32 = 690_000
+	scoreCounterMove    int32 = 600_000
+	scoreQuietBase      int32 = 500_000
+	scoreLosingCapture  int32 = 100_000
+	scoreUnderPromo     int32 = 50_000
+)
 
 const MaxPlyMoveList = 128
 const MaxMovesPerPosition = 256
@@ -56,8 +72,6 @@ func GetMoveListForPly(ply int8, count int) []move {
 	if int(ply) >= MaxPlyMoveList {
 		ply = MaxPlyMoveList - 1
 	}
-	// NOTE: If you ever see panics here, either increase MaxMovesPerPosition
-	// or clamp count before slicing.
 	moveListLengths[ply] = count
 	return moveListPool[ply][:count]
 }
@@ -72,13 +86,10 @@ func QuickSEEWinning(_ *gm.Board, move gm.Move) bool {
 	victimValue := int(SeePieceValue[capturedPiece.Type()])
 	attackerValue := int(SeePieceValue[move.MovedPiece().Type()])
 
-	// If we capture something worth more than (or equal to) our piece, it's
-	// winning even if we then lose our piece back.
 	if victimValue >= attackerValue {
 		return true
 	}
 
-	// If we capture with a pawn, it's often winning; this is a heuristic.
 	if move.MovedPiece().Type() == gm.PieceTypePawn {
 		return true
 	}
@@ -87,6 +98,7 @@ func QuickSEEWinning(_ *gm.Board, move gm.Move) bool {
 }
 
 // Ordering the moves one at a time, at index given.
+// CHANGE 3: Updated to use int32 comparison
 func orderNextMove(currIndex uint8, moves *moveList) {
 	bestIndex := currIndex
 	bestScore := moves.moves[bestIndex].score
@@ -98,9 +110,7 @@ func orderNextMove(currIndex uint8, moves *moveList) {
 		}
 	}
 
-	tempMove := moves.moves[currIndex]
-	moves.moves[currIndex] = moves.moves[bestIndex]
-	moves.moves[bestIndex] = tempMove
+	moves.moves[currIndex], moves.moves[bestIndex] = moves.moves[bestIndex], moves.moves[currIndex]
 }
 
 func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove gm.Move, prevMove gm.Move) (movesList moveList) {
@@ -113,15 +123,15 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 	killerIdx := int(ply)
 	if killerIdx < 0 {
 		killerIdx = 0
-	} else if killerIdx >= len(killerMoveTable.KillerMoves) {
-		killerIdx = len(killerMoveTable.KillerMoves) - 1
+	} else if killerIdx >= len(KillerMoveTable.KillerMoves) {
+		killerIdx = len(KillerMoveTable.KillerMoves) - 1
 	}
 
 	movesList.moves = GetMoveListForPly(ply, len(moves))
 
 	for i := 0; i < len(moves); i++ {
 		mv := moves[i]
-		var moveEval uint16
+		var moveEval int32
 
 		capturedPiece := mv.CapturedPiece()
 		capturedType := capturedPiece.Type()
@@ -136,47 +146,73 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 		isPVMove := (mv == pvMove)
 
 		if isPVMove {
-			// PV move: always highest score.
-			moveEval = ^uint16(0)
+			// PV/TT move: always searched first
+			moveEval = scorePVMove
+
 		} else if promotePiece != gm.PieceTypeNone {
-			// Promotions get captureOffset plus promoted piece value.
-			moveEval = captureOffset + uint16(pieceValueEG[promotePiece])
+			// Promotions: queen promos high, under-promos lower
+			if promotePiece == gm.PieceTypeQueen {
+				moveEval = scoreQueenPromo + int32(pieceValueEG[promotePiece])
+				// If it's also a capture, add MVV bonus
+				if isCapture {
+					moveEval += mvvLva[capturedType][gm.PieceTypePawn]
+				}
+			} else {
+				// Under-promotions (knight, rook, bishop) - rare but sometimes needed
+				moveEval = scoreUnderPromo + int32(pieceValueEG[promotePiece])
+				if isCapture {
+					moveEval += mvvLva[capturedType][gm.PieceTypePawn]
+				}
+			}
+
 		} else if isCapture {
-			// Capture scoring with lazy SEE.
+			// Capture scoring with lazy SEE
 			pieceTypeFrom := mv.MovedPiece().Type()
 			captureScore := mvvLva[capturedType][pieceTypeFrom]
 
-			// Lazy SEE: Only call SEE for potentially losing captures.
-			// A capture is clearly winning if victim >= attacker.
 			victimValue := int(SeePieceValue[capturedType])
 			attackerValue := int(SeePieceValue[pieceTypeFrom])
 
 			if victimValue >= attackerValue {
-				// Clearly winning capture (e.g., QxP, RxB, BxN, NxP, PxAnything).
-				// No need for SEE - assume winning and add a small material diff.
-				diff := victimValue - attackerValue
-				moveEval = captureOffset + captureScore + uint16(diff)
+				// Clearly winning capture (e.g., PxQ, NxR, BxR, RxQ, etc.)
+				// No need for SEE - it's definitely winning
+				diff := int32(victimValue - attackerValue)
+				moveEval = scoreWinningCapture + captureScore + diff
+
 			} else {
-				// Potentially losing capture – need full SEE.
+				// Potentially losing capture - need full SEE
 				seeScore := see(board, mv, false)
-				if seeScore >= 0 {
-					moveEval = captureOffset + captureScore + uint16(seeScore)
+				if seeScore > 0 {
+					// Winning (e.g., protected piece takes unprotected higher piece)
+					moveEval = scoreWinningCapture + captureScore + int32(seeScore)
+				} else if seeScore == 0 {
+					// Equal trade
+					moveEval = scoreEqualCapture + captureScore
 				} else {
-					// Losing captures go to the back of the line but retain MVV/LVA ordering.
-					moveEval = captureScore
+					// Losing capture - still try it, but after quiet moves
+					// CHANGE 4: Losing captures get a reasonable base score
+					// so they're not completely ignored
+					moveEval = scoreLosingCapture + captureScore
 				}
 			}
-		} else if killerMoveTable.KillerMoves[killerIdx][0] == mv {
-			// First killer.
-			moveEval = quietOffset + killerOffset + 100
-		} else if killerMoveTable.KillerMoves[killerIdx][1] == mv {
-			// Second killer.
-			moveEval = quietOffset + killerOffset
+
+		} else if KillerMoveTable.KillerMoves[killerIdx][0] == mv {
+			// First killer - high priority quiet move
+			moveEval = scoreKiller1
+
+		} else if KillerMoveTable.KillerMoves[killerIdx][1] == mv {
+			// Second killer
+			moveEval = scoreKiller2
+
 		} else {
-			// History + counter move.
-			moveEval = quietOffset + uint16(historyMove[side][mv.From()][mv.To()])
-			if counterMove[side][prevMove.From()][prevMove.To()] == mv {
-				moveEval += counterOffset
+			// Regular quiet move: base score + history
+			// CHANGE 5: History is now properly handled as signed value
+			histScore := int32(historyMove[side][mv.From()][mv.To()])
+			moveEval = scoreQuietBase + histScore
+
+			// Counter move bonus
+			if prevMove != 0 && counterMove[side][prevMove.From()][prevMove.To()] == mv {
+				moveEval = scoreCounterMove + histScore
 			}
 		}
 
@@ -187,7 +223,7 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 	return movesList
 }
 
-func scoreMovesListCaptures(_ *gm.Board, moves []gm.Move, ply int8) (movesList moveList, anyCaptures bool) {
+func scoreMovesListCaptures(board *gm.Board, moves []gm.Move, ply int8) (movesList moveList, anyCaptures bool) {
 	if ply < 0 {
 		ply = 0
 	}
@@ -195,7 +231,6 @@ func scoreMovesListCaptures(_ *gm.Board, moves []gm.Move, ply int8) (movesList m
 		ply = MaxPlyMoveList - 1
 	}
 
-	// Work on the per-ply capture pool.
 	pool := qMoveListPool[ply][:]
 	var capturedMovesIndex uint8
 
@@ -220,4 +255,13 @@ func scoreMovesListCaptures(_ *gm.Board, moves []gm.Move, ply int8) (movesList m
 
 	movesList.moves = pool[:capturedMovesIndex]
 	return movesList, capturedMovesIndex > 0
+}
+
+// IsKiller checks if a move is a killer move at the given ply
+func IsKiller(move gm.Move, ply int8, k *KillerStruct) bool {
+	index := int(ply)
+	if index >= len(k.KillerMoves) {
+		index = len(k.KillerMoves) - 1
+	}
+	return move == k.KillerMoves[index][0] || move == k.KillerMoves[index][1]
 }

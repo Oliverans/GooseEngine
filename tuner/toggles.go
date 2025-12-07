@@ -2,7 +2,7 @@ package tuner
 
 // PhaseToggles controls inclusion of each stage for Eval (model use)
 // and Train (gradient updates). Order mirrors README_eval_tuning_stages-plan.md:
-// Stages: 1) PST + Material, 2) Passers, 3) Core PawnStruct, 4) Activity (Mobility + stage-4 Extras/P1), 5) King safety, 6) Aggressive Extras, 7) Rook/Queen Extras/P1, 8) Imbalance, 9-10) Weak squares + Tempo.
+// Stages: 1) PST + Material, 2) Passers, 3) Core PawnStruct, 4) Activity (Mobility + stage-4 Extras/P1), 5) King safety, 6) Aggressive Extras, 7) Rook/Queen Extras/P1, 8) Imbalance, 9-10) Space/Weak-king + Tempo.
 //
 // Leaving Eval=true and Train=false "freezes" a stage; setting both=false removes its effect.
 type PhaseToggles struct {
@@ -30,6 +30,8 @@ type PhaseToggles struct {
 	// Stage 5: King safety table + correlates
 	KingTableEval, KingTableTrain bool // Table (100)
 	KingCorrEval, KingCorrTrain   bool // Correlates (4)
+	// Stage 5b: Endgame king terms (EG-only centralization/mop-up)
+	KingEndgameEval, KingEndgameTrain bool
 
 	// Stage 8: Material imbalance
 	ImbalanceEval, ImbalanceTrain bool
@@ -50,13 +52,12 @@ type ParamTrainToggles struct {
 	MaterialMG, MaterialEG bool
 	PassersMG, PassersEG   bool
 
-	// Stage 3: Pawn structure (16) — order must match writePawnStructToTheta.
-	// Core: Doubled/Isolated/Connected/Phalanx/Blocked/Backward.
-	// Stage 6 aggression: PawnLever/WeakLever.
+	// Stage 3: Pawn structure (14) — order must match writePawnStructToTheta.
+	// Core: Doubled/Isolated/Connected/Phalanx/Blocked/WeakLever/Backward.
 	// 0: DoubledMG,1: DoubledEG,2:IsolatedMG,3:IsolatedEG,4:ConnectedMG,5:ConnectedEG,
-	// 6: PhalanxMG,7: PhalanxEG,8:BlockedMG,9:BlockedEG,10:PawnLeverMG,11:PawnLeverEG,
-	// 12: WeakLeverMG,13: WeakLeverEG,14: BackwardMG,15: BackwardEG
-	PawnStruct [16]bool
+	// 6: PhalanxMG,7: PhalanxEG,8:BlockedMG,9:BlockedEG,10:WeakLeverMG,11: WeakLeverEG,
+	// 12: BackwardMG,13: BackwardEG
+	PawnStruct [14]bool
 	// Named toggles
 	DoubledMG   bool
 	DoubledEG   bool
@@ -68,8 +69,6 @@ type ParamTrainToggles struct {
 	PhalanxEG   bool
 	BlockedMG   bool
 	BlockedEG   bool
-	PawnLeverMG bool
-	PawnLeverEG bool
 	WeakLeverMG bool
 	WeakLeverEG bool
 	BackwardMG  bool
@@ -93,40 +92,32 @@ type ParamTrainToggles struct {
 	MobilityEG_K bool
 
 	// Stage 4/7/9/11: P1 scalars (8) — order must match writeP1ScalarsToTheta/readP1ScalarsFromTheta.
-	// Stage 4 core P1, Stage 7 rook-file/queen infil/centralization, Stage 9/11 optional extras.
+	// Stage 4 core P1, Stage 7 rook-file/queen centralization, Stage 9/11 optional extras.
 	// 0: BishopPairMG, 1: BishopPairEG, 2: RookSemiOpenFileMG, 3: RookOpenFileMG,
-	// 4: SeventhRankEG, 5: QueenCentralizedEG, 6: QueenInfiltrationMG, 7: QueenInfiltrationEG
-	P1 [8]bool
+	// 4: SeventhRankEG, 5: QueenCentralizedEG
+	P1 [6]bool
 	// Named toggles for convenience
-	BishopPairMG        bool
-	BishopPairEG        bool
-	RookSemiOpenFileMG  bool
-	RookOpenFileMG      bool
-	SeventhRankEG       bool
-	QueenCentralizedEG  bool
-	QueenInfiltrationMG bool
-	QueenInfiltrationEG bool
+	BishopPairMG       bool
+	BishopPairEG       bool
+	RookSemiOpenFileMG bool
+	RookOpenFileMG     bool
+	SeventhRankEG      bool
+	QueenCentralizedEG bool
 
-	// Stage 4/6/7: Extras (16), order must match writeExtrasToTheta/readExtrasFromTheta.
+	// Stage 4/6/7: Extras (15), order must match writeExtrasToTheta/readExtrasFromTheta.
 	// Stage 4: knight/bishop outposts + knight threats/mobility scaling.
-	// Stage 6: pawn storm/proximity/lever storm.
+	// Stage 6: pawn storm/proximity.
 	// Stage 7: rook/queen structure x-rays/stack/connect.
-	Extras [16]bool
+	Extras [15]bool
 	// Named extras
 	ExtraKnightOutpostMG   bool
 	ExtraKnightOutpostEG   bool
 	ExtraKnightThreatsMG   bool
 	ExtraKnightThreatsEG   bool
 	ExtraStackedRooksMG    bool
-	ExtraRookXrayQueenMG   bool
-	ExtraConnectedRooksMG  bool
 	ExtraBishopOutpostMG   bool
-	ExtraBishopXrayKingMG  bool
-	ExtraBishopXrayRookMG  bool
-	ExtraBishopXrayQueenMG bool
 	ExtraPawnStormMG       bool
 	ExtraPawnProximityMG   bool
-	ExtraPawnLeverStormMG  bool
 	ExtraKnightMobCenterMG bool
 	ExtraBishopMobCenterMG bool
 
@@ -154,11 +145,13 @@ type ParamTrainToggles struct {
 	ImbQueenManyMinorsMG  bool
 	ImbQueenManyMinorsEG  bool
 
-	// Stage 5 optional / Stage 9-10 standard: Weak squares + Tempo (3): WeakSquaresMG, WeakKingSquaresMG, Tempo.
-	WeakTempo     [3]bool
-	WeakSquaresMG bool
-	WeakKingsMG   bool
-	Tempo         bool
+	// Stage 5 optional / Stage 9-10 standard: Space/weak-king + Tempo (5): SpaceMG, SpaceEG, WeakKingSquaresMG, WeakKingSquaresEG, Tempo.
+	WeakTempo   [5]bool
+	SpaceMG     bool
+	SpaceEG     bool
+	WeakKingsMG bool
+	WeakKingsEG bool
+	Tempo       bool
 }
 
 // DefaultEvalToggles: turn on all evaluation paths (training toggles ignored in Eval).
@@ -168,15 +161,16 @@ func DefaultEvalToggles() PhaseToggles {
 		MaterialEval: true, MaterialTrain: false,
 		PassersEval: true, PassersTrain: false,
 		PawnStructEval: true, PawnStructTrain: false,
-		MobilityEval: true, MobilityTrain: false,
+		MobilityEval: false, MobilityTrain: false,
 		Extras4Eval: true, Extras4Train: false,
 		P1Eval: true, P1Train: false,
-		Extras6Eval: true, Extras6Train: false,
-		Extras7Eval: true, Extras7Train: false,
-		KingTableEval: true, KingTableTrain: false,
-		KingCorrEval: true, KingCorrTrain: false,
-		ImbalanceEval: true, ImbalanceTrain: false,
-		WeakTempoEval: true, WeakTempoTrain: true,
+		KingTableEval: true, KingTableTrain: true,
+		KingEndgameEval: true, KingEndgameTrain: true,
+		KingCorrEval: true, KingCorrTrain: true,
+		Extras6Eval: false, Extras6Train: false,
+		Extras7Eval: false, Extras7Train: false,
+		ImbalanceEval: false, ImbalanceTrain: false,
+		WeakTempoEval: false, WeakTempoTrain: false,
 		ParamTrain: DefaultTrainToggles(),
 	}
 }
@@ -216,13 +210,11 @@ func DefaultTrainToggles() ParamTrainToggles {
 	t.BishopPairMG, t.BishopPairEG = true, true
 	t.RookSemiOpenFileMG, t.RookOpenFileMG = true, true
 	t.SeventhRankEG, t.QueenCentralizedEG = true, true
-	t.QueenInfiltrationMG, t.QueenInfiltrationEG = true, true
 	t.DoubledMG, t.DoubledEG = true, true
 	t.IsolatedMG, t.IsolatedEG = true, true
 	t.ConnectedMG, t.ConnectedEG = true, true
 	t.PhalanxMG, t.PhalanxEG = true, true
 	t.BlockedMG, t.BlockedEG = true, true
-	t.PawnLeverMG, t.PawnLeverEG = true, true
 	t.WeakLeverMG, t.WeakLeverEG = true, true
 	t.BackwardMG, t.BackwardEG = true, true
 	t.MobilityMG_P, t.MobilityMG_N, t.MobilityMG_B, t.MobilityMG_R, t.MobilityMG_Q, t.MobilityMG_K = true, true, true, true, true, true
@@ -230,10 +222,9 @@ func DefaultTrainToggles() ParamTrainToggles {
 	t.KingSemiOpen, t.KingOpen, t.KingMinor, t.KingPawnMG = true, true, true, true
 	t.ExtraKnightOutpostMG, t.ExtraKnightOutpostEG = true, true
 	t.ExtraKnightThreatsMG, t.ExtraKnightThreatsEG = true, true
-	t.ExtraStackedRooksMG, t.ExtraRookXrayQueenMG, t.ExtraConnectedRooksMG = true, true, true
+	t.ExtraStackedRooksMG = true
 	t.ExtraBishopOutpostMG = true
-	t.ExtraBishopXrayKingMG, t.ExtraBishopXrayRookMG, t.ExtraBishopXrayQueenMG = true, true, true
-	t.ExtraPawnStormMG, t.ExtraPawnProximityMG, t.ExtraPawnLeverStormMG = true, true, true
+	t.ExtraPawnStormMG, t.ExtraPawnProximityMG = true, true
 	t.ExtraKnightMobCenterMG, t.ExtraBishopMobCenterMG = true, true
 	t.ImbKnightPerPawnMG, t.ImbKnightPerPawnEG = true, true
 	t.ImbBishopPerPawnMG, t.ImbBishopPerPawnEG = true, true
@@ -241,14 +232,14 @@ func DefaultTrainToggles() ParamTrainToggles {
 	t.ImbRedundantRookMG, t.ImbRedundantRookEG = true, true
 	t.ImbRookQueenOverlapMG, t.ImbRookQueenOverlapEG = true, true
 	t.ImbQueenManyMinorsMG, t.ImbQueenManyMinorsEG = true, true
-	t.WeakSquaresMG, t.WeakKingsMG, t.Tempo = true, true, true
+	t.SpaceMG, t.SpaceEG, t.WeakKingsMG, t.WeakKingsEG, t.Tempo = true, true, true, true, true
 	return t
 }
 
 // ensureToggles initializes default toggles if none are set.
 func (le *LinearEval) ensureToggles() {
 	t := le.Toggles
-	if !(t.PSTEval || t.MaterialEval || t.PassersEval || t.PawnStructEval || t.MobilityEval || t.Extras4Eval || t.Extras6Eval || t.Extras7Eval || t.P1Eval || t.KingTableEval || t.KingCorrEval || t.ImbalanceEval || t.WeakTempoEval) {
+	if !(t.PSTEval || t.MaterialEval || t.PassersEval || t.PawnStructEval || t.MobilityEval || t.Extras4Eval || t.Extras6Eval || t.Extras7Eval || t.P1Eval || t.KingTableEval || t.KingCorrEval || t.KingEndgameEval || t.ImbalanceEval || t.WeakTempoEval) {
 		le.Toggles = DefaultEvalToggles()
 		return
 	}

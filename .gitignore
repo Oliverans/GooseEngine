@@ -76,8 +76,15 @@ __pycache__/
 .pytest_cache/
 
 # -------------------------
-# Custom files
+# Coding agents (Claude, Codex, local etc)
 # -------------------------
+.claude
+
+# -------------------------
+# Custom files / dirs
+# -------------------------
+cutechess_tours
 sprt.ps1
 perft_commands.txt
 *.json
+*.txt

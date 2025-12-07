@@ -58,20 +58,16 @@ func incrementHistoryScore(sideToMove bool, move gm.Move, depth int8) {
 	}
 
 	bonus := int(depth) * int(depth)
-
-	// Gravity: reduce the impact of very old history
 	currentVal := historyMove[sideIdx][move.From()][move.To()]
 	bonus = bonus - currentVal*bonus/historyMaxVal
 
 	historyMove[sideIdx][move.From()][move.To()] += bonus
 
 	if historyMove[sideIdx][move.From()][move.To()] >= historyMaxVal {
-		ageHistoryTable(sideToMove)
+		AgeHistory()
 	}
 }
 
-// OPTIMIZATION: Decrement history for moves that failed to cause a cutoff
-// This is the "history malus" - penalize moves that were tried but didn't work
 func decrementHistoryScoreBy(sideToMove bool, move gm.Move, depth int8) {
 	sideIdx := 0
 	if !sideToMove {
@@ -79,42 +75,26 @@ func decrementHistoryScoreBy(sideToMove bool, move gm.Move, depth int8) {
 	}
 
 	malus := int(depth) * int(depth)
-
-	// Gravity: reduce the impact
 	currentVal := historyMove[sideIdx][move.From()][move.To()]
 	malus = malus + currentVal*malus/historyMaxVal
 
 	historyMove[sideIdx][move.From()][move.To()] -= malus
 
-	// Allow negative values but cap them
-	if historyMove[sideIdx][move.From()][move.To()] < -historyMaxVal {
+	if historyMove[sideIdx][move.From()][move.To()] <= -historyMaxVal {
 		historyMove[sideIdx][move.From()][move.To()] = -historyMaxVal
+		AgeHistory()
 	}
 }
 
-// Legacy function for compatibility - decrements by small amount
-func decrementHistoryScore(sideToMove bool, move gm.Move) {
-	sideIdx := 0
-	if !sideToMove {
-		sideIdx = 1
-	}
-
-	if historyMove[sideIdx][move.From()][move.To()] > -historyMaxVal {
-		historyMove[sideIdx][move.From()][move.To()]--
-	}
-}
-
-// Age the values in the history table by halving them.
-func ageHistoryTable(sideToMove bool) {
-	for sq1 := 0; sq1 < 64; sq1++ {
-		for sq2 := 0; sq2 < 64; sq2++ {
-			if sideToMove {
-				historyMove[0][sq1][sq2] /= 2
-			} else {
-				historyMove[1][sq1][sq2] /= 2
+func AgeHistory() {
+	for side := 0; side < 2; side++ {
+		for from := 0; from < 64; from++ {
+			for to := 0; to < 64; to++ {
+				historyMove[side][from][to] /= 2
 			}
 		}
 	}
+	// Also age counter move history if you have it
 }
 
 // Clear the values in the history table.
@@ -148,7 +128,7 @@ func hasMinorOrMajorPiece(b *gm.Board) (wCount int, bCount int) {
 }
 
 // Precomputed reductions
-const MaxDepth = 100
+const MaxDepth int8 = 100
 
 func getPVLineString(pvLine PVLine) (theMoves string) {
 	for _, move := range pvLine.Moves {
@@ -185,6 +165,8 @@ func getMateOrCPScore(score int) string {
 func ResetForNewGame() {
 	TT.clearTT()
 	ClearPawnHash()
+	ClearKillers(&KillerMoveTable)
+	ClearHistoryTable()
 	stateStack = stateStack[:0]
 	var nilMove gm.Move
 	for i := 0; i < 64; i++ {
@@ -219,14 +201,16 @@ func dumpRootMoveOrdering(board *gm.Board) {
 
 // OPTIMIZATION: Improved LMR reduction computation
 // Uses the precomputed LMR table with dynamic adjustments
-func computeLMRReduction(depth int8, legalMoves int, moveIdx int, isPVNode bool, tactical bool, historyScore int) int8 {
+// Consolidates all reduction heuristics in one place for maintainability
+func computeLMRReduction(depth int8, legalMoves int, moveIdx int, isPVNode bool, tactical bool,
+	historyScore int, improving bool, isKiller bool, extendMove bool) int8 {
 	// No reduction for tactical moves or very shallow depths
 	if tactical || depth < 2 {
 		return 0
 	}
 
 	// Clamp indices into LMR table bounds
-	d := Max(1, Min(int(depth), MaxDepth))
+	d := Max(1, Min(int(depth), int(MaxDepth)))
 	m := Max(1, Min(legalMoves, 99))
 
 	// Get base reduction from precomputed table
@@ -239,18 +223,15 @@ func computeLMRReduction(depth int8, legalMoves int, moveIdx int, isPVNode bool,
 
 	// History-based adjustments
 	// Good history: reduce less (this move has been good before)
-	if historyScore > 500 {
+	if historyScore > LMRHistoryBonus {
 		r--
 	}
-	if historyScore > 1500 {
+	if historyScore > LMRHistoryBonus*2 {
 		r--
 	}
 
 	// Bad history: reduce more (this move has failed before)
-	if historyScore < -200 {
-		r++
-	}
-	if historyScore < -500 {
+	if historyScore < LMRHistoryMalus {
 		r++
 	}
 
@@ -259,21 +240,42 @@ func computeLMRReduction(depth int8, legalMoves int, moveIdx int, isPVNode bool,
 		r++
 	}
 
+	// Additional heuristics from search.go consolidated here:
+
+	// PV nodes get additional reduction bonus
+	if isPVNode && r > 0 {
+		r--
+	}
+
+	// Improving positions deserve less reduction
+	if improving && r > 1 {
+		r--
+	}
+
+	// Killer moves are promising, reduce less
+	if isKiller && r > 0 {
+		r--
+	}
+
+	// If we're extending this move, reduce the reduction
+	if extendMove && r > 0 {
+		r--
+	}
+
 	// Ensure bounds
 	if r < 0 {
 		r = 0
 	}
-	if r > depth-1 {
-		r = depth - 1
+	if r > depth-2 {
+		r = depth - 2
 	}
 
 	return r
 }
 
-// Check if a move is a killer move
-func IsKiller(move gm.Move, ply int8, killerTable *KillerStruct) bool {
-	if ply >= int8(len(killerTable.KillerMoves)) {
-		return false
+func abs32(x int32) int32 {
+	if x < 0 {
+		return -x
 	}
-	return killerTable.KillerMoves[ply][0] == move || killerTable.KillerMoves[ply][1] == move
+	return x
 }

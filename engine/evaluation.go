@@ -55,125 +55,125 @@ var attackerOuter = [7]int{
 var PSQT_MG = [7][64]int{
 	gm.PieceTypePawn: {
 		0, 0, 0, 0, 0, 0, 0, 0,
-		-35, -1, -20, -23, -15, 24, 38, -22,
-		-26, -4, -4, -10, 3, 3, 33, -12,
-		-27, -2, -5, 12, 17, 6, 10, -25,
-		-14, 13, 6, 21, 23, 12, 17, -23,
-		-6, 7, 26, 31, 65, 56, 25, -20,
-		98, 134, 61, 95, 68, 126, 34, -11,
+		-46, -41, -42, -39, -40, -12, 1, -21,
+		-51, -52, -45, -45, -37, -37, -20, -30,
+		-46, -40, -33, -33, -23, -26, -15, -30,
+		-36, -27, -27, -11, 1, 2, -4, -21,
+		-33, -6, 7, 13, 27, 57, 19, -11,
+		57, 54, 55, 54, 46, 32, 4, 9,
 		0, 0, 0, 0, 0, 0, 0, 0,
 	},
 	gm.PieceTypeKnight: {
-		-21, -21, -41, -24, -19, -16, -20, -35,
-		-31, -28, -12, -4, -8, -4, -17, -14,
-		-20, -5, 0, 10, 11, 3, 1, -12,
-		-8, 3, 13, 9, 17, 14, 29, 5,
-		-3, 13, 32, 38, 27, 48, 23, 26,
-		-19, 12, 40, 49, 66, 64, 36, 15,
-		-17, -12, 19, 31, 30, 37, -4, 7,
-		-54, -5, -11, 0, 1, -5, -1, -15,
+		-24, -28, -46, -30, -25, -21, -27, -40,
+		-35, -32, -18, -10, -14, -12, -20, -18,
+		-25, -8, -4, 6, 7, -1, -1, -17,
+		-14, -1, 8, 5, 13, 10, 26, -1,
+		-5, 8, 30, 35, 24, 43, 19, 22,
+		-21, 12, 40, 49, 67, 64, 37, 14,
+		-17, -12, 20, 33, 33, 37, -8, 3,
+		-61, -6, -12, -2, 1, -6, -1, -16,
 	},
 	gm.PieceTypeBishop: {
-		5, 0, -11, -18, -17, -6, -6, 2,
-		5, 9, 13, 0, 2, 10, 22, 11,
-		2, 11, 10, 14, 11, 9, 10, 15,
-		-7, 10, 16, 23, 28, 11, 12, 8,
-		-8, 21, 22, 50, 35, 39, 19, 7,
-		2, 15, 34, 32, 42, 50, 35, 23,
-		-27, 3, -2, -8, -1, 10, -3, 5,
-		-24, -7, -13, -12, -7, -19, 1, -9,
+		4, -2, -15, -21, -18, -8, -8, 2,
+		4, 8, 11, -2, 1, 5, 20, 11,
+		-2, 11, 8, 13, 10, 8, 10, 13,
+		-7, 10, 15, 21, 26, 11, 10, 7,
+		-4, 22, 24, 49, 34, 37, 20, 6,
+		4, 18, 36, 36, 47, 55, 37, 24,
+		-22, 6, 3, -7, 4, 14, -3, 8,
+		-27, -8, -13, -12, -8, -21, 1, -10,
 	},
 	gm.PieceTypeRook: {
-		-27, -22, -18, -14, -18, -21, -6, -23,
-		-58, -29, -28, -24, -29, -19, -14, -42,
-		-43, -31, -34, -26, -30, -33, -12, -26,
-		-33, -33, -28, -18, -23, -21, -6, -16,
-		-18, -8, 2, 19, 10, 15, 10, 9,
-		-8, 24, 17, 36, 44, 36, 41, 21,
-		10, 5, 27, 36, 27, 33, 11, 34,
-		26, 24, 18, 22, 12, 15, 20, 31,
+		-46, -41, -37, -34, -36, -40, -19, -42,
+		-71, -45, -44, -43, -47, -37, -25, -51,
+		-60, -46, -50, -44, -47, -48, -21, -38,
+		-49, -45, -43, -35, -37, -34, -13, -29,
+		-33, -21, -11, 6, 0, 7, 8, 2,
+		-22, 10, 4, 25, 41, 38, 44, 20,
+		-3, -5, 16, 28, 31, 37, 9, 30,
+		23, 22, 19, 24, 23, 20, 21, 34,
 	},
 	gm.PieceTypeQueen: {
-		12, 1, 6, 12, 11, -10, -15, -2,
-		3, 11, 16, 12, 12, 22, 19, 5,
-		5, 13, 12, 10, 9, 12, 21, 17,
-		8, 10, 12, 9, 9, 13, 17, 18,
-		-5, 5, 3, -2, 10, 12, 20, 20,
-		-8, -1, 5, 7, 2, 8, 3, 0,
-		-6, -33, 8, 4, -23, 4, -3, 32,
-		5, 19, 20, 21, 17, 27, 24, 32,
+		-6, -17, -12, -3, -6, -28, -27, -12,
+		-11, -4, 2, -2, -1, 7, 8, -7,
+		-8, -1, -2, -4, -4, -1, 8, 7,
+		-5, -3, -2, -6, -6, 10, 7, 16,
+		-11, -6, -2, -1, 12, 22, 26, 26,
+		-13, -6, -1, 14, 36, 58, 71, 42,
+		-11, -40, 5, 5, 20, 44, -2, 27,
+		0, 16, 21, 29, 36, 38, 25, 36,
 	},
 	gm.PieceTypeKing: {
-		-12, 32, -3, -72, -24, -75, 15, 22,
-		3, -8, -23, -60, -38, -42, 5, 19,
-		-7, -8, -5, -9, 0, -3, 5, -13,
-		-1, 7, 12, 7, 14, 12, 21, -7,
-		2, 9, 12, 6, 9, 12, 13, -7,
-		2, 12, 12, 9, 7, 13, 11, 2,
-		-1, 7, 6, 3, 4, 5, 5, 0,
-		-2, 1, 1, 1, 1, 0, 0, -1,
+		-4, 36, -1, -69, -23, -74, 19, 26,
+		12, 0, -18, -53, -33, -39, 7, 25,
+		-6, -4, -3, -11, -6, -8, 4, -15,
+		-1, 8, 16, 10, 15, 12, 23, -9,
+		0, 9, 16, 10, 13, 15, 15, -8,
+		1, 11, 12, 9, 8, 14, 12, 0,
+		-2, 6, 6, 2, 3, 4, 3, -2,
+		-1, 0, 0, 2, 0, 0, 0, -2,
 	},
 }
 var PSQT_EG = [7][64]int{
 	gm.PieceTypePawn: {
 		0, 0, 0, 0, 0, 0, 0, 0,
-		14, 16, 11, 9, 16, 14, 10, -10,
-		7, 11, 0, 4, 4, 4, 6, -7,
-		15, 15, -3, -4, -6, -3, 5, -2,
-		35, 29, 19, 2, -1, 2, 17, 13,
-		87, 84, 70, 57, 50, 43, 64, 66,
-		139, 129, 109, 90, 79, 73, 87, 102,
+		-9, -8, -4, -2, 7, 2, -14, -29,
+		-16, -17, -13, -12, -9, -12, -26, -29,
+		-8, -10, -19, -18, -19, -17, -22, -21,
+		3, -2, -5, -23, -16, -14, -10, -12,
+		21, 22, 21, 22, 22, 11, 25, 17,
+		75, 69, 58, 48, 43, 43, 55, 63,
 		0, 0, 0, 0, 0, 0, 0, 0,
 	},
 	gm.PieceTypeKnight: {
-		-27, -57, -27, -18, -19, -27, -44, -28,
-		-30, -11, -12, -4, -1, -14, -14, -29,
-		-36, -1, 7, 22, 19, 6, 2, -30,
-		-12, 14, 34, 41, 37, 38, 17, -6,
-		-6, 18, 32, 45, 50, 39, 31, 3,
-		-13, 12, 29, 31, 26, 37, 16, -6,
-		-19, -6, 8, 28, 23, 4, -5, -12,
-		-36, -7, 6, 4, 5, 6, -2, -15,
+		-29, -60, -26, -18, -20, -28, -48, -30,
+		-28, -13, -13, -6, -4, -16, -18, -31,
+		-38, -3, 6, 19, 18, 5, -2, -33,
+		-15, 11, 32, 36, 34, 35, 16, -9,
+		-11, 14, 28, 43, 48, 36, 28, -1,
+		-20, 6, 24, 26, 20, 31, 12, -11,
+		-25, -12, 1, 21, 19, -3, -9, -16,
+		-41, -11, 2, 0, 1, 4, -4, -17,
 	},
 	gm.PieceTypeBishop: {
-		-24, -14, -35, -11, -15, -22, -17, -16,
-		-11, -18, -10, -2, -1, -14, -15, -29,
-		-9, 1, 10, 11, 12, 7, -6, -5,
-		-3, 9, 19, 19, 16, 17, 9, -5,
-		4, 16, 16, 18, 26, 17, 23, 8,
-		2, 15, 16, 15, 16, 24, 17, 9,
-		-2, 15, 16, 15, 16, 12, 15, -3,
-		4, 8, 8, 13, 9, 2, 4, 4,
+		-28, -16, -38, -14, -19, -24, -21, -20,
+		-10, -20, -12, -4, -5, -18, -18, -33,
+		-12, -1, 7, 10, 8, 3, -11, -11,
+		-5, 6, 17, 18, 15, 14, 4, -10,
+		0, 11, 12, 17, 24, 15, 19, 3,
+		-5, 8, 11, 11, 13, 19, 12, 3,
+		-7, 7, 10, 11, 12, 10, 12, -6,
+		1, 5, 5, 8, 4, 0, 2, 2,
 	},
 	gm.PieceTypeRook: {
-		-21, -10, -4, -5, -7, -6, -8, -29,
-		-17, -19, -11, -14, -13, -20, -18, -15,
-		-12, -1, -1, -4, -3, -4, -4, -12,
-		5, 18, 20, 15, 13, 13, 9, 0,
-		18, 23, 25, 21, 21, 18, 14, 12,
-		27, 20, 31, 21, 18, 27, 15, 16,
-		33, 39, 38, 40, 43, 26, 28, 21,
-		33, 37, 43, 41, 42, 43, 39, 38,
+		-10, 0, 5, 5, 3, 3, -1, -18,
+		-8, -10, -3, -6, -5, -11, -14, -10,
+		-2, 7, 8, 5, 4, 3, -1, -8,
+		13, 25, 26, 22, 20, 18, 12, 6,
+		25, 27, 30, 26, 23, 20, 16, 16,
+		34, 24, 32, 25, 17, 24, 14, 18,
+		36, 42, 40, 41, 40, 23, 28, 22,
+		32, 37, 40, 37, 38, 42, 39, 37,
 	},
 	gm.PieceTypeQueen: {
-		-23, -32, -40, -37, -44, -32, -21, -6,
-		-21, -22, -39, -21, -29, -55, -40, -12,
-		-15, -8, 5, -6, -5, 5, -6, -3,
-		-10, 11, 11, 38, 37, 44, 32, 40,
-		1, 23, 21, 55, 54, 54, 61, 50,
-		8, 14, 25, 42, 46, 46, 43, 51,
-		16, 40, 32, 38, 55, 28, 28, 30,
-		17, 30, 31, 35, 33, 35, 30, 32,
+		-25, -35, -41, -48, -50, -39, -27, -9,
+		-26, -24, -44, -27, -36, -62, -57, -17,
+		-22, -17, 5, -10, -11, 1, -19, -14,
+		-19, 5, 6, 38, 32, 30, 17, 20,
+		-11, 14, 13, 42, 52, 57, 49, 33,
+		-1, 3, 20, 29, 45, 56, 40, 38,
+		7, 31, 25, 36, 57, 44, 28, 25,
+		14, 26, 29, 38, 44, 43, 31, 33,
 	},
 	gm.PieceTypeKing: {
-		-39, -32, -23, -29, -57, -18, -35, -79,
-		-16, -11, -3, 1, -3, -1, -17, -36,
-		-19, -4, 3, 13, 9, 2, -10, -22,
-		-15, 11, 20, 27, 23, 16, 5, -19,
-		2, 27, 31, 31, 30, 29, 23, -3,
-		7, 32, 30, 21, 19, 37, 35, 3,
-		-7, 19, 14, 5, 6, 12, 23, -4,
-		-15, -8, -3, 0, -3, -2, -4, -11,
+		-37, -29, -20, -26, -54, -14, -35, -78,
+		-15, -9, -3, 4, -2, 1, -15, -35,
+		-16, -3, 7, 16, 13, 6, -8, -18,
+		-16, 8, 21, 28, 25, 19, 5, -18,
+		-2, 22, 29, 30, 29, 26, 20, -5,
+		1, 26, 25, 19, 16, 32, 31, -1,
+		-12, 14, 11, 3, 5, 10, 20, -9,
+		-17, -12, -6, -1, -6, -6, -6, -14,
 	},
 }
 
@@ -194,93 +194,79 @@ var mobilityValueEG = [7]int{
 // Passed pawn bonuses (PSQT offsets)
 var PassedPawnPSQT_MG = [64]int{
 	0, 0, 0, 0, 0, 0, 0, 0,
-	8, 9, 2, -8, -3, 8, 16, 9,
-	5, 3, -3, -14, -3, 10, 13, 19,
-	14, 0, -9, -7, -13, -7, 9, 16,
-	28, 17, 13, 10, 10, 19, 6, 1,
-	48, 43, 43, 30, 24, 31, 12, 2,
-	45, 52, 42, 43, 28, 34, 19, 9,
+	-11, -10, -11, -11, -1, -6, 16, 14,
+	-2, -4, -17, -17, -7, -6, -5, 15,
+	15, 6, -8, -5, -8, -8, -2, 6,
+	34, 33, 25, 17, 11, 8, 15, 17,
+	68, 52, 41, 33, 24, 24, 19, 17,
+	56, 53, 55, 54, 46, 31, 4, 9,
 	0, 0, 0, 0, 0, 0, 0, 0,
 }
 var PassedPawnPSQT_EG = [64]int{
 	0, 0, 0, 0, 0, 0, 0, 0,
-	2, 3, -4, 0, -2, -1, 7, 6,
-	8, 6, 5, 1, 1, -1, 14, 7,
-	29, 26, 21, 18, 17, 19, 34, 30,
-	55, 52, 42, 35, 30, 34, 56, 52,
-	91, 83, 66, 40, 30, 61, 67, 84,
-	77, 74, 63, 53, 59, 60, 72, 77,
+	18, 16, 10, 9, 4, 0, 8, 15,
+	13, 22, 12, 10, 9, 8, 25, 13,
+	32, 36, 29, 24, 23, 30, 44, 33,
+	60, 54, 40, 41, 35, 37, 48, 45,
+	102, 86, 64, 41, 33, 50, 57, 78,
+	68, 66, 56, 46, 43, 42, 55, 62,
 	0, 0, 0, 0, 0, 0, 0, 0,
 }
 
 // Most other non-material evaluation parameters
-const (
-	QueenCentralizationEG = 8
-	QueenInfiltrationMG   = -5
-	QueenInfiltrationEG   = 20
-
-	RookXrayQueenMG = 20
-	RookXrayKingMG  = 20
+var (
+	QueenCentralizationEG = 15
 
 	RookStackedMG     = 20
 	RookConnectedMG   = 20
-	RookSeventhRankEG = 20
-	RookSemiOpenMG    = 10
-	RookOpenMG        = 20
+	RookSeventhRankEG = 10
+	RookSemiOpenMG    = 13
+	RookOpenMG        = 30
 
 	KnightOutpostMG = 17
 	KnightOutpostEG = 9
 	KnightThreatMG  = 10
 	KnightThreatEG  = 5
 
-	BishopXrayRookMG  = 10
-	BishopXrayQueenMG = 15
-	BishopXrayKingMG  = 20
-
 	BishopOutpostMG = 12
 	BishopOutpostEG = 4
 
-	BishopPairBonusMG = 28
-	BishopPairBonusEG = 34
+	BishopPairBonusMG = 10
+	BishopPairBonusEG = 50
 
-	PassingPawnFileMG      = 9
-	PassingPawnRankMG      = 10
-	PassingPawnCandidateMG = 10
-	PassingPawnFileEG      = 5
-	PassingPawnRankEG      = 12
-	PassedPawnBlocked      = -6
-	PassedPawnFilePenalty  = -2
+	KnightTropismMG = 1
+	KnightTropismEG = 4
 
-	BackwardPawnMG = 6
-	BackwardPawnEG = 6
-
-	IsolatedPawnMG = 7
-	IsolatedPawnEG = 12
-
-	PawnDoubledMG = 10
-	PawnDoubledEG = 7
-
+	BackwardPawnMG       = 1
+	BackwardPawnEG       = 4
+	IsolatedPawnMG       = 6
+	IsolatedPawnEG       = 7
+	PawnDoubledMG        = 4
+	PawnDoubledEG        = 17
 	PawnStormMG          = 12
 	PawnFrontProximityMG = 10
-
-	PawnConnectedMG = 8
-	PawnConnectedEG = 5
-	PawnPhalanxMG   = 8
-	PawnPhalanxEG   = 5
-
-	PawnWeakLeverMG = 10
-	PawnWeakLeverEG = 5
-
-	PawnBlockedMG = -6
-	PawnBlockedEG = -7
+	PawnConnectedMG      = 14
+	PawnConnectedEG      = 8
+	PawnPhalanxMG        = 6
+	PawnPhalanxEG        = 10
+	PawnWeakLeverMG      = 2
+	PawnWeakLeverEG      = 6
+	PawnBlockedMG        = -6
+	PawnBlockedEG        = -7
 
 	KingOpenFileMG          = -5
 	KingSemiOpenFileMG      = -3
 	KingMinorDefenseBonusMG = 7
 	KingPawnDefenseBonusMG  = 6
 
-	KnightTropismMG = 3
-	KnightTropismEG = 4
+	SpaceBonusMG            = 3 // Per safe square in our space zone
+	SpaceBonusEG            = 1
+	WeakKingSquarePenaltyMG = 8 // Per weak square adjacent to king
+	WeakKingSquarePenaltyEG = 2
+
+	PawnStormBaseMG             = [8]int{0, 0, 0, 5, 10, 20, 30, 0}
+	PawnStormBlockedMG          = 2
+	PawnStormOppositeMultiplier = 150
 
 	WeakSquarePenaltyMG    = -3
 	WeakSquarePenaltyEG    = -2
@@ -289,7 +275,7 @@ const (
 
 	TempoBonus = 10
 
-	DrawDivider = 8
+	DrawDivider int32 = 8
 )
 
 // King safety table (index = "attack unit count") – higher values = worse safety
@@ -322,7 +308,6 @@ var ImbalanceQueenManyMinorsMG = 13
 var ImbalanceQueenManyMinorsEG = -17
 
 /* ============= HELPER VARIABLES ============= */
-// Precomputed isolated pawn mask per file (from dragontooth engine)
 var isolatedPawnTable = [8]uint64{
 	0x0303030303030303, 0x0707070707070707, 0x0e0e0e0e0e0e0e0e, 0x1c1c1c1c1c1c1c1c,
 	0x3838383838383838, 0x7070707070707070, 0xe0e0e0e0e0e0e0e0, 0xc0c0c0c0c0c0c0c0,
@@ -338,6 +323,11 @@ var centerManhattanDistance = [64]int{
 	5, 4, 3, 2, 2, 3, 4, 5,
 	6, 5, 4, 3, 3, 4, 5, 6,
 }
+
+var (
+	wSpaceZoneMask uint64 = 0x00003c3c3c000000 // c2-f2, c3-f3, c4-f4
+	bSpaceZoneMask uint64 = 0x0000003c3c3c0000 // c5-f5, c6-f6, c7-f7
+)
 
 var onlyFile = [8]uint64{
 	0x0101010101010101, 0x0202020202020202, 0x0404040404040404, 0x0808080808080808,
@@ -393,7 +383,7 @@ func edgeDist(sq int) int {
 	return min(min(file, 7-file), min(rank, 7-rank))
 }
 
-/* ============= EVALUATION SUBROUTINES ============= */
+/* ============= MATERIAL + PHASE ============= */
 
 func GetPiecePhase(b *gm.Board) (phase int) {
 	phase += bits.OnesCount64(b.White.Knights|b.Black.Knights) * KnightPhase
@@ -456,7 +446,8 @@ func countPieceTables(wPieceBB *uint64, bPieceBB *uint64, ptm *[64]int, pte *[64
 	return mgScore, egScore
 }
 
-// materialImbalance based on a Kaufman-style non-linear material term
+/* ============= IMBALANCE & SPACE ============= */
+
 func materialImbalance(b *gm.Board) (imbMG int, imbEG int) {
 	pieceCount := countPieceTypes(b)
 
@@ -556,110 +547,57 @@ func materialImbalance(b *gm.Board) (imbMG int, imbEG int) {
 	return imbMG, imbEG
 }
 
-func getWeakSquares(movementBB [2][5]uint64, kingInnerRing [2]uint64, wPawnAttackBB, bPawnAttackBB uint64) (weakSquares [2]uint64, weakSquaresKing [2]uint64) {
+func spaceEvaluation(
+	b *gm.Board,
+	wPawnAttackBB, bPawnAttackBB uint64,
+	knightMovementBB, bishopMovementBB [2]uint64,
+	piecePhase int,
+) (spaceMG, spaceEG int) {
 
-	// Priority space masks (tunable): emphasize central and forward squares per side
-	var wSide uint64 = 0x3c3c3c7e00
-	var bSide uint64 = 0x7e3c3c3c000000
-
-	// Iterative accumulation via for-loop per piece type (R -> B -> N).
-	// Same-piece defenders cancel same-piece attackers. Pawns defend all. Q/K excluded entirely.
-	// White zone vs black attackers
-	var wRemainder uint64 = 0
-	for i := 2; i >= 0; i-- { // indices: 2=R, 1=B, 0=N
-		attackers := movementBB[1][i] // black raw attacks for piece i
-		defenders := movementBB[0][i] // white raw defenses for same piece i
-		attackers &^= wPawnAttackBB   // white pawns defend all
-		wRemainder |= (attackers &^ defenders)
+	if piecePhase < 6 {
+		return 0, 0
 	}
 
-	// Black zone vs white attackers
-	var bRemainder uint64 = 0
-	for i := 2; i >= 0; i-- { // indices: 2=R, 1=B, 0=N
-		attackers := movementBB[0][i] // white raw attacks for piece i
-		defenders := movementBB[1][i] // black raw defenses for same piece i
-		attackers &^= bPawnAttackBB   // black pawns defend all
-		bRemainder |= (attackers &^ defenders)
-	}
+	wSpaceZone := wSpaceZoneMask &^ b.Black.Pawns
+	bSpaceZone := bSpaceZoneMask &^ b.White.Pawns
 
-	var wWeakBoard uint64 = wRemainder & wSide
-	var bWeakBoard uint64 = bRemainder & bSide
+	wControl := wPawnAttackBB | knightMovementBB[0] | bishopMovementBB[0] // Combine pawn attacks with minor piece control
+	bControl := bPawnAttackBB | knightMovementBB[1] | bishopMovementBB[1]
 
-	weakSquares[0] = wWeakBoard
-	weakSquares[1] = bWeakBoard
+	wSafe := wSpaceZone & wControl &^ bPawnAttackBB // Safe squares in our own zone
+	bSafe := bSpaceZone & bControl &^ wPawnAttackBB
 
-	weakSquaresKing[0] = wWeakBoard & kingInnerRing[0]
-	weakSquaresKing[1] = bWeakBoard & kingInnerRing[1]
+	wSafe |= wSpaceZone & b.White.All // Space we occupy
+	bSafe |= bSpaceZone & b.Black.All
 
-	return weakSquares, weakSquaresKing
+	wCount := bits.OnesCount64(wSafe)
+	bCount := bits.OnesCount64(bSafe)
+
+	spaceMG = (wCount - bCount) * SpaceBonusMG
+	spaceEG = (wCount - bCount) * SpaceBonusEG
+
+	return spaceMG, spaceEG
 }
 
-// evaluateWeakSquares computes the midgame weak-square contribution using raw attack maps.
-// It treats P/N/B as strong defenders, rooks as weak defenders (half penalty), and excludes Q/K as defenders.
-func weakSquaresPenalty(movementBB [2][5]uint64, kingInnerRing [2]uint64, wPawnAttackBB uint64, bPawnAttackBB uint64) (weakSquareScore int, protectedSquareScore int, weakSquares [2]uint64, weakKingSquares [2]uint64, protectedSquares [2]uint64) {
+func weakKingSquaresPenalty(
+	b *gm.Board,
+	wPawnAttackBB, bPawnAttackBB uint64,
+	kingInnerRing [2]uint64,
+) (penaltyMG, penaltyEG int) {
+	wWeakKingSquares := kingInnerRing[0] &^ wPawnAttackBB &^ b.White.All
+	bWeakKingSquares := kingInnerRing[1] &^ bPawnAttackBB &^ b.Black.All
 
-	// 1) Candidate weak squares from your existing logic
-	weakSquares, weakKingSquares = getWeakSquares(movementBB, kingInnerRing, wPawnAttackBB, bPawnAttackBB)
+	wCount := bits.OnesCount64(wWeakKingSquares)
+	bCount := bits.OnesCount64(bWeakKingSquares)
 
-	// Same priority masks as in getWeakSquares (white "zone" and black "zone").
-	const wZoneMask uint64 = 0x3c3c3c7e00     // b2–g2, c3–f3, c4–f4, c5–f5
-	const bZoneMask uint64 = 0x7e3c3c3c000000 // b7–g7, c6–f6, c5–f5, c4–f4
+	penaltyMG = (bCount - wCount) * WeakKingSquarePenaltyMG
+	penaltyEG = (bCount - wCount) * WeakKingSquarePenaltyEG
 
-	// 2) "Solid defenders" for each side: pawn + N + B + R
-	// movementBB indices: 0 = N, 1 = B, 2 = R, 3 = Q, 4 = K
-	wSolidDef := wPawnAttackBB | movementBB[0][0] | movementBB[0][1] | movementBB[0][2]
-	bSolidDef := bPawnAttackBB | movementBB[1][0] | movementBB[1][1] | movementBB[1][2]
-
-	// 3) Important squares that are NOT already weak (these can become "protected")
-	wImportant := wZoneMask
-	bImportant := bZoneMask
-
-	wCandidates := wImportant &^ weakSquares[0]
-	bCandidates := bImportant &^ weakSquares[1]
-
-	// 4) Protected squares: important + solidly defended
-	wProtected := wCandidates & wSolidDef
-	bProtected := bCandidates & bSolidDef
-
-	// King-ring subsets of protected squares
-	wProtectedKing := wProtected & kingInnerRing[0]
-	bProtectedKing := bProtected & kingInnerRing[1]
-
-	// 5) Separate general weak vs king-ring weak
-	wWeakGeneral := weakSquares[0] &^ weakKingSquares[0]
-	bWeakGeneral := weakSquares[1] &^ weakKingSquares[1]
-
-	// 6) Popcounts
-	wProtCnt := bits.OnesCount64(wProtected)
-	bProtCnt := bits.OnesCount64(bProtected)
-	wProtKingCnt := bits.OnesCount64(wProtectedKing)
-	bProtKingCnt := bits.OnesCount64(bProtectedKing)
-
-	wWeakCnt := bits.OnesCount64(wWeakGeneral)
-	bWeakCnt := bits.OnesCount64(bWeakGeneral)
-	wWeakKingCnt := bits.OnesCount64(weakKingSquares[0])
-	bWeakKingCnt := bits.OnesCount64(weakKingSquares[1])
-
-	// 7) Scoring from White's POV
-
-	// Protected squares: we like having them in our zone
-	protectedSquareScore += (wProtCnt - bProtCnt) * ProtectedSquareBonusMG
-	protectedSquareScore += (wProtKingCnt - bProtKingCnt) * ProtectedSquareBonusEG
-
-	// Weak squares: we dislike our own, like opponent's
-	weakSquareScore += (bWeakCnt - wWeakCnt) * WeakSquarePenaltyMG
-	weakSquareScore += (bWeakKingCnt - wWeakKingCnt) * WeakSquarePenaltyEG
-
-	protectedSquares = [2]uint64{wProtected, bProtected}
-
-	return weakSquareScore, protectedSquareScore, weakSquares, weakKingSquares, protectedSquares
+	return penaltyMG, penaltyEG
 }
 
-/*
-	PAWN FUNCTIONS
-*/
+/* ============= PAWN FUNCTIONS ============= */
 
-// isolatedPawnPenaltyFromBB scores isolated pawns from precomputed bitboards.
 func isolatedPawnPenalty(wIsolated uint64, bIsolated uint64) (isolatedMG int, isolatedEG int) {
 	wCount := bits.OnesCount64(wIsolated)
 	bCount := bits.OnesCount64(bIsolated)
@@ -668,7 +606,6 @@ func isolatedPawnPenalty(wIsolated uint64, bIsolated uint64) (isolatedMG int, is
 	return isolatedMG, isolatedEG
 }
 
-// passedPawnBonusFromBB scores passed pawns using PSQT tables from bitboards.
 func passedPawnBonus(wPassed uint64, bPassed uint64) (passedMG int, passedEG int) {
 	for x := wPassed; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
@@ -684,7 +621,6 @@ func passedPawnBonus(wPassed uint64, bPassed uint64) (passedMG int, passedEG int
 	return passedMG, passedEG
 }
 
-// blockedPawnBonusFromBB scores blocked advanced pawns from bitboards.
 func blockedPawnBonus(wBlocked uint64, bBlocked uint64) (blockedBonusMG int, blockedBonusEG int) {
 	wCount := bits.OnesCount64(wBlocked)
 	bCount := bits.OnesCount64(bBlocked)
@@ -693,7 +629,6 @@ func blockedPawnBonus(wBlocked uint64, bBlocked uint64) (blockedBonusMG int, blo
 	return blockedBonusMG, blockedBonusEG
 }
 
-// backwardPawnPenalty scores backward pawns bitboards into MG/EG contributions.
 func backwardPawnPenalty(wBackward uint64, bBackward uint64) (backMG int, backEG int) {
 	wCount := bits.OnesCount64(wBackward)
 	bCount := bits.OnesCount64(bBackward)
@@ -702,8 +637,6 @@ func backwardPawnPenalty(wBackward uint64, bBackward uint64) (backMG int, backEG
 	return backMG, backEG
 }
 
-// pawnWeakLeverPenalty scores unsupported pawns whose advance squares
-// can be hit by multiple enemy pawns.
 func pawnWeakLeverPenalty(wWeak uint64, bWeak uint64) (mg int, eg int) {
 	wCount := bits.OnesCount64(wWeak)
 	bCount := bits.OnesCount64(bWeak)
@@ -712,30 +645,91 @@ func pawnWeakLeverPenalty(wWeak uint64, bWeak uint64) (mg int, eg int) {
 	return diffMG, diffEG
 }
 
-// returns MG-only contribution for storm (bonus) and proximity (penalty),
-// with steeper proximity penalty if kings are on opposite wings, and extra penalty if a lever exists
-// on the defender's wing among advanced ranks.
-func pawnStormProximity(wStorm uint64, bStorm uint64, wProx uint64, bProx uint64, wLever uint64, bLever uint64, wWing uint64, bWing uint64, oppositeSides bool) (mg int) {
-	wStormCnt := bits.OnesCount64(wStorm)
-	bStormCnt := bits.OnesCount64(bStorm)
-	wProxCnt := bits.OnesCount64(wProx)
-	bProxCnt := bits.OnesCount64(bProx)
+func evaluatePawnStorm(b *gm.Board) (stormMG int) {
+	// Get king squares and files
+	wKingSq := bits.TrailingZeros64(b.White.Kings)
+	bKingSq := bits.TrailingZeros64(b.Black.Kings)
+	wKingFile := wKingSq % 8
+	bKingFile := bKingSq % 8
 
-	// Storm bonus (symmetric)
-	mg += (wStormCnt - bStormCnt) * PawnStormMG
+	// Determine castling "side" roughly by file
+	wQueenside := wKingFile <= 2 // a–c files
+	wKingside := wKingFile >= 5  // f–h files
+	bQueenside := bKingFile <= 2
+	bKingside := bKingFile >= 5
 
-	// Proximity penalty (steeper if opposite-side kings)
-	if oppositeSides {
-		wProxCnt = (wProxCnt*3 + 1) / 2
-		bProxCnt = (bProxCnt*3 + 1) / 2
+	// 1) If both kings are in the center (d/e) there is no real storm dynamic.
+	if !wQueenside && !wKingside && !bQueenside && !bKingside {
+		return 0
 	}
-	mg += (bProxCnt - wProxCnt) * PawnFrontProximityMG
 
-	// Extra penalty if storm area also has immediate lever in defender wing
-	wLeverStorm := bits.OnesCount64((wLever & bWing) & ranksAbove[3])
-	bLeverStorm := bits.OnesCount64((bLever & wWing) & ranksBelow[4])
-	mg += (bLeverStorm - wLeverStorm) * PawnFrontProximityMG
-	return mg
+	// 2) If both kings are castled to the SAME wing, don't treat pawn pushes as a storm:
+	//    advancing pawns in front of your own king should mostly be handled
+	//    by king-safety / pawn-shield terms, not rewarded here.
+	sameSide := (wQueenside && bQueenside) || (wKingside && bKingside)
+	if sameSide {
+		return 0
+	}
+
+	// 3) Opposite-side castling?
+	oppositeSide := (wQueenside && bKingside) || (wKingside && bQueenside)
+
+	// 4) Build "king file zones" (three files around each king).
+	wKingZone := getKingFileZone(wKingFile)
+	bKingZone := getKingFileZone(bKingFile)
+
+	// 5) White's storm: white pawns in the zone around Black's king.
+	var wStormScore int
+	for x := b.White.Pawns & bKingZone; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		rank := sq / 8 // 0..7 from White's POV
+		bonus := PawnStormBaseMG[rank]
+
+		if bonus == 0 {
+			continue // ignore very early or irrelevant ranks
+		}
+
+		// Reduce storm value if this pawn is blocked by a black pawn directly ahead.
+		// (White pawns move "up" = +8).
+		if PositionBB[sq+8]&b.Black.Pawns != 0 {
+			bonus -= PawnStormBlockedMG
+		}
+
+		if bonus > 0 {
+			wStormScore += bonus
+		}
+	}
+
+	// 6) Black's storm: black pawns in the zone around White's king.
+	var bStormScore int
+	for x := b.Black.Pawns & wKingZone; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		rank := sq / 8       // 0..7 from White's POV
+		sideRank := 7 - rank // flip for Black's perspective
+		bonus := PawnStormBaseMG[sideRank]
+
+		if bonus == 0 {
+			continue
+		}
+
+		// Black pawns move "down" = -8.
+		if PositionBB[sq-8]&b.White.Pawns != 0 {
+			bonus -= PawnStormBlockedMG
+		}
+
+		if bonus > 0 {
+			bStormScore += bonus
+		}
+	}
+
+	stormMG = wStormScore - bStormScore
+
+	// 7) Amplify in opposite-side castling, where storms are truly lethal.
+	if oppositeSide {
+		stormMG = (stormMG * PawnStormOppositeMultiplier) / 100
+	}
+
+	return stormMG
 }
 
 func connectedOrPhalanxPawnBonus(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB uint64) (connectedMG, connectedEG, phalanxMG, phalanxEG int) {
@@ -778,9 +772,7 @@ func pawnDoublingPenalties(b *gm.Board) (doubledMG, doubledEG int) {
 	return doubledMG, doubledEG
 }
 
-/*
-	KNIGHT FUNCTIONS
-*/
+/* ============= KNIGHT FUNCTIONS ============= */
 
 func knightThreats(b *gm.Board) (threatsMG int, threatsEG int) {
 	// Targets: pieces worth more than a knight
@@ -825,7 +817,7 @@ func knightKingTropism(b *gm.Board) (tropismMG int, tropismEG int) {
 		// Max bonus when distance is 1-2 (striking range), decreasing with distance
 		if dist <= 6 {
 			tropismMG += (7 - dist) * KnightTropismMG
-			tropismMG += (7 - dist) * KnightTropismEG
+			tropismEG += (7 - dist) * KnightTropismEG
 		}
 	}
 
@@ -834,16 +826,14 @@ func knightKingTropism(b *gm.Board) (tropismMG int, tropismEG int) {
 		dist := chebyshevDistance(sq, wKingSq)
 		if dist <= 6 {
 			tropismMG -= (7 - dist) * KnightTropismMG
-			tropismMG -= (7 - dist) * KnightTropismEG
+			tropismEG -= (7 - dist) * KnightTropismEG
 		}
 	}
 
 	return tropismMG, tropismEG
 }
 
-/*
-	BISHOP FUNCTIONS
-*/
+/* ============= BISHOP FUNCTIONS ============= */
 
 func bishopPairBonuses(b *gm.Board) (bishopPairMG, bishopPairEG int) {
 
@@ -860,123 +850,7 @@ func bishopPairBonuses(b *gm.Board) (bishopPairMG, bishopPairEG int) {
 	return bishopPairMG, bishopPairEG
 }
 
-func bishopXrayAttacks(b *gm.Board) (bishopXrayMG int) {
-	allPieces := b.White.All | b.Black.All
-
-	// White bishops
-	for x := b.White.Bishops; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		bishopBB := PositionBB[sq]
-		occupied := allPieces &^ bishopBB
-
-		// Normal bishop attacks
-		normalAttacks := gm.CalculateBishopMoveBitboard(uint8(sq), occupied)
-
-		// Find all pieces (own and enemy) that the bishop directly hits
-		directHits := normalAttacks & allPieces
-
-		for y := directHits; y != 0; y &= y - 1 {
-			blockerSq := bits.TrailingZeros64(y)
-			blockerBB := PositionBB[blockerSq]
-
-			// Calculate attacks with this piece removed (x-ray through it)
-			xrayOccupied := occupied &^ blockerBB
-			xrayAttacks := gm.CalculateBishopMoveBitboard(uint8(sq), xrayOccupied)
-
-			// Newly revealed squares
-			revealed := xrayAttacks &^ normalAttacks
-
-			// Check for enemy targets behind
-			revealedEnemies := revealed & b.Black.All
-			if revealedEnemies == 0 {
-				continue
-			}
-
-			// Determine if this is a useful x-ray based on blocker type
-			blockerIsOwn := (blockerBB & b.White.All) != 0
-
-			if blockerIsOwn {
-				// X-ray through own piece = discovered attack potential
-				// Any enemy target is valuable
-				switch {
-				case revealedEnemies&b.Black.Kings != 0:
-					bishopXrayMG += BishopXrayRookMG
-				case revealedEnemies&b.Black.Queens != 0:
-					bishopXrayMG += BishopXrayQueenMG
-				case revealedEnemies&b.Black.Rooks != 0:
-					bishopXrayMG += BishopXrayRookMG
-				}
-			} else {
-				// X-ray through enemy piece = pin/skewer potential
-				// Only valuable if target behind is MORE valuable than blocker
-				blockerValue := getPieceValue(blockerBB, &b.Black)
-
-				switch {
-				case revealedEnemies&b.Black.Kings != 0:
-					bishopXrayMG += BishopXrayKingMG
-				case revealedEnemies&b.Black.Queens != 0 && blockerValue < 9:
-					bishopXrayMG += BishopXrayQueenMG
-				case revealedEnemies&b.Black.Rooks != 0 && blockerValue < 5:
-					bishopXrayMG += BishopXrayRookMG
-				}
-			}
-		}
-	}
-
-	// Black bishops (mirror)
-	for x := b.Black.Bishops; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		bishopBB := PositionBB[sq]
-		occupied := allPieces &^ bishopBB
-
-		normalAttacks := gm.CalculateBishopMoveBitboard(uint8(sq), occupied)
-		directHits := normalAttacks & allPieces
-
-		for y := directHits; y != 0; y &= y - 1 {
-			blockerSq := bits.TrailingZeros64(y)
-			blockerBB := PositionBB[blockerSq]
-
-			xrayOccupied := occupied &^ blockerBB
-			xrayAttacks := gm.CalculateBishopMoveBitboard(uint8(sq), xrayOccupied)
-			revealed := xrayAttacks &^ normalAttacks
-
-			revealedEnemies := revealed & b.White.All
-			if revealedEnemies == 0 {
-				continue
-			}
-
-			blockerIsOwn := (blockerBB & b.Black.All) != 0
-
-			if blockerIsOwn {
-				switch {
-				case revealedEnemies&b.White.Kings != 0:
-					bishopXrayMG -= BishopXrayKingMG
-				case revealedEnemies&b.White.Queens != 0:
-					bishopXrayMG -= BishopXrayQueenMG
-				case revealedEnemies&b.White.Rooks != 0:
-					bishopXrayMG -= BishopXrayRookMG
-				}
-			} else {
-				blockerValue := getPieceValue(blockerBB, &b.White)
-
-				switch {
-				case revealedEnemies&b.White.Kings != 0:
-					bishopXrayMG -= BishopXrayKingMG
-				case revealedEnemies&b.White.Queens != 0 && blockerValue < 9:
-					bishopXrayMG -= BishopXrayQueenMG
-				case revealedEnemies&b.White.Rooks != 0 && blockerValue < 5:
-					bishopXrayMG -= BishopXrayRookMG
-				}
-			}
-		}
-	}
-
-	return bishopXrayMG
-}
-
-/*
-	ROOK FUNCTIONS
-*/
+/* ============= ROOK FUNCTIONS ============= */
 
 func rookSeventhRankBonus(b *gm.Board) (bonusEG int) {
 	wRooksOnSeventh := bits.OnesCount64(b.White.Rooks & seventhRankMask)
@@ -1009,126 +883,14 @@ func rookFilesBonus(b *gm.Board, openFiles uint64, wSemiOpenFiles uint64, bSemiO
 	return semiOpen, open
 }
 
-// rookXrayAttacks detects rooks that x-ray through pieces to valuable targets.
-// Scenarios:
-// - X-ray through own piece to enemy target (discovered attack potential)
-// - X-ray through enemy piece to more valuable enemy piece (pin/skewer)
-func rookXrayAttacks(b *gm.Board) (xrayMG int) {
-	allPieces := b.White.All | b.Black.All
-
-	// White rooks
-	for x := b.White.Rooks; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		rookBB := PositionBB[sq]
-		occupied := allPieces &^ rookBB
-
-		// Normal rook attacks
-		normalAttacks := gm.CalculateRookMoveBitboard(uint8(sq), occupied)
-
-		// Find all pieces the rook directly hits
-		directHits := normalAttacks & allPieces
-
-		for y := directHits; y != 0; y &= y - 1 {
-			blockerSq := bits.TrailingZeros64(y)
-			blockerBB := PositionBB[blockerSq]
-
-			// Calculate attacks with this piece removed (x-ray through it)
-			xrayOccupied := occupied &^ blockerBB
-			xrayAttacks := gm.CalculateRookMoveBitboard(uint8(sq), xrayOccupied)
-
-			// Newly revealed squares
-			revealed := xrayAttacks &^ normalAttacks
-
-			// Check for enemy targets behind
-			revealedEnemies := revealed & b.Black.All
-			if revealedEnemies == 0 {
-				continue
-			}
-
-			blockerIsOwn := (blockerBB & b.White.All) != 0
-
-			if blockerIsOwn {
-				// X-ray through own piece = discovered attack potential
-				switch {
-				case revealedEnemies&b.Black.Kings != 0:
-					xrayMG += RookXrayKingMG
-				case revealedEnemies&b.Black.Queens != 0:
-					xrayMG += RookXrayQueenMG
-				}
-			} else {
-				// X-ray through enemy piece = pin/skewer potential
-				blockerValue := getPieceValue(blockerBB, &b.Black)
-
-				switch {
-				case revealedEnemies&b.Black.Kings != 0:
-					// Pin to king is always valuable
-					xrayMG += RookXrayKingMG
-				case revealedEnemies&b.Black.Queens != 0 && blockerValue < 9:
-					// Pin/skewer on queen (blocker worth less than queen)
-					xrayMG += RookXrayQueenMG
-				}
-			}
-		}
-	}
-
-	// Black rooks
-	for x := b.Black.Rooks; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		rookBB := PositionBB[sq]
-		occupied := allPieces &^ rookBB
-
-		normalAttacks := gm.CalculateRookMoveBitboard(uint8(sq), occupied)
-		directHits := normalAttacks & allPieces
-
-		for y := directHits; y != 0; y &= y - 1 {
-			blockerSq := bits.TrailingZeros64(y)
-			blockerBB := PositionBB[blockerSq]
-
-			xrayOccupied := occupied &^ blockerBB
-			xrayAttacks := gm.CalculateRookMoveBitboard(uint8(sq), xrayOccupied)
-			revealed := xrayAttacks &^ normalAttacks
-
-			revealedEnemies := revealed & b.White.All
-			if revealedEnemies == 0 {
-				continue
-			}
-
-			blockerIsOwn := (blockerBB & b.Black.All) != 0
-
-			if blockerIsOwn {
-				switch {
-				case revealedEnemies&b.White.Kings != 0:
-					xrayMG -= RookXrayKingMG
-				case revealedEnemies&b.White.Queens != 0:
-					xrayMG -= RookXrayQueenMG
-				}
-			} else {
-				blockerValue := getPieceValue(blockerBB, &b.White)
-
-				switch {
-				case revealedEnemies&b.White.Kings != 0:
-					xrayMG -= RookXrayKingMG
-				case revealedEnemies&b.White.Queens != 0 && blockerValue < 9:
-					xrayMG -= RookXrayQueenMG
-				}
-			}
-		}
-	}
-
-	return xrayMG
-}
-
-// scoreRookStacksMG returns a midgame-only bonus for connected rook stacks per side.
-func scoreRookStacksMG(wFiles uint64, bFiles uint64) (mg int) {
+func rookStackBonusMG(wFiles uint64, bFiles uint64) (mg int) {
 	wCount := bits.OnesCount64(wFiles) / 8
 	bCount := bits.OnesCount64(bFiles) / 8
 	mg = (wCount * RookStackedMG) - (bCount * RookStackedMG)
 	return mg
 }
 
-/*
-	QUEEN FUNCTIONS
-*/
+/* ============= QUEEN FUNCTIONS ============= */
 
 func centralizedQueen(b *gm.Board) (centralizedBonus int) {
 	if b.White.Queens&centralizedQueenSquares != 0 {
@@ -1140,29 +902,7 @@ func centralizedQueen(b *gm.Board) (centralizedBonus int) {
 	return centralizedBonus
 }
 
-func queenInfiltrationBonus(b *gm.Board, weakSquares [2]uint64, wPawnAttackSpan uint64, bPawnAttackSpan uint64) (queenInfiltrationBonusMG int, queenInfiltrationBonusEG int) {
-	// Reward infiltration only when the queen occupies enemy weak squares in the enemy half
-	// and is outside the enemy pawn attack span.
-	// White queen occupancy on black weak squares (enemy half, outside black pawn span)
-	wOcc := b.White.Queens & weakSquares[1] & ranksAbove[4] &^ bPawnAttackSpan
-	if wOcc != 0 {
-		queenInfiltrationBonusMG += QueenInfiltrationMG
-		queenInfiltrationBonusEG += QueenInfiltrationEG
-	}
-
-	// Black queen occupancy on white weak squares (enemy half, outside white pawn span)
-	bOcc := b.Black.Queens & weakSquares[0] & ranksBelow[3] &^ wPawnAttackSpan
-	if bOcc != 0 {
-		queenInfiltrationBonusMG -= QueenInfiltrationMG
-		queenInfiltrationBonusEG -= QueenInfiltrationEG
-	}
-
-	return queenInfiltrationBonusMG, queenInfiltrationBonusEG
-}
-
-/*
-	KING FUNCTIONS
-*/
+/* ============= KING FUNCTIONS ============= */
 
 func kingMinorPieceDefences(kingInnerRing [2]uint64, knightMovementBB [2]uint64, bishopMovementBB [2]uint64) int {
 	wDefendingPiecesCount := bits.OnesCount64(kingInnerRing[0] & (knightMovementBB[0] | bishopMovementBB[0]))
@@ -1196,6 +936,9 @@ func getKingMopUpBonus(b *gm.Board, whiteWithAdvantage, hasQueen, hasRook bool) 
 	}
 	if bonus < 0 {
 		bonus = 0
+	}
+	if !whiteWithAdvantage {
+		bonus = -bonus
 	}
 	return bonus
 }
@@ -1256,6 +999,8 @@ func kingEndGameCentralizationPenalty(b *gm.Board) (kingCmdEG int) {
 	return (centerManhattanDistance[bits.TrailingZeros64(b.Black.Kings)] * 10) - (centerManhattanDistance[bits.TrailingZeros64(b.White.Kings)] * 10)
 }
 
+/* ============= EVALUATION SUBROUTINES ============= */
+
 func evaluateKnights(
 	b *gm.Board,
 	wPawnAttackBB, bPawnAttackBB uint64,
@@ -1311,10 +1056,10 @@ func evaluateKnights(
 	knightEG = knightPsqtEG + knightOutpostEG + knightMobilityEG + knightThreatsBonusEG + knightTropismBonusEG
 
 	if debug {
-		println("Knight MG:\t", "PSQT: ", knightPsqtMG, "\tOutpost: ", knightOutpostMG,
-			"\tMobility: ", knightMobilityMG, "\tThreats: ", knightThreatsBonusMG, "\tTropism: ", knightTropismBonusMG)
-		println("Knight EG:\t", "PSQT: ", knightPsqtEG, "\tOutpost: ", knightOutpostEG,
-			"\tMobility: ", knightMobilityEG, "\tThreats: ", knightThreatsBonusEG, "\tTropism: ", knightTropismBonusEG)
+		println("Knight MG:\t", "PSQT: ", knightPsqtMG, "\tMobility: ", knightMobilityMG,
+			"\tOutpost: ", knightOutpostMG, "\tThreats: ", knightThreatsBonusMG, "\tTropism: ", knightTropismBonusMG)
+		println("Knight EG:\t", "PSQT: ", knightPsqtEG, "\tMobility: ", knightMobilityEG,
+			"\tOutpost: ", knightOutpostEG, "\tThreats: ", knightThreatsBonusEG, "\tTropism: ", knightTropismBonusEG)
 	}
 
 	return knightMG, knightEG
@@ -1372,18 +1117,17 @@ func evaluateBishops(
 
 	bishopPairMG, bishopPairEG := bishopPairBonuses(b)
 	bishopPairMG = (bishopPairMG * bishopPairScaleMG) / 100
-	bishopXrayMG := bishopXrayAttacks(b)
 
 	bishopMobilityMG = (bishopMobilityMG * bishopMobilityScale) / 100
 
-	bishopMG = bishopPsqtMG + bishopOutpostMG + bishopPairMG + bishopMobilityMG + bishopXrayMG
+	bishopMG = bishopPsqtMG + bishopOutpostMG + bishopPairMG + bishopMobilityMG
 	bishopEG = bishopPsqtEG + bishopOutpostEG + bishopPairEG + bishopMobilityEG
 
 	if debug {
-		println("Bishop MG:\t", "PSQT: ", bishopPsqtMG, "\tOutpost: ", bishopOutpostMG,
-			"\tPair: ", bishopPairMG, "\tMobility: ", bishopMobilityMG, "\tXray: ", bishopXrayMG)
-		println("Bishop EG:\t", "PSQT: ", bishopPsqtEG, "\tOutpost: ", bishopOutpostEG,
-			"\tPair: ", bishopPairEG, "\tMobility: ", bishopMobilityEG)
+		println("Bishop MG:\t", "PSQT: ", bishopPsqtMG, "\tMobility: ", bishopMobilityMG,
+			"\tOutpost: ", bishopOutpostMG, "\tPair: ", bishopPairMG)
+		println("Bishop EG:\t", "PSQT: ", bishopPsqtEG, "\tMobility: ", bishopMobilityEG,
+			"\tOutpost: ", bishopOutpostEG, "\tPair: ", bishopPairEG)
 	}
 
 	return bishopMG, bishopEG
@@ -1435,18 +1179,16 @@ func evaluateRooks(
 	}
 
 	rookSemiOpenMG, rookOpenMG := rookFilesBonus(b, openFiles, wSemiOpenFiles, bSemiOpenFiles)
-	rookXrayAttack := rookXrayAttacks(b)
-	rookStackedMG := scoreRookStacksMG(wRookStackFiles, bRookStackFiles)
+	rookStackedMG := rookStackBonusMG(wRookStackFiles, bRookStackFiles)
 
 	rookSeventhBonusEG := rookSeventhRankBonus(b)
 
-	rookMG = rookPsqtMG + rookMobilityMG + rookOpenMG + rookSemiOpenMG + rookXrayAttack + rookStackedMG
+	rookMG = rookPsqtMG + rookMobilityMG + rookOpenMG + rookSemiOpenMG + rookStackedMG
 	rookEG = rookPsqtEG + rookMobilityEG + rookSeventhBonusEG
 
 	if debug {
 		println("Rook MG:\t", "PSQT: ", rookPsqtMG, "\tMobility: ", rookMobilityMG,
-			"\tOpen: ", rookOpenMG, "\tSemi-open: ", rookSemiOpenMG, "\tXray: ", rookXrayAttack,
-			"\tStacked: ", rookStackedMG)
+			"\tOpen: ", rookOpenMG, "\tSemi-open: ", rookSemiOpenMG, "\tStacked: ", rookStackedMG)
 		println("Rook EG:\t", "PSQT: ", rookPsqtEG, "\tMobility: ", rookMobilityEG,
 			"\tSeventh: ", rookSeventhBonusEG)
 	}
@@ -1515,36 +1257,24 @@ func evaluateQueens(
 	return queenMG, queenEG
 }
 
-func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int16) {
+/* ============= MAIN EVALUATION ============= */
+func Evaluation(b *gm.Board, debug bool) (score int32) {
 	// ===========================================
 	// PAWN_HASH: Get cached pawn structure
 	// ===========================================
 	pawnEntry := GetPawnEntry(b, debug)
 
-	// PAWN_HASH: Use cached pawn attacks instead of recomputing
 	wPawnAttackBB := pawnEntry.WPawnAttackBB
 	bPawnAttackBB := pawnEntry.BPawnAttackBB
 
-	// Pawn attack spans (computed from cached attacks - cheap operation)
-	wPawnAttackSpan := calculatePawnFileFill(wPawnAttackBB, true) & ranksBelow[4]
-	bPawnAttackSpan := calculatePawnFileFill(bPawnAttackBB, false) & ranksAbove[4]
-
-	// PAWN_HASH: Use cached file structure
 	openFiles := pawnEntry.OpenFiles
 	wSemiOpenFiles := pawnEntry.WSemiOpenFiles
 	bSemiOpenFiles := pawnEntry.BSemiOpenFiles
 
-	// Pawn structure score from hash
 	pawnMG := pawnEntry.PawnScoreMG
 	pawnEG := pawnEntry.PawnScoreEG
 
-	wWingMask, bWingMask := getKingWingMasks(b)
-
-	oppositeSides := (wWingMask != bWingMask)
-	wPawnStormBB, bPawnStormBB := getPawnStormBitboards(b, wWingMask, bWingMask)
-	wPawnFrontProximity, bPawnFrontProximity := getEnemyPawnProximityBitboards(b, wWingMask, bWingMask)
-	stormMG := pawnStormProximity(wPawnStormBB, bPawnStormBB, wPawnFrontProximity, bPawnFrontProximity, pawnEntry.WLeverBB, pawnEntry.BLeverBB, wWingMask, bWingMask, oppositeSides)
-
+	stormMG := evaluatePawnStorm(b)
 	pawnMG += stormMG
 
 	// Outposts for knights/bishops
@@ -1590,6 +1320,8 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int16) {
 
 	wPieceCount := bits.OnesCount64(b.White.Bishops | b.White.Knights | b.White.Rooks | b.White.Queens)
 	bPieceCount := bits.OnesCount64(b.Black.Bishops | b.Black.Knights | b.Black.Rooks | b.Black.Queens)
+	wPawnCount := bits.OnesCount64(b.White.Pawns)
+	bPawnCount := bits.OnesCount64(b.Black.Pawns)
 
 	// Variables for debug output still needed outside helpers
 	var kingPsqtMG, kingPsqtEG int
@@ -1670,15 +1402,6 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int16) {
 		debug,
 	)
 
-	if debug {
-		println("################### FINAL PIECE EVALUATION ###################")
-		println("Pawn: ", pawnMG, ":", pawnEG)
-		println("Knight: ", knightMG, ":", knightEG)
-		println("Bishop: ", bishopMG, ":", bishopEG)
-		println("Rook: ", rookMG, ":", rookEG)
-		println("Queen: ", queenMG, ":", queenEG)
-	}
-
 	// KING (unchanged, but now uses attackUnitCounts and kingAttackMobilityBB filled by helpers)
 	kingPsqtMG, kingPsqtEG = countPieceTables(&b.White.Kings, &b.Black.Kings, &PSQT_MG[gm.PieceTypeKing], &PSQT_EG[gm.PieceTypeKing])
 
@@ -1696,9 +1419,10 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int16) {
 	piecePhase := GetPiecePhase(b)
 
 	if (piecePhase < 16 && bits.OnesCount64(b.White.Queens|b.Black.Queens) == 0) || piecePhase < 10 {
-		if wPieceCount > 0 && bPieceCount == 0 {
+		noPawnsLeft := wPawnCount == 0 && bPawnCount == 0
+		if wPieceCount > 0 && bPieceCount == 0 && noPawnsLeft {
 			kingMopUpBonus = getKingMopUpBonus(b, true, b.White.Queens > 0, b.White.Rooks > 0)
-		} else if wPieceCount == 0 && bPieceCount > 0 {
+		} else if wPieceCount == 0 && bPieceCount > 0 && noPawnsLeft {
 			kingMopUpBonus = getKingMopUpBonus(b, false, b.Black.Queens > 0, b.Black.Rooks > 0)
 		} else {
 			kingCentralManhattanPenalty = kingEndGameCentralizationPenalty(b)
@@ -1708,7 +1432,7 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int16) {
 	kingMG = kingPsqtMG + kingAttackPenaltyMG + kingPawnShieldPenaltyMG +
 		KingMinorPieceDefenseBonusMG + kingPawnDefenseMG
 	kingEG = kingPsqtEG + kingAttackPenaltyEG + kingCentralManhattanPenalty +
-		kingMopUpBonus + kingPawnDefenseMG
+		kingMopUpBonus
 
 	if debug {
 		println("King MG:\t", "PSQT: ", kingPsqtMG, "\tAttack: ", kingAttackPenaltyMG,
@@ -1719,19 +1443,23 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int16) {
 			"\tPawnDefense: ", kingPawnDefenseMG)
 	}
 
-	var movementBB = [2][5]uint64{
-		{knightMovementBB[0], bishopMovementBB[0], rookMovementBB[0], queenMovementBB[0]},
-		{knightMovementBB[1], bishopMovementBB[1], rookMovementBB[1], queenMovementBB[1]},
+	if debug {
+		println("################### FINAL PIECE EVALUATION ###################")
+		println("Pawn: ", pawnMG, ":", pawnEG)
+		println("Knight: ", knightMG, ":", knightEG)
+		println("Bishop: ", bishopMG, ":", bishopEG)
+		println("Rook: ", rookMG, ":", rookEG)
+		println("Queen: ", queenMG, ":", queenEG)
+		println("King: ", kingMG, ":", kingEG)
+	}
+
+	if debug {
+		println("################### SPACE EVALUATION ###################")
 	}
 
 	// Weak squares & protected squares (unchanged call)
-	weakSquareMG, protectedSquaresMG, weakSquares, weakKingSquares, protectedSquares := weakSquaresPenalty(movementBB, innerKingSafetyZones, wPawnAttackBB, bPawnAttackBB)
-
-	_ = weakKingSquares
-	_ = protectedSquares
-
-	// Queen infiltration (still computed but unused in score, as in your original)
-	queenInfiltrationMG, queenInfiltrationEG := queenInfiltrationBonus(b, weakSquares, wPawnAttackSpan, bPawnAttackSpan)
+	spaceMG, spaceEG := spaceEvaluation(b, wPawnAttackBB, bPawnAttackBB, knightMovementBB, bishopMovementBB, piecePhase)
+	weakKingMG, weakKingEG := weakKingSquaresPenalty(b, wPawnAttackBB, bPawnAttackBB, innerKingSafetyZones)
 
 	// FINAL SCORE CALCULATION (unchanged)
 	materialScoreMG := wMaterialMG - bMaterialMG
@@ -1744,22 +1472,24 @@ func Evaluation(b *gm.Board, debug bool, isQuiescence bool) (score int16) {
 
 	imbalanceMG, imbalanceEG := materialImbalance(b)
 
-	variableScoreMG := pawnMG + knightMG + bishopMG + rookMG + queenMG + kingMG + toMoveBonus + imbalanceMG + weakSquareMG + protectedSquaresMG + queenInfiltrationMG
-	variableScoreEG := pawnEG + knightEG + bishopEG + rookEG + queenEG + kingEG + toMoveBonus + imbalanceEG + queenInfiltrationEG
+	if debug {
+		println("################### SPACE EVALUATION ###################")
+		println("Space: ", spaceMG, ":", spaceEG)
+		println("Weak king: ", weakKingMG, ":", weakKingEG)
+	}
+
+	variableScoreMG := pawnMG + knightMG + bishopMG + rookMG + queenMG + kingMG + toMoveBonus + imbalanceMG + spaceMG + weakKingMG //+ queenInfiltrationMG
+	variableScoreEG := pawnEG + knightEG + bishopEG + rookEG + queenEG + kingEG + toMoveBonus + imbalanceEG + spaceEG + weakKingEG //+ queenInfiltrationEG
 
 	mgScore := materialScoreMG + variableScoreMG
 	egScore := materialScoreEG + variableScoreEG
 
 	mgWeight := piecePhase
 	egWeight := TotalPhase - piecePhase
-	score = int16((mgScore*mgWeight + egScore*egWeight) / TotalPhase)
+	score = int32((mgScore*mgWeight + egScore*egWeight) / TotalPhase)
 
 	if isTheoreticalDraw(b, debug) {
 		score = score / DrawDivider
-	}
-
-	if isQuiescence && b.HalfmoveClock() > 8 {
-		println("Quiescence eval: ", score, " ---- FEN: ", b.ToFen())
 	}
 
 	if debug {

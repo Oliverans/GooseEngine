@@ -68,7 +68,7 @@ func main() {
 	fe.Toggles = tuner.DefaultEvalToggles()
 
 	// Size optimizer to full I, length
-	opt := tuner.NewAdaGrad(len(fe.Params()), *lr, *l2)
+	opt := tuner.NewAdam(len(fe.Params()), *lr, *l2)
 	//lrScale := tuner.BuildLRScale(fe)
 	//opt.SetLRScale(lrScale)
 
@@ -85,9 +85,18 @@ func main() {
 		KRefitCap: 200000,
 	}
 
+	//fmt.Printf("Num params: %d\n", len(fe.Params()))
+	//fmt.Printf("Toggles: %+v\n", fe.Toggles)
+
+	//fmt.Println("=== BEFORE TRAIN ===")
+	printSummary(fe, &pst)
+
 	if err := tuner.Train(ctx, fe, &pst, samps, opt, cfg, stmMode); err != nil {
 		panic(err)
 	}
+
+	//fmt.Println("=== AFTER TRAIN ===")
+	printSummary(fe, &pst)
 
 	if err := os.MkdirAll(filepath.Dir(*outJSON), 0o755); err != nil && !os.IsExist(err) {
 		panic(err)
@@ -102,8 +111,8 @@ func main() {
 }
 
 func printSummary(fe tuner.Featurizer, pst *tuner.PST) {
-	fmt.Println("=== Training Summary ===")
-	fmt.Printf("k = %.6f\n", pst.K)
+	//fmt.Println("=== Training Summary ===")
+	//fmt.Printf("k = %.6f\n", pst.K)
 	// PST ranges
 	minMG, maxMG := 1e18, -1e18
 	minEG, maxEG := 1e18, -1e18
@@ -125,15 +134,15 @@ func printSummary(fe tuner.Featurizer, pst *tuner.PST) {
 			}
 		}
 	}
-	fmt.Printf("PST MG range: [%.1f, %.1f]\n", minMG, maxMG)
-	fmt.Printf("PST EG range: [%.1f, %.1f]\n", minEG, maxEG)
+	//fmt.Printf("PST MG range: [%.1f, %.1f]\n", minMG, maxMG)
+	//fmt.Printf("PST EG range: [%.1f, %.1f]\n", minEG, maxEG)
 
 	if le, ok := fe.(*tuner.LinearEval); ok {
 		// Material
-		fmt.Printf("Material MG (P,N,B,R,Q,K): %.1f %.1f %.1f %.1f %.1f %.1f\n",
-			le.MatMG[0], le.MatMG[1], le.MatMG[2], le.MatMG[3], le.MatMG[4], le.MatMG[5])
-		fmt.Printf("Material EG (P,N,B,R,Q,K): %.1f %.1f %.1f %.1f %.1f %.1f\n",
-			le.MatEG[0], le.MatEG[1], le.MatEG[2], le.MatEG[3], le.MatEG[4], le.MatEG[5])
+		//fmt.Printf("Material MG (P,N,B,R,Q,K): %.1f %.1f %.1f %.1f %.1f %.1f\n",
+		//le.MatMG[0], le.MatMG[1], le.MatMG[2], le.MatMG[3], le.MatMG[4], le.MatMG[5])
+		//fmt.Printf("Material EG (P,N,B,R,Q,K): %.1f %.1f %.1f %.1f %.1f %.1f\n",
+		//le.MatEG[0], le.MatEG[1], le.MatEG[2], le.MatEG[3], le.MatEG[4], le.MatEG[5])
 		// Passers (aggregate by rank for readability)
 		var rankMG [8]float64
 		var rankEG [8]float64
@@ -142,23 +151,5 @@ func printSummary(fe tuner.Featurizer, pst *tuner.PST) {
 			rankMG[r] += le.PasserMG[sq]
 			rankEG[r] += le.PasserEG[sq]
 		}
-		fmt.Printf("Passers MG by rank (1..8): ")
-		for r := 0; r < 8; r++ {
-			avg := rankMG[r] / 8.0
-			fmt.Printf("%.1f", avg)
-			if r != 7 {
-				fmt.Print(" ")
-			}
-		}
-		fmt.Println()
-		fmt.Printf("Passers EG by rank (1..8): ")
-		for r := 0; r < 8; r++ {
-			avg := rankEG[r] / 8.0
-			fmt.Printf("%.1f", avg)
-			if r != 7 {
-				fmt.Print(" ")
-			}
-		}
-		fmt.Println()
 	}
 }

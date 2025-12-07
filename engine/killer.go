@@ -23,3 +23,10 @@ func InsertKiller(move gm.Move, ply int8, k *KillerStruct) {
 		k.KillerMoves[index][0] = move
 	}
 }
+
+func ClearKillers(k *KillerStruct) {
+	for i := range k.KillerMoves {
+		k.KillerMoves[i][0] = 0
+		k.KillerMoves[i][1] = 0
+	}
+}

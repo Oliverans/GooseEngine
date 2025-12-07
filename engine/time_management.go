@@ -1,110 +1,242 @@
 package engine
 
-import "time"
+import (
+	"time"
+)
 
 const (
-	defaultMovesPerTimeControl = 40
-	timeBufferDivisor          = 20
-	minTimeBufferMillis        = 100
+	// Base assumptions
+	expectedGameLength = 60 // Expect games to last ~60 moves
+	minMovesRemaining  = 10 // Always assume at least 10 moves left
+
+	// Time allocation factors
+	softTimeFactor       = 0.6  // Use 60% of allocated time as soft limit
+	hardTimeFactor       = 2.5  // Hard limit is 2.5x the base allocation
+	maxTimeUsageFraction = 0.20 // Never use more than 20% of remaining time
+
+	// Safety buffer
+	minBufferMillis = 50
 )
 
 type TimeHandler struct {
-	remainingTime               int
-	fullmoveNumber              int
-	increment                   int
-	timeForMove                 time.Time
-	stopSearch                  bool
-	isInitialized               bool
-	usingCustomDepth            bool
-	currentMoveAllocationMillis int64
+	remainingTime        int
+	fullmoveNumber       int
+	increment            int
+	startTime            time.Time
+	softTimeLimit        time.Time
+	hardTimeLimit        time.Time
+	stopSearch           bool
+	isInitialized        bool
+	usingCustomDepth     bool
+	baseAllocationMillis int64
+
+	// For dynamic adjustments
+	lastScore         int16
+	lastBestMove      uint32
+	scoreStability    int
+	bestMoveStability int
 }
 
-func (th *TimeHandler) initTimemanagement(remaniningTime int, increment int, fullmoveNumber int, useCustomDepth bool) {
-	th.remainingTime = remaniningTime
+func (th *TimeHandler) initTimemanagement(remainingTime int, increment int, fullmoveNumber int, useCustomDepth bool) {
+	th.remainingTime = remainingTime
 	th.increment = increment
 	th.fullmoveNumber = fullmoveNumber
 	th.stopSearch = false
 	th.isInitialized = true
 	th.usingCustomDepth = useCustomDepth
-	th.currentMoveAllocationMillis = 0
+	th.baseAllocationMillis = 0
+	th.scoreStability = 0
+	th.bestMoveStability = 0
 }
 
 func (th *TimeHandler) StartTime(fullmoveNumber int) {
 	th.fullmoveNumber = fullmoveNumber
 	th.stopSearch = false
+	th.startTime = time.Now()
 
-	movesCompleted := fullmoveNumber - 1
-	if movesCompleted < 0 {
-		movesCompleted = 0
-	}
-	movesRemaining := defaultMovesPerTimeControl - movesCompleted
-	if movesRemaining < 1 {
-		movesRemaining = 1
-	}
+	// Estimate moves remaining based on game phase
+	movesRemaining := th.estimateMovesRemaining(fullmoveNumber)
 
-	moveTime := th.remainingTime / movesRemaining
+	// Calculate base time allocation
+	baseTime := th.calculateBaseTime(movesRemaining)
+
+	// Apply safety limits
+	baseTime = th.applySafetyLimits(baseTime)
+
+	th.baseAllocationMillis = int64(baseTime)
+
+	// Set soft and hard limits
+	softMillis := int64(float64(baseTime) * softTimeFactor)
+	hardMillis := int64(float64(baseTime) * hardTimeFactor)
+
+	// Hard limit can't exceed safety threshold
+	maxHard := int64(float64(th.remainingTime) * maxTimeUsageFraction)
 	if th.increment > 0 {
-		moveTime += th.increment
+		maxHard += int64(th.increment)
+	}
+	if hardMillis > maxHard {
+		hardMillis = maxHard
 	}
 
-	if th.remainingTime > 0 {
-		buffer := th.remainingTime / timeBufferDivisor
-		if buffer < minTimeBufferMillis {
-			buffer = minTimeBufferMillis
-		}
-		if buffer >= th.remainingTime {
-			buffer = th.remainingTime / 2
-			if buffer < 1 {
-				buffer = 1
-			}
-		}
-		maxAllocation := th.remainingTime - buffer
-		if maxAllocation < 1 {
-			maxAllocation = 1
-		}
-		if moveTime > maxAllocation {
-			moveTime = maxAllocation
-		}
+	// Ensure minimums
+	if softMillis < 1 {
+		softMillis = 1
 	}
-	if moveTime < 1 {
-		moveTime = 1
+	if hardMillis < softMillis {
+		hardMillis = softMillis
 	}
 
-	if th.remainingTime == 0 {
-		th.currentMoveAllocationMillis = 5000
-		th.timeForMove = time.Now().Add(time.Duration(th.currentMoveAllocationMillis) * time.Millisecond) // 5 second searches for testing ...
-	} else {
-		th.currentMoveAllocationMillis = int64(moveTime)
-		th.timeForMove = time.Now().Add(time.Duration(moveTime) * time.Millisecond)
-	}
-
-	//println("Time: ", time.Until(th.timeForMove).Milliseconds())
+	th.softTimeLimit = th.startTime.Add(time.Duration(softMillis) * time.Millisecond)
+	th.hardTimeLimit = th.startTime.Add(time.Duration(hardMillis) * time.Millisecond)
 }
 
-func (th *TimeHandler) Update(extraTime int64) {
-	if extraTime == 0 {
-		return
+func (th *TimeHandler) estimateMovesRemaining(fullmoveNumber int) int {
+	// Simple model: expect game to last expectedGameLength moves
+	// But always assume at least minMovesRemaining
+
+	remaining := expectedGameLength - fullmoveNumber
+	if remaining < minMovesRemaining {
+		remaining = minMovesRemaining
 	}
 
-	adjustment := time.Duration(extraTime) * time.Millisecond
-	if th.timeForMove.IsZero() {
-		th.timeForMove = time.Now().Add(adjustment)
-		return
-	}
-	th.timeForMove = th.timeForMove.Add(adjustment)
+	return remaining
 }
 
+func (th *TimeHandler) calculateBaseTime(movesRemaining int) int {
+	if th.remainingTime <= 0 {
+		// No base time, just use increment
+		if th.increment > 0 {
+			return th.increment * 3 / 4 // Use 75% of increment
+		}
+		return 1000 // Fallback: 1 second
+	}
+
+	// Base allocation: remaining time / moves remaining
+	baseTime := th.remainingTime / movesRemaining
+
+	// Add a portion of the increment
+	if th.increment > 0 {
+		baseTime += th.increment * 3 / 4
+	}
+
+	return baseTime
+}
+
+func (th *TimeHandler) applySafetyLimits(baseTime int) int {
+	if th.remainingTime <= 0 {
+		return baseTime
+	}
+
+	// Never use more than maxTimeUsageFraction of remaining time
+	maxAllowed := int(float64(th.remainingTime) * maxTimeUsageFraction)
+	if th.increment > 0 {
+		maxAllowed += th.increment
+	}
+
+	if baseTime > maxAllowed {
+		baseTime = maxAllowed
+	}
+
+	// Keep a minimum buffer
+	buffer := th.remainingTime / 20
+	if buffer < minBufferMillis {
+		buffer = minBufferMillis
+	}
+
+	maxWithBuffer := th.remainingTime - buffer
+	if maxWithBuffer < 1 {
+		maxWithBuffer = 1
+	}
+
+	if baseTime > maxWithBuffer {
+		baseTime = maxWithBuffer
+	}
+
+	return baseTime
+}
+
+// TimeStatus returns true if we should stop searching
+// This checks the HARD limit - we must stop
 func (th *TimeHandler) TimeStatus() bool {
-	return !th.usingCustomDepth && !th.timeForMove.IsZero() && th.timeForMove.Before(time.Now())
+	if th.usingCustomDepth {
+		return false
+	}
+	return !th.hardTimeLimit.IsZero() && time.Now().After(th.hardTimeLimit)
 }
 
-func (th *TimeHandler) ExtendForAspiration() {
+// SoftTimeExceeded returns true if we've passed the soft limit
+// Use this to decide whether to start a new iteration
+func (th *TimeHandler) SoftTimeExceeded() bool {
+	if th.usingCustomDepth {
+		return false
+	}
+	return !th.softTimeLimit.IsZero() && time.Now().After(th.softTimeLimit)
+}
+
+// UpdateStability should be called after each depth completion
+// It tracks whether the best move and score are stable
+func (th *TimeHandler) UpdateStability(score int16, bestMove uint32) {
+	if bestMove == th.lastBestMove {
+		th.bestMoveStability++
+	} else {
+		th.bestMoveStability = 0
+		th.lastBestMove = bestMove
+	}
+
+	scoreDiff := score - th.lastScore
+	if scoreDiff < 0 {
+		scoreDiff = -scoreDiff
+	}
+
+	if scoreDiff < 10 { // Score within 10cp
+		th.scoreStability++
+	} else {
+		th.scoreStability = 0
+	}
+	th.lastScore = score
+}
+
+// ShouldStopEarly returns true if we can stop before soft limit
+// due to very stable position
+func (th *TimeHandler) ShouldStopEarly() bool {
+	if th.usingCustomDepth {
+		return false
+	}
+
+	// If best move has been stable for 4+ depths and score is stable,
+	// we can stop after using 40% of soft time
+	if th.bestMoveStability >= 4 && th.scoreStability >= 3 {
+		elapsed := time.Since(th.startTime).Milliseconds()
+		earlyStop := int64(float64(th.baseAllocationMillis) * 0.4)
+		return elapsed >= earlyStop
+	}
+
+	return false
+}
+
+// ShouldExtendTime returns true if we should think longer
+// due to unstable position or score drop
+func (th *TimeHandler) ShouldExtendTime() bool {
+	// Extend if best move keeps changing
+	if th.bestMoveStability == 0 && th.scoreStability < 2 {
+		return true
+	}
+	return false
+}
+
+// ExtendTime adds additional time when position is complex
+func (th *TimeHandler) ExtendTime() {
 	if th.usingCustomDepth {
 		return
 	}
-	extra := th.currentMoveAllocationMillis
-	if extra <= 0 {
-		extra = 100
+
+	// Extend hard limit by 50% of base allocation
+	extension := time.Duration(th.baseAllocationMillis/2) * time.Millisecond
+	th.hardTimeLimit = th.hardTimeLimit.Add(extension)
+
+	// But never exceed the safety maximum
+	maxTime := th.startTime.Add(time.Duration(float64(th.remainingTime)*maxTimeUsageFraction) * time.Millisecond)
+	if th.hardTimeLimit.After(maxTime) {
+		th.hardTimeLimit = maxTime
 	}
-	th.Update(extra)
 }

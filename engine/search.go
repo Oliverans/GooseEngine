@@ -7,98 +7,58 @@ import (
 	gm "chess-engine/goosemg"
 )
 
-var MaxScore int16 = 32500
-var Checkmate int16 = 20000
+// =============================================================================
+// SCORE CONSTANTS
+// =============================================================================
+const (
+	MaxScore  int32 = 32500
+	Checkmate int32 = 20000
+	DrawScore int32 = 0
+)
 
-const DrawScore int16 = 0
+var KillerMoveTable KillerStruct
 
-var killerMoveTable KillerStruct
+var ttMoveAvailable uint64
+var ttMoveNotAvailable uint64
 
 var SearchTime time.Duration
 var searchShouldStop bool
 
-// OPTIMIZATION 1: Extended futility margins for depths 1-7
-// These margins represent how much material deficit we're willing to accept
-// before assuming we can't raise alpha with quiet moves
-var FutilityMargins = [8]int16{
-	0,   // depth 0 (not used)
-	120, // depth 1 - ~minor piece
-	220, // depth 2
-	320, // depth 3
-	420, // depth 4
-	520, // depth 5
-	620, // depth 6
-	720, // depth 7
-}
+// =============================================================================
+// MARGINS
+// =============================================================================
+var FutilityMargins = [8]int32{0, 120, 220, 320, 420, 520, 620, 720}
+var RFPMargins = [8]int32{0, 100, 200, 300, 400, 500, 600, 700}
+var RazoringMargins = [4]int32{0, 125, 225, 325}
 
-// OPTIMIZATION 2: Reverse futility pruning margins (static null move pruning)
-// If static eval exceeds beta by this margin, we can prune
-var RFPMargins = [8]int16{
-	0,   // depth 0
-	100, // depth 1
-	200, // depth 2
-	300, // depth 3
-	400, // depth 4
-	500, // depth 5
-	600, // depth 6
-	700, // depth 7
-}
+var LateMovePruningMargins = [9]int{0, 3, 5, 9, 14, 20, 27, 35, 44}
 
-// Razoring margins (currently disabled, but tuned if you want to enable)
-var RazoringMargins = [4]int16{
-	0,   // depth 0
-	125, // depth 1
-	225, // depth 2
-	325, // depth 3
-}
-
-// OPTIMIZATION 3: More aggressive late move pruning margins
-// Format: at depth N, prune moves after index LateMovePruningMargins[N]
-// These are Stockfish-inspired values
-var LateMovePruningMargins = [9]int{
-	0,  // depth 0 (not used)
-	3,  // depth 1 - after 3 moves
-	5,  // depth 2 - after 5 moves
-	9,  // depth 3
-	14, // depth 4
-	20, // depth 5
-	27, // depth 6
-	35, // depth 7
-	44, // depth 8
-}
-
-// LMR parameters - relaxed to allow more reductions
-var LMRDepthLimit int8 = 2 // Start LMR from depth 2 (was 3)
-var LMRMoveLimit = 2       // Start reducing from move 2 (was 4)
-var LMRHistoryBonus = 500  // Good history reduces reduction
-var LMRHistoryMalus = -100 // Bad history increases reduction
-
-// Null move parameters
-var NullMoveMinDepth int8 = 2 // Reduced from 3
-
-// OPTIMIZATION 4: Delta pruning margin for quiescence
-var DeltaMargin int16 = 200 // Approximately a pawn
-
-// SEE pruning threshold for main search
+// =============================================================================
+// LMR/PRUNING PARAMETERS - int8 is fine for depth-related values
+// =============================================================================
+var LMRDepthLimit int8 = 2
+var LMRMoveLimit = 2
+var LMRHistoryBonus = 500
+var LMRHistoryMalus = -100
+var NullMoveMinDepth int8 = 2
 var SEEPruneDepth int8 = 8
-var SEEPruneMargin = -20 // Per depth unit
-
+var SEEPruneMargin = -20
 var QuiescenceSeeMargin int = 100
 
-// Aspiration window
-var aspirationWindowSize int16 = 35
+// Score-related - use int32
+var DeltaMargin int32 = 200
+var aspirationWindowSize int32 = 35
+var prevSearchScore int32 = 0
 
 var TT TransTable
-var prevSearchScore int16 = 0
 var timeHandler TimeHandler
 var GlobalStop = false
 
 func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool, moveOrderingOnly bool) string {
 	initVariables(board)
-	resetCutStats()
 
+	//Stat reset
 	ensureStateStackSynced(board)
-	TT.NewSearch()
 
 	if !TT.isInitialized {
 		TT.init()
@@ -111,7 +71,7 @@ func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useC
 	var bestMove gm.Move
 
 	if evalOnly {
-		Evaluation(board, true, false)
+		Evaluation(board, true)
 		println("Is this a theoretical draw: ", isTheoreticalDraw(board, true))
 		return ""
 	}
@@ -133,11 +93,12 @@ func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useC
 
 func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool) (int, gm.Move) {
 	var timeSpent int64
-	var alpha int16 = -MaxScore
-	var beta int16 = MaxScore
-	var bestScore = -MaxScore
+	var alpha int32 = -MaxScore
+	var beta int32 = MaxScore
+	var bestScore int32 = -MaxScore
 	rootIndex := len(stateStack) - 1
 
+	// Use previous search score as center of aspiration window if available
 	if prevSearchScore != 0 {
 		alpha = prevSearchScore - aspirationWindowSize
 		beta = prevSearchScore + aspirationWindowSize
@@ -149,16 +110,31 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool) (int, gm.Move) {
 	var prevPVLine PVLine
 	var mateFound bool
 
-	var currentWindow = aspirationWindowSize
+	currentWindow := aspirationWindowSize
+
 	for i := uint8(1); i <= depth; i++ {
+		if !useCustomDepth && i > 1 {
+			if timeHandler.SoftTimeExceeded() && !timeHandler.ShouldExtendTime() {
+				break
+			}
+			if timeHandler.ShouldStopEarly() {
+				break
+			}
+		}
+
 		pvLine.Clear()
 		mateFound = false
 
-		var startTime = time.Now()
-		var score = alphabeta(b, alpha, beta, int8(i), 0, &pvLine, nullMove, false, false, 0, rootIndex)
+		startTime := time.Now()
+		score := alphabeta(b, alpha, beta, int8(i), 0, &pvLine, nullMove, false, false, 0, rootIndex)
 		timeSpent += time.Since(startTime).Milliseconds()
 
 		if searchShouldStop || timeHandler.TimeStatus() || timeHandler.stopSearch || GlobalStop {
+			if len(prevPVLine.Moves) == 0 && len(pvLine.Moves) > 0 {
+				bestScore = score
+				prevSearchScore = bestScore
+				prevPVLine = pvLine.Clone()
+			}
 			break
 		}
 
@@ -167,16 +143,23 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool) (int, gm.Move) {
 		}
 		nps := uint64(float64(nodesChecked*1000) / float64(timeSpent))
 
-		var theMoves = getPVLineString(pvLine)
+		theMoves := getPVLineString(pvLine)
 
 		// Aspiration window re-search
 		if score <= alpha || score >= beta {
-			currentWindow *= 2
-			if currentWindow >= MaxScore {
-				currentWindow = MaxScore
+			if alpha <= -MaxScore && beta >= MaxScore {
+				currentWindow *= 2
+			} else {
+				if currentWindow >= int32(MaxScore) {
+					currentWindow = int32(MaxScore)
+				} else {
+					currentWindow *= 2
+				}
 			}
+
 			alpha = score - currentWindow
 			beta = score + currentWindow
+
 			if alpha < -MaxScore {
 				alpha = -MaxScore
 			}
@@ -187,7 +170,7 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool) (int, gm.Move) {
 			continue
 		}
 
-		if (score > Checkmate || score < -Checkmate) && len(pvLine.Moves) > 0 {
+		if (score > Checkmate || score < -Checkmate) && len(pvLine.Moves) > 0 { // If we found checkmate...
 			mateFound = true
 		}
 
@@ -195,33 +178,66 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool) (int, gm.Move) {
 		beta = score + aspirationWindowSize
 		bestScore = score
 
-		currentWindow = aspirationWindowSize
+		// Update score tracker
+		if len(pvLine.Moves) > 0 {
+			timeHandler.UpdateStability(int16(score), uint32(pvLine.Moves[0]))
+		}
+
+		// UNstable score requires more time usage
+		if timeHandler.ShouldExtendTime() {
+			timeHandler.ExtendTime()
+		}
+
+		currentWindow = int32(aspirationWindowSize)
 
 		prevSearchScore = bestScore
 		prevPVLine = pvLine.Clone()
 
-		fmt.Println("info depth", i, "score", getMateOrCPScore(int(score)), "nodes", nodesChecked, "time", timeSpent, "nps", nps, "pv", theMoves)
+		fmt.Println(
+			"info depth", i,
+			"score", getMateOrCPScore(int(score)),
+			"nodes", nodesChecked,
+			"time", timeSpent,
+			"nps", nps,
+			"pv", theMoves,
+		)
+
 		if mateFound {
 			break
 		}
 	}
 
+	// Reset per-search globals
 	nodesChecked = 0
 	searchShouldStop = false
 	timeHandler.stopSearch = false
 
+	// Get the best move from the last stable PV
 	bestMove = prevPVLine.GetPVMove()
+
+	// Emergency fallback: never return an empty move
+	//if bestMove == 0 {
+	//	moves := b.GenerateLegalMoves()
+	//	if len(moves) > 0 {
+	//		println("OH MY GOD, EMERGENCY FALLBACK")
+	//		bestMove = moves[0]
+	//	}
+	//}
 
 	return int(bestScore), bestMove
 }
 
-func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLine *PVLine, prevMove gm.Move, didNull bool, isExtended bool, excludedMove gm.Move, rootIndex int) int16 {
+func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLine *PVLine, prevMove gm.Move, didNull bool, isExtended bool, excludedMove gm.Move, rootIndex int) int32 {
 	nodesChecked++
 
 	if nodesChecked&4095 == 0 {
 		if timeHandler.TimeStatus() {
 			searchShouldStop = true
 		}
+	}
+
+	if ply >= MaxDepth {
+		return Evaluation(b, false)
 	}
 
 	if GlobalStop || searchShouldStop {
@@ -266,30 +282,34 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		TRANSPOSITION TABLE LOOKUP
 	*/
 	ttEntry, ttHit := TT.ProbeEntry(posHash)
+	if ttEntry.Move != 0 {
+		ttMoveAvailable++
+	} else {
+		ttMoveNotAvailable++
+	}
 	usable, ttScore := TT.useEntry(ttEntry, posHash, depth, alpha, beta, ply, excludedMove)
+
 	if usable && !isRoot && !isPVNode {
 		cutStats.TTCutoffs++
 		return ttScore
 	}
 
+	var staticScore int32
 	// Only use TT move if we actually found a matching entry
 	var ttMove gm.Move
 	if ttHit {
 		ttMove = ttEntry.Move
 	}
+
 	if usable {
+		staticScore = ttEntry.Score
 		bestMove = ttMove
+	} else {
+		staticScore = Evaluation(b, false)
 	}
 
-	// Static evaluation - needed for various pruning techniques
-	var staticScore int16 = Evaluation(b, false, false)
-
-	// Improving flag: are we doing better than 2 plies ago?
-	// This is used to be more aggressive with pruning when not improving
 	improving := false
 	if ply >= 2 && !inCheck {
-		// Simple heuristic: compare to previous static eval if available
-		// For now, assume improving if static score > alpha
 		improving = staticScore > alpha
 	}
 
@@ -301,13 +321,14 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		we still beat beta, we can safely prune.
 		Applied at depths 1-7, NOT in PV nodes or when in check.
 	*/
-	if !inCheck && !isPVNode && depth <= 7 && depth >= 1 && absInt16(beta) < Checkmate && !isRoot {
+	if !inCheck && !isPVNode && depth <= 7 && depth >= 1 && abs32(beta) < Checkmate && !isRoot {
 		rfpMargin := RFPMargins[depth]
 		if !improving {
 			rfpMargin -= 50 // More aggressive when not improving
 		}
 		if staticScore-rfpMargin >= beta {
 			cutStats.StaticNullCutoffs++
+			TT.storeEntry(posHash, depth, ply, ttMove, staticScore-rfpMargin, BetaFlag)
 			return staticScore - rfpMargin
 		}
 	}
@@ -334,13 +355,14 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		if score >= beta && score < Checkmate {
 			cutStats.NullMoveCutoffs++
 			// Verification search at high depths (optional, adds safety)
+			TT.storeEntry(posHash, depth, ply, ttMove, score, BetaFlag)
 			if depth > 10 {
 				verifyScore := alphabeta(b, beta-1, beta, depth-1-R, ply, &childPVLine, prevMove, true, isExtended, 0, rootIndex)
 				if verifyScore >= beta {
-					return beta
+					return verifyScore
 				}
 			} else {
-				return beta
+				return score
 			}
 		}
 	}
@@ -351,10 +373,10 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		extend its search depth.
 	*/
 	var singularExtension bool
-	if !isPVNode && !isRoot && !inCheck && !didNull && !isExtended && depth >= 6 && ttMove != 0 && ttEntry.Flag == ExactFlag && ttEntry.Depth >= depth-3 {
+	if !isPVNode && !isRoot && !inCheck && !didNull && !isExtended && depth >= 8 && ttMove != 0 && ttEntry.Flag == ExactFlag && ttEntry.Depth >= depth-3 {
 		ttValue := ttEntry.Score
 		if ttValue < Checkmate && ttValue > -Checkmate {
-			margin := int16(50 + 10*depth)
+			margin := int32(50 + 10*depth)
 			scoreToBeat := ttValue - margin
 			R := int8(3) + depth/4
 			if R > depth-1 {
@@ -372,8 +394,34 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		INTERNAL ITERATIVE REDUCTIONS
 		Reduce depth when we have no TT move
 	*/
-	if ttMove == 0 && depth >= 4 && isPVNode {
-		depth--
+	//if ttMove == 0 && depth >= 4 {
+	//	depth--
+	//	if !isPVNode {
+	//		depth--
+	//	}
+	//}
+
+	/*
+	   INTERNAL ITERATIVE DEEPENING
+	   When we have no TT move at sufficient depth, do a reduced search to find one.
+	   This is much better than searching blind.
+	*/
+	if ttMove == 0 && depth >= 5 && !didNull && !isExtended {
+		// Do a reduced-depth search
+		reducedDepth := depth - 2
+		if depth >= 8 {
+			reducedDepth = depth - depth/4
+		}
+
+		var iidPV PVLine
+		alphabeta(b, alpha, beta, reducedDepth, ply, &iidPV, prevMove, false, true, 0, rootIndex)
+
+		// The IID search should have stored a TT entry - retrieve it
+		iidEntry, _ := TT.ProbeEntry(posHash)
+		if iidEntry.Move != 0 {
+			ttMove = iidEntry.Move
+			bestMove = ttMove
+		}
 	}
 
 	// Generate and score moves
@@ -382,17 +430,17 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 	// Checkmate/stalemate check
 	if len(allMoves) == 0 {
 		if inCheck {
-			return -MaxScore + int16(ply) // Checkmate
+			return -MaxScore + int32(ply) // Checkmate
 		}
 		return DrawScore // Stalemate
 	}
 
-	var score int16 = -MaxScore
-	var bestScore int16 = -MaxScore
+	var score int32 = -MaxScore
+	var bestScore int32 = -MaxScore
 	var moveList = scoreMovesList(b, allMoves, depth, ply, bestMove, prevMove)
 	var ttFlag int8 = AlphaFlag
 	legalMoves := 0
-	bestMove = 0
+	//bestMove = 0
 
 	// Track quiet moves tried for history malus
 	quietMovesTried := make([]gm.Move, 0, 16)
@@ -410,14 +458,13 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 			sideIdx = 1
 		}
 
-		legalMoves++
-
 		isCapture := gm.IsCapture(move, b)
-		givesCheck := b.GivesCheck(move) // Assuming this method exists; if not, check after apply
+		moveGivesCheck := b.GivesCheck(move) // Assuming this method exists; if not, check after apply
 		isPromotion := move.PromotionPieceType() != gm.PieceTypeNone
 
 		// Tactical = capture, check, or promotion
-		tactical := isCapture || givesCheck || isPromotion
+		tactical := isCapture || moveGivesCheck || isPromotion
+		legalMoves++
 
 		/*
 			########################################################
@@ -437,26 +484,23 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 			}
 		}
 
-		// Apply the move
-		var unapplyFunc = applyMoveWithState(b, move)
-		var afterMoveInCheck = b.OurKingInCheck()
+		// Check whether the move would give a check
 
 		// Update tactical flag with actual check detection
-		if afterMoveInCheck {
+		if moveGivesCheck {
 			tactical = true
 		}
 
 		/*
 			At depths 1-7, if static eval + margin can't beat alpha, prune quiet moves.
 		*/
-		if depth <= 7 && depth >= 1 && !afterMoveInCheck && !isPVNode && !isRoot && !tactical && absInt16(alpha) < Checkmate {
+		if depth <= 7 && depth >= 1 && !moveGivesCheck && !isPVNode && !isRoot && !tactical && abs32(alpha) < Checkmate {
 			futilityMargin := FutilityMargins[depth]
 			if !improving {
 				futilityMargin -= 50 // More aggressive when not improving
 			}
 			if staticScore+futilityMargin <= alpha {
 				cutStats.FutilityPrunes++
-				unapplyFunc()
 				continue
 			}
 		}
@@ -466,6 +510,9 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 			quietMovesTried = append(quietMovesTried, move)
 		}
 
+		// Apply the move
+		var unapplyFunc = applyMoveWithState(b, move)
+
 		/*
 			LATE MOVE REDUCTIONS
 		*/
@@ -474,90 +521,24 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 
 		if legalMoves == 1 {
 			// First move: full-depth, full-window search
-			nextDepth := depth - 1
-			if extendMove {
-				nextDepth++
-			}
+			nextDepth := calculateSearchDepth(depth-1, 0, extendMove)
 			score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, rootIndex)
 		} else {
+			// Get move history for reduction calculation
 			moveHistoryScore := historyMove[sideIdx][move.From()][move.To()]
 
-			// OPTIMIZATION: Relaxed LMR conditions
-			useLMR := depth >= LMRDepthLimit && legalMoves >= LMRMoveLimit && !afterMoveInCheck && !tactical
-
+			// Calculate reduction using all heuristics
 			var reduct int8 = 0
-			if useLMR {
-				// Base reduction from LMR table
-				reduct = computeLMRReduction(depth, legalMoves, int(index), isPVNode, tactical, moveHistoryScore)
-
-				// History adjustments
-				if moveHistoryScore > LMRHistoryBonus {
-					reduct--
-				}
-				if moveHistoryScore > LMRHistoryBonus*2 {
-					reduct--
-				}
-				if moveHistoryScore < LMRHistoryMalus {
-					reduct++
-				}
-
-				// PV nodes get less reduction
-				if isPVNode && reduct > 0 {
-					reduct--
-				}
-
-				// Don't reduce improving positions as much
-				if improving && reduct > 1 {
-					reduct--
-				}
-
-				// Killers get less reduction
-				if IsKiller(move, ply, &killerMoveTable) && reduct > 0 {
-					reduct--
-				}
-
-				// Clamp reduction
-				if reduct < 0 {
-					reduct = 0
-				}
-				if reduct > depth-2 {
-					reduct = depth - 2
-				}
-
-				// Singular extension moves shouldn't be reduced as much
-				if extendMove && reduct > 0 {
-					reduct--
-				}
+			if depth >= LMRDepthLimit && legalMoves >= LMRMoveLimit && !moveGivesCheck && !tactical {
+				reduct = computeLMRReduction(
+					depth, legalMoves, int(index), isPVNode, tactical,
+					moveHistoryScore, improving,
+					IsKiller(move, ply, &KillerMoveTable), extendMove,
+				)
 			}
 
-			nextDepth := depth - 1 - reduct
-			if extendMove && reduct == 0 {
-				nextDepth++
-			}
-
-			// Null-window search (possibly with reduction)
-			score = -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, rootIndex)
-
-			// Re-search if we beat alpha
-			if score > alpha {
-				if reduct > 0 {
-					// Full-depth null-window re-search
-					nextDepth = depth - 1
-					if extendMove {
-						nextDepth++
-					}
-					score = -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, rootIndex)
-				}
-
-				// Full-window re-search if still within bounds
-				if score > alpha && score < beta {
-					nextDepth = depth - 1
-					if extendMove {
-						nextDepth++
-					}
-					score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, rootIndex)
-				}
-			}
+			// Perform Principal Variation Search with the calculated reduction
+			score = searchMoveWithPVS(b, move, depth-1, reduct, alpha, beta, ply, extendMove, nextExtended, rootIndex, &childPVLine)
 		}
 
 		unapplyFunc()
@@ -572,19 +553,22 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 		if score >= beta {
 			cutStats.BetaCutoffs++
 			ttFlag = BetaFlag
-
+			//moveString := move.String()
+			//if moveString != "g5h5" && moveString != "f4g5" && moveString != "g5f6" {
+			//println("BETA CUTOFF -- move:", move.String(), " -- Score: ", score, " -- Alpha:Beta:", alpha, ":", beta, "-- depth:", depth)
+			//}
 			if !isCapture {
 				// Store killer and counter moves
-				InsertKiller(move, ply, &killerMoveTable)
-				storeCounter(!b.Wtomove, prevMove, move)
+				InsertKiller(move, ply, &KillerMoveTable)
+				storeCounter(b.Wtomove, prevMove, move)
 
 				// History bonus for the good move
-				incrementHistoryScore(!b.Wtomove, move, depth)
+				incrementHistoryScore(b.Wtomove, move, depth)
 
 				// History malus for all quiet moves that didn't work
 				for _, failedMove := range quietMovesTried {
 					if failedMove != move {
-						decrementHistoryScoreBy(!b.Wtomove, failedMove, depth)
+						decrementHistoryScoreBy(b.Wtomove, failedMove, depth)
 					}
 				}
 			}
@@ -593,12 +577,15 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 
 		// Alpha improvement
 		if score > alpha {
+			//if move.String() != "g5h5" || move.String() != "f4g5" {
+			//println("ALPHA INCREASE -- move:", move.String(), " -- Score: ", score, " -- Alpha:Beta:", alpha, ":", beta, "-- depth:", depth)
+			//}
 			alpha = score
 			ttFlag = ExactFlag
 			pvLine.Update(move, childPVLine)
 
 			if !isCapture {
-				incrementHistoryScore(!b.Wtomove, move, depth)
+				incrementHistoryScore(b.Wtomove, move, depth)
 			}
 		}
 	}
@@ -606,14 +593,14 @@ func alphabeta(b *gm.Board, alpha int16, beta int16, depth int8, ply int8, pvLin
 	childPVLine.Clear()
 
 	// Store in transposition table
-	if !timeHandler.stopSearch && !GlobalStop && !searchShouldStop && bestMove != 0 {
+	if !timeHandler.stopSearch && !GlobalStop && !searchShouldStop { //&& bestMove != 0 {
 		TT.storeEntry(posHash, depth, ply, bestMove, bestScore, ttFlag)
 	}
 
 	return bestScore
 }
 
-func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8, ply int8, rootIndex int) int16 {
+func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8, ply int8, rootIndex int) int32 {
 	nodesChecked++
 
 	if nodesChecked&2047 == 0 {
@@ -629,12 +616,12 @@ func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8
 	inCheck := b.OurKingInCheck()
 	var childPVLine = PVLine{}
 
-	var standpat int16 = Evaluation(b, false, false)
+	var standpat int32 = Evaluation(b, false)
 
 	// Check extension in qsearch
-	if inCheck {
-		depth++
-	}
+	//if inCheck {
+	//	depth++
+	//}
 
 	// Stand-pat pruning (not when in check)
 	if !inCheck {
@@ -647,7 +634,7 @@ func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8
 		}
 	}
 
-	var bestScore int16
+	var bestScore int32
 	if inCheck {
 		bestScore = -MaxScore // Must escape check
 	} else {
@@ -682,14 +669,14 @@ func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8
 
 			// Delta pruning: estimate maximum gain from this capture
 			capturedPiece := move.CapturedPiece()
-			moveGain := int16(0)
+			moveGain := int32(0)
 			if capturedPiece != gm.NoPiece {
-				moveGain = int16(pieceValueMG[capturedPiece.Type()])
+				moveGain = int32(pieceValueMG[capturedPiece.Type()])
 			}
 
 			// Add promotion value if applicable
 			if move.PromotionPieceType() != gm.PieceTypeNone {
-				moveGain += int16(pieceValueMG[move.PromotionPieceType()] - pieceValueMG[gm.PieceTypePawn])
+				moveGain += int32(pieceValueMG[move.PromotionPieceType()] - pieceValueMG[gm.PieceTypePawn])
 			}
 
 			// If even with the capture we can't beat alpha, skip
@@ -726,6 +713,43 @@ func quiescence(b *gm.Board, alpha int16, beta int16, pvLine *PVLine, depth int8
 	//}
 
 	return bestScore
+}
+
+// calculateSearchDepth computes the search depth for a move, accounting for reductions and extensions
+func calculateSearchDepth(baseDepth int8, reduction int8, extendMove bool) int8 {
+	depth := baseDepth - reduction
+	if extendMove && reduction == 0 {
+		depth++
+	}
+	return depth
+}
+
+// searchMoveWithPVS performs a Principal Variation Search for a move
+// This implements the standard PVS 3-stage pattern:
+// 1. Search with reduced depth using null window
+// 2. If reduction was applied and score > alpha, re-search at full depth with null window
+// 3. If score is between alpha and beta, do a full window search
+func searchMoveWithPVS(b *gm.Board, move gm.Move, baseDepth int8, reduction int8,
+	alpha int32, beta int32, ply int8, extendMove bool, nextExtended bool,
+	rootIndex int, childPVLine *PVLine) int32 {
+
+	// Stage 1: Reduced depth null-window search
+	nextDepth := calculateSearchDepth(baseDepth, reduction, extendMove)
+	score := -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, childPVLine, move, false, nextExtended, 0, rootIndex)
+
+	// Stage 2: Re-search at full depth if we had a reduction and score > alpha
+	if score > alpha && reduction > 0 {
+		nextDepth = calculateSearchDepth(baseDepth, 0, extendMove)
+		score = -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, childPVLine, move, false, nextExtended, 0, rootIndex)
+	}
+
+	// Stage 3: Full window search if score is in (alpha, beta) window
+	if score > alpha && score < beta {
+		nextDepth = calculateSearchDepth(baseDepth, 0, extendMove)
+		score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, childPVLine, move, false, nextExtended, 0, rootIndex)
+	}
+
+	return score
 }
 
 func applyMoveWithState(b *gm.Board, move gm.Move) func() {

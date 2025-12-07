@@ -37,8 +37,6 @@ var (
 	baseBlockedPawnBonusEG    int
 	baseBackwardPawnMG        int
 	baseBackwardPawnEG        int
-	basePawnLeverMG           int
-	basePawnLeverEG           int
 	baseWeakLeverPenaltyMG    int
 	baseWeakLeverPenaltyEG    int
 	// King safety
@@ -47,8 +45,10 @@ var (
 	baseKingOpenFilePenalty        int
 	baseKingMinorPieceDefenseBonus int
 	baseKingPawnDefenseMG          int
-	baseWeakSquaresPenaltyMG       int
-	baseWeakKingSquaresPenaltyMG   int
+	baseSpaceBonusMG               int
+	baseSpaceBonusEG               int
+	baseWeakKingSquarePenaltyMG    int
+	baseWeakKingSquarePenaltyEG    int
 	baseTempoBonus                 int
 	// Extras (phase 5)
 	baseKnightOutpostMG        int
@@ -57,15 +57,15 @@ var (
 	baseKnightCanAttackPieceMG int
 	baseKnightCanAttackPieceEG int
 	baseStackedRooksMG         int
+	baseRookXrayKingMG         int
 	baseRookXrayQueenMG        int
 	baseConnectedRooksBonusMG  int
 	// Bishop x-ray and pawn storm family
-	baseBishopXrayKingMG        int
-	baseBishopXrayRookMG        int
-	baseBishopXrayQueenMG       int
-	basePawnStormMG             int
-	basePawnProximityPenaltyMG  int
-	basePawnLeverStormPenaltyMG int
+	baseBishopXrayKingMG       int
+	baseBishopXrayRookMG       int
+	baseBishopXrayQueenMG      int
+	basePawnStormMG            int
+	basePawnProximityPenaltyMG int
 	// Imbalance scalars
 	baseImbalanceKnightPerPawnMG    int
 	baseImbalanceKnightPerPawnEG    int
@@ -100,8 +100,6 @@ func init() {
 	baseRookOpenFileBonusMG = RookOpenMG
 	baseSeventhRankBonusEG = RookSeventhRankEG
 	baseCentralizedQueenBonusEG = QueenCentralizationEG
-	baseQueenInfiltrationBonusMG = QueenInfiltrationMG
-	baseQueenInfiltrationBonusEG = QueenInfiltrationEG
 	// Phase 2
 	baseDoubledPawnPenaltyMG = PawnDoubledMG
 	baseDoubledPawnPenaltyEG = PawnDoubledEG
@@ -123,8 +121,10 @@ func init() {
 	baseKingOpenFilePenalty = KingOpenFileMG
 	baseKingMinorPieceDefenseBonus = KingMinorDefenseBonusMG
 	baseKingPawnDefenseMG = KingPawnDefenseBonusMG
-	baseWeakSquaresPenaltyMG = WeakSquarePenaltyMG
-	baseWeakKingSquaresPenaltyMG = WeakSquarePenaltyEG
+	baseSpaceBonusMG = SpaceBonusMG
+	baseSpaceBonusEG = SpaceBonusEG
+	baseWeakKingSquarePenaltyMG = WeakKingSquarePenaltyMG
+	baseWeakKingSquarePenaltyEG = WeakKingSquarePenaltyEG
 	baseTempoBonus = TempoBonus
 	// Extras
 	baseKnightOutpostMG = KnightOutpostMG
@@ -133,14 +133,9 @@ func init() {
 	baseKnightCanAttackPieceMG = KnightThreatMG
 	baseKnightCanAttackPieceEG = KnightThreatEG
 	baseStackedRooksMG = RookStackedMG
-	baseRookXrayQueenMG = RookXrayQueenMG
 	baseConnectedRooksBonusMG = RookConnectedMG
-	baseBishopXrayKingMG = BishopXrayKingMG
-	baseBishopXrayRookMG = BishopXrayRookMG
-	baseBishopXrayQueenMG = BishopXrayQueenMG
 	basePawnStormMG = PawnStormMG
 	basePawnProximityPenaltyMG = PawnFrontProximityMG
-	basePawnLeverStormPenaltyMG = PawnFrontProximityMG
 	baseImbalanceKnightPerPawnMG = ImbalanceKnightPerPawnMG
 	baseImbalanceKnightPerPawnEG = ImbalanceKnightPerPawnEG
 	baseImbalanceBishopPerPawnMG = ImbalanceBishopPerPawnMG
@@ -194,8 +189,6 @@ func DefaultBlockedPawnBonusMG() int    { return baseBlockedPawnBonusMG }
 func DefaultBlockedPawnBonusEG() int    { return baseBlockedPawnBonusEG }
 func DefaultBackwardPawnMG() int        { return baseBackwardPawnMG }
 func DefaultBackwardPawnEG() int        { return baseBackwardPawnEG }
-func DefaultPawnLeverMG() int           { return basePawnLeverMG }
-func DefaultPawnLeverEG() int           { return basePawnLeverEG }
 func DefaultWeakLeverPenaltyMG() int    { return baseWeakLeverPenaltyMG }
 func DefaultWeakLeverPenaltyEG() int    { return baseWeakLeverPenaltyEG }
 
@@ -208,10 +201,12 @@ func DefaultKingOpenFilePenalty() int        { return baseKingOpenFilePenalty }
 func DefaultKingMinorPieceDefenseBonus() int { return baseKingMinorPieceDefenseBonus }
 func DefaultKingPawnDefenseMG() int          { return baseKingPawnDefenseMG }
 
-// Weak squares + tempo
-func DefaultWeakSquaresPenaltyMG() int     { return baseWeakSquaresPenaltyMG }
-func DefaultWeakKingSquaresPenaltyMG() int { return baseWeakKingSquaresPenaltyMG }
-func DefaultTempoBonus() int               { return baseTempoBonus }
+// Space/weak-king + tempo
+func DefaultSpaceBonusMG() int            { return baseSpaceBonusMG }
+func DefaultSpaceBonusEG() int            { return baseSpaceBonusEG }
+func DefaultWeakKingSquarePenaltyMG() int { return baseWeakKingSquarePenaltyMG }
+func DefaultWeakKingSquarePenaltyEG() int { return baseWeakKingSquarePenaltyEG }
+func DefaultTempoBonus() int              { return baseTempoBonus }
 
 // Phase 5 extras defaults
 func DefaultKnightOutpostMG() int        { return baseKnightOutpostMG }
@@ -220,16 +215,16 @@ func DefaultBishopOutpostMG() int        { return baseBishopOutpostMG }
 func DefaultKnightCanAttackPieceMG() int { return baseKnightCanAttackPieceMG }
 func DefaultKnightCanAttackPieceEG() int { return baseKnightCanAttackPieceEG }
 func DefaultStackedRooksMG() int         { return baseStackedRooksMG }
+func DefaultRookXrayKingMG() int         { return baseRookXrayKingMG }
 func DefaultRookXrayQueenMG() int        { return baseRookXrayQueenMG }
 func DefaultConnectedRooksBonusMG() int  { return baseConnectedRooksBonusMG }
 
 // New accessors for bishop xray and pawn storm family
-func DefaultBishopXrayKingMG() int        { return baseBishopXrayKingMG }
-func DefaultBishopXrayRookMG() int        { return baseBishopXrayRookMG }
-func DefaultBishopXrayQueenMG() int       { return baseBishopXrayQueenMG }
-func DefaultPawnStormMG() int             { return basePawnStormMG }
-func DefaultPawnProximityPenaltyMG() int  { return basePawnProximityPenaltyMG }
-func DefaultPawnLeverStormPenaltyMG() int { return basePawnLeverStormPenaltyMG }
+func DefaultBishopXrayKingMG() int       { return baseBishopXrayKingMG }
+func DefaultBishopXrayRookMG() int       { return baseBishopXrayRookMG }
+func DefaultBishopXrayQueenMG() int      { return baseBishopXrayQueenMG }
+func DefaultPawnStormMG() int            { return basePawnStormMG }
+func DefaultPawnProximityPenaltyMG() int { return basePawnProximityPenaltyMG }
 
 // Imbalance defaults
 func DefaultImbalanceKnightPerPawnMG() int    { return baseImbalanceKnightPerPawnMG }

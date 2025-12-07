@@ -8,7 +8,7 @@ import (
 	gm "chess-engine/goosemg"
 )
 
-const modelLayoutTag = "linear_v5_pst_first_square_passers_phase6"
+const modelLayoutTag = "linear_v6_pst_first_square_passers_phase6_no_pawnlever"
 
 type pstJSON struct {
 	MG [6][64]float64 `json:"mg"`
@@ -56,14 +56,12 @@ type modelJSON struct {
 	MobilityEG []float64 `json:"mobility_eg,omitempty"`
 	KingSafety []float64 `json:"king_safety_table,omitempty"`
 	// Phase 1 scalars
-	BishopPairMG        *float64 `json:"bishop_pair_mg,omitempty"`
-	BishopPairEG        *float64 `json:"bishop_pair_eg,omitempty"`
-	RookSemiOpenFileMG  *float64 `json:"rook_semi_open_mg,omitempty"`
-	RookOpenFileMG      *float64 `json:"rook_open_mg,omitempty"`
-	SeventhRankEG       *float64 `json:"seventh_rank_eg,omitempty"`
-	QueenCentralizedEG  *float64 `json:"queen_centralized_eg,omitempty"`
-	QueenInfiltrationMG *float64 `json:"queen_infiltration_mg,omitempty"`
-	QueenInfiltrationEG *float64 `json:"queen_infiltration_eg,omitempty"`
+	BishopPairMG       *float64 `json:"bishop_pair_mg,omitempty"`
+	BishopPairEG       *float64 `json:"bishop_pair_eg,omitempty"`
+	RookSemiOpenFileMG *float64 `json:"rook_semi_open_mg,omitempty"`
+	RookOpenFileMG     *float64 `json:"rook_open_mg,omitempty"`
+	SeventhRankEG      *float64 `json:"seventh_rank_eg,omitempty"`
+	QueenCentralizedEG *float64 `json:"queen_centralized_eg,omitempty"`
 	// Phase 2 pawn-structure scalars
 	DoubledMG   *float64 `json:"doubled_mg,omitempty"`
 	DoubledEG   *float64 `json:"doubled_eg,omitempty"`
@@ -75,8 +73,6 @@ type modelJSON struct {
 	PhalanxEG   *float64 `json:"phalanx_eg,omitempty"`
 	BlockedMG   *float64 `json:"blocked_mg,omitempty"`
 	BlockedEG   *float64 `json:"blocked_eg,omitempty"`
-	PawnLeverMG *float64 `json:"pawnlever_mg,omitempty"`
-	PawnLeverEG *float64 `json:"pawnlever_eg,omitempty"`
 	WeakLeverMG *float64 `json:"weaklever_mg,omitempty"`
 	WeakLeverEG *float64 `json:"weaklever_eg,omitempty"`
 	BackwardMG  *float64 `json:"backward_mg,omitempty"`
@@ -93,14 +89,8 @@ type modelJSON struct {
 	KnightThreatsMG      *float64 `json:"knight_can_attack_piece_mg,omitempty"`
 	KnightThreatsEG      *float64 `json:"knight_can_attack_piece_eg,omitempty"`
 	StackedRooksMG       *float64 `json:"stacked_rooks_mg,omitempty"`
-	RookXrayQueenMG      *float64 `json:"rook_xray_queen_mg,omitempty"`
-	ConnectedRooksMG     *float64 `json:"connected_rooks_mg,omitempty"`
-	BishopXrayKingMG     *float64 `json:"bishop_xray_king_mg,omitempty"`
-	BishopXrayRookMG     *float64 `json:"bishop_xray_rook_mg,omitempty"`
-	BishopXrayQueenMG    *float64 `json:"bishop_xray_queen_mg,omitempty"`
 	PawnStormMG          *float64 `json:"pawn_storm_mg,omitempty"`
 	PawnProximityPenalty *float64 `json:"pawn_proximity_penalty_mg,omitempty"`
-	PawnLeverStormMG     *float64 `json:"pawn_lever_storm_penalty_mg,omitempty"`
 	KnightMobCenterMG    *float64 `json:"knight_mobility_center_mg,omitempty"`
 	BishopMobCenterMG    *float64 `json:"bishop_mobility_center_mg,omitempty"`
 	// Imbalance scalars
@@ -116,9 +106,11 @@ type modelJSON struct {
 	ImbalanceRookQueenOverlapEG *float64 `json:"imbalance_rook_queen_overlap_eg,omitempty"`
 	ImbalanceQueenManyMinorsMG  *float64 `json:"imbalance_queen_many_minors_mg,omitempty"`
 	ImbalanceQueenManyMinorsEG  *float64 `json:"imbalance_queen_many_minors_eg,omitempty"`
-	// Weak squares + tempo
-	WeakSquaresMG     *float64 `json:"weak_squares_mg,omitempty"`
+	// Space/weak-king + tempo
+	SpaceMG           *float64 `json:"space_mg,omitempty"`
+	SpaceEG           *float64 `json:"space_eg,omitempty"`
 	WeakKingSquaresMG *float64 `json:"weak_king_squares_mg,omitempty"`
+	WeakKingSquaresEG *float64 `json:"weak_king_squares_eg,omitempty"`
 	Tempo             *float64 `json:"tempo_bonus,omitempty"`
 }
 
@@ -146,8 +138,6 @@ func SaveModelJSON(path string, fe Featurizer, pst *PST) error {
 			payload.RookOpenFileMG = floatPtr(le.RookOpenFileMG)
 			payload.SeventhRankEG = floatPtr(le.SeventhRankEG)
 			payload.QueenCentralizedEG = floatPtr(le.QueenCentralizedEG)
-			payload.QueenInfiltrationMG = floatPtr(le.QueenInfiltrationMG)
-			payload.QueenInfiltrationEG = floatPtr(le.QueenInfiltrationEG)
 			// Phase 2
 			payload.DoubledMG = floatPtr(le.DoubledMG)
 			payload.DoubledEG = floatPtr(le.DoubledEG)
@@ -159,8 +149,6 @@ func SaveModelJSON(path string, fe Featurizer, pst *PST) error {
 			payload.PhalanxEG = floatPtr(le.PhalanxEG)
 			payload.BlockedMG = floatPtr(le.BlockedMG)
 			payload.BlockedEG = floatPtr(le.BlockedEG)
-			payload.PawnLeverMG = floatPtr(le.PawnLeverMG)
-			payload.PawnLeverEG = floatPtr(le.PawnLeverEG)
 			payload.WeakLeverMG = floatPtr(le.WeakLeverMG)
 			payload.WeakLeverEG = floatPtr(le.WeakLeverEG)
 			payload.BackwardMG = floatPtr(le.BackwardMG)
@@ -177,14 +165,8 @@ func SaveModelJSON(path string, fe Featurizer, pst *PST) error {
 			payload.KnightThreatsMG = floatPtr(le.KnightThreatsMG)
 			payload.KnightThreatsEG = floatPtr(le.KnightThreatsEG)
 			payload.StackedRooksMG = floatPtr(le.StackedRooksMG)
-			payload.RookXrayQueenMG = floatPtr(le.RookXrayQueenMG)
-			payload.ConnectedRooksMG = floatPtr(le.ConnectedRooksMG)
-			payload.BishopXrayKingMG = floatPtr(le.BishopXrayKingMG)
-			payload.BishopXrayRookMG = floatPtr(le.BishopXrayRookMG)
-			payload.BishopXrayQueenMG = floatPtr(le.BishopXrayQueenMG)
 			payload.PawnStormMG = floatPtr(le.PawnStormMG)
 			payload.PawnProximityPenalty = floatPtr(le.PawnProximityMG)
-			payload.PawnLeverStormMG = floatPtr(le.PawnLeverStormMG)
 			payload.KnightMobCenterMG = floatPtr(le.KnightMobCenterMG)
 			payload.BishopMobCenterMG = floatPtr(le.BishopMobCenterMG)
 			// Imbalance
@@ -200,9 +182,11 @@ func SaveModelJSON(path string, fe Featurizer, pst *PST) error {
 			payload.ImbalanceRookQueenOverlapEG = floatPtr(le.ImbalanceRookQueenOverlapEG)
 			payload.ImbalanceQueenManyMinorsMG = floatPtr(le.ImbalanceQueenManyMinorsMG)
 			payload.ImbalanceQueenManyMinorsEG = floatPtr(le.ImbalanceQueenManyMinorsEG)
-			// Weak squares + tempo
-			payload.WeakSquaresMG = floatPtr(le.WeakSquaresMG)
+			// Space/weak-king + tempo
+			payload.SpaceMG = floatPtr(le.SpaceMG)
+			payload.SpaceEG = floatPtr(le.SpaceEG)
 			payload.WeakKingSquaresMG = floatPtr(le.WeakKingSquaresMG)
+			payload.WeakKingSquaresEG = floatPtr(le.WeakKingSquaresEG)
 			payload.Tempo = floatPtr(le.Tempo)
 		}
 	}
@@ -284,12 +268,6 @@ func LoadModelJSON(path string, fe Featurizer, pst *PST) error {
 	if m.QueenCentralizedEG != nil {
 		le.QueenCentralizedEG = *m.QueenCentralizedEG
 	}
-	if m.QueenInfiltrationMG != nil {
-		le.QueenInfiltrationMG = *m.QueenInfiltrationMG
-	}
-	if m.QueenInfiltrationEG != nil {
-		le.QueenInfiltrationEG = *m.QueenInfiltrationEG
-	}
 	// Phase 2
 	if m.DoubledMG != nil {
 		le.DoubledMG = *m.DoubledMG
@@ -320,12 +298,6 @@ func LoadModelJSON(path string, fe Featurizer, pst *PST) error {
 	}
 	if m.BlockedEG != nil {
 		le.BlockedEG = *m.BlockedEG
-	}
-	if m.PawnLeverMG != nil {
-		le.PawnLeverMG = *m.PawnLeverMG
-	}
-	if m.PawnLeverEG != nil {
-		le.PawnLeverEG = *m.PawnLeverEG
 	}
 	if m.WeakLeverMG != nil {
 		le.WeakLeverMG = *m.WeakLeverMG
@@ -371,29 +343,11 @@ func LoadModelJSON(path string, fe Featurizer, pst *PST) error {
 	if m.StackedRooksMG != nil {
 		le.StackedRooksMG = *m.StackedRooksMG
 	}
-	if m.RookXrayQueenMG != nil {
-		le.RookXrayQueenMG = *m.RookXrayQueenMG
-	}
-	if m.ConnectedRooksMG != nil {
-		le.ConnectedRooksMG = *m.ConnectedRooksMG
-	}
-	if m.BishopXrayKingMG != nil {
-		le.BishopXrayKingMG = *m.BishopXrayKingMG
-	}
-	if m.BishopXrayRookMG != nil {
-		le.BishopXrayRookMG = *m.BishopXrayRookMG
-	}
-	if m.BishopXrayQueenMG != nil {
-		le.BishopXrayQueenMG = *m.BishopXrayQueenMG
-	}
 	if m.PawnStormMG != nil {
 		le.PawnStormMG = *m.PawnStormMG
 	}
 	if m.PawnProximityPenalty != nil {
 		le.PawnProximityMG = *m.PawnProximityPenalty
-	}
-	if m.PawnLeverStormMG != nil {
-		le.PawnLeverStormMG = *m.PawnLeverStormMG
 	}
 	if m.KnightMobCenterMG != nil {
 		le.KnightMobCenterMG = *m.KnightMobCenterMG
@@ -438,12 +392,18 @@ func LoadModelJSON(path string, fe Featurizer, pst *PST) error {
 	if m.ImbalanceQueenManyMinorsEG != nil {
 		le.ImbalanceQueenManyMinorsEG = *m.ImbalanceQueenManyMinorsEG
 	}
-	// Weak squares + tempo
-	if m.WeakSquaresMG != nil {
-		le.WeakSquaresMG = *m.WeakSquaresMG
+	// Space/weak-king + tempo
+	if m.SpaceMG != nil {
+		le.SpaceMG = *m.SpaceMG
+	}
+	if m.SpaceEG != nil {
+		le.SpaceEG = *m.SpaceEG
 	}
 	if m.WeakKingSquaresMG != nil {
 		le.WeakKingSquaresMG = *m.WeakKingSquaresMG
+	}
+	if m.WeakKingSquaresEG != nil {
+		le.WeakKingSquaresEG = *m.WeakKingSquaresEG
 	}
 	if m.Tempo != nil {
 		le.Tempo = *m.Tempo

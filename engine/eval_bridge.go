@@ -591,58 +591,93 @@ func KingSafetyCorrelates(b *gm.Board) (semiOpenDiff, openDiff, minorDefDiff, pa
 	return
 }
 
-// WeakSquaresCounts returns two MG unit diffs derived from engine weak-square logic:
-//
-//	weakDiff     = (# white weak squares) - (# black weak squares)
-//	weakKingDiff = (# white weak king-ring squares) - (# black ...)
-func WeakSquaresCounts(b *gm.Board) (weakDiff int, weakKingDiff int) {
-	// Build pawn attack maps
+// EndgameKingTerms exposes the EG-only king terms (centralization penalty or mop-up bonus)
+// with the same conditions used in evaluation.go. Returns signed diffs (white - black).
+func EndgameKingTerms(b *gm.Board) (centralizationEG int, mopUpEG int) {
+	piecePhase := GetPiecePhase(b)
+	qCount := bits.OnesCount64(b.White.Queens | b.Black.Queens)
+
+	if !((piecePhase < 16 && qCount == 0) || piecePhase < 10) {
+		return 0, 0
+	}
+
+	wPieceCount := bits.OnesCount64(b.White.Bishops | b.White.Knights | b.White.Rooks | b.White.Queens)
+	bPieceCount := bits.OnesCount64(b.Black.Bishops | b.Black.Knights | b.Black.Rooks | b.Black.Queens)
+
+	if wPieceCount > 0 && bPieceCount == 0 {
+		mopUpEG = getKingMopUpBonus(b, true, b.White.Queens > 0, b.White.Rooks > 0)
+	} else if wPieceCount == 0 && bPieceCount > 0 {
+		mopUpEG = -getKingMopUpBonus(b, false, b.Black.Queens > 0, b.Black.Rooks > 0)
+	} else {
+		centralizationEG = kingEndGameCentralizationPenalty(b)
+	}
+	return
+}
+
+// SpaceAndWeakKingDiffs mirrors the engine's spaceEvaluation and weakKingSquaresPenalty helpers.
+// spaceDiff    = (# safe white space squares) - (# safe black space squares)
+// weakKingDiff = (# black weak king-ring squares) - (# white weak king-ring squares)
+func SpaceAndWeakKingDiffs(b *gm.Board) (spaceDiff int, weakKingDiff int) {
 	wp, bp := b.White.Pawns, b.Black.Pawns
 	wPawnAttackBB := ((wp &^ bitboardFileA) << 7) | ((wp &^ bitboardFileH) << 9)
 	bPawnAttackBB := ((bp &^ bitboardFileH) >> 7) | ((bp &^ bitboardFileA) >> 9)
 
-	// King inner zones for each side
-	inner := getKingSafetyTable(b, true, wPawnAttackBB, bPawnAttackBB)
-
-	// Build raw movement attack maps for N/B/R only (Q/K excluded for defense in weak-squares logic)
-	var movementBB [2][5]uint64 // indices: 0=N,1=B,2=R,3=Q,4=K
+	// Knight/bishop control maps (Q/K excluded, matching spaceEvaluation inputs)
+	var knightMovementBB [2]uint64
+	var bishopMovementBB [2]uint64
 	all := b.White.All | b.Black.All
-	// Knights
 	for x := b.White.Knights; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		movementBB[0][0] |= KnightMasks[sq]
+		knightMovementBB[0] |= KnightMasks[sq]
 	}
 	for x := b.Black.Knights; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		movementBB[1][0] |= KnightMasks[sq]
+		knightMovementBB[1] |= KnightMasks[sq]
 	}
-	// Bishops
 	for x := b.White.Bishops; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		movementBB[0][1] |= gm.CalculateBishopMoveBitboard(uint8(sq), all&^PositionBB[sq])
+		bishopMovementBB[0] |= gm.CalculateBishopMoveBitboard(uint8(sq), all&^PositionBB[sq])
 	}
 	for x := b.Black.Bishops; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		movementBB[1][1] |= gm.CalculateBishopMoveBitboard(uint8(sq), all&^PositionBB[sq])
-	}
-	// Rooks
-	for x := b.White.Rooks; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		movementBB[0][2] |= gm.CalculateRookMoveBitboard(uint8(sq), all&^PositionBB[sq])
-	}
-	for x := b.Black.Rooks; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		movementBB[1][2] |= gm.CalculateRookMoveBitboard(uint8(sq), all&^PositionBB[sq])
+		bishopMovementBB[1] |= gm.CalculateBishopMoveBitboard(uint8(sq), all&^PositionBB[sq])
 	}
 
-	// Derive weak-square bitboards via engine helper
-	weakSquares, weakKingSquares := getWeakSquares(movementBB, inner, wPawnAttackBB, bPawnAttackBB)
-	wWeak := weakSquares[0] &^ weakKingSquares[0]
-	bWeak := weakSquares[1] &^ weakKingSquares[1]
-	// Match engine evaluation sign: score = (bWeak - wWeak) * weakSquaresPenaltyMG
-	weakDiff = bits.OnesCount64(bWeak) - bits.OnesCount64(wWeak)
-	weakKingDiff = bits.OnesCount64(weakKingSquares[1]) - bits.OnesCount64(weakKingSquares[0])
+	// Space evaluation is gated by piecePhase (skip in early opening)
+	if GetPiecePhase(b) >= 6 {
+		wSpaceZone := wSpaceZoneMask &^ b.Black.Pawns
+		bSpaceZone := bSpaceZoneMask &^ b.White.Pawns
+
+		wControl := wPawnAttackBB | knightMovementBB[0] | bishopMovementBB[0]
+		bControl := bPawnAttackBB | knightMovementBB[1] | bishopMovementBB[1]
+
+		wSafe := wSpaceZone & wControl &^ bPawnAttackBB
+		bSafe := bSpaceZone & bControl &^ wPawnAttackBB
+
+		// Count occupied squares in the space zone as "used" space.
+		wSafe |= wSpaceZone & b.White.All
+		bSafe |= bSpaceZone & b.Black.All
+
+		spaceDiff = bits.OnesCount64(wSafe) - bits.OnesCount64(bSafe)
+	}
+
+	inner := getKingSafetyTable(b, true, wPawnAttackBB, bPawnAttackBB)
+	wWeak := inner[0] &^ wPawnAttackBB &^ b.White.All
+	bWeak := inner[1] &^ bPawnAttackBB &^ b.Black.All
+	weakKingDiff = bits.OnesCount64(bWeak) - bits.OnesCount64(wWeak)
 	return
+}
+
+// WeakSquareProtectedCounts is deprecated; use SpaceAndWeakKingDiffs.
+// Deprecated: protected-square signals are no longer computed.
+func WeakSquareProtectedCounts(b *gm.Board) (weakDiff int, weakKingDiff int, protectedDiff int, protectedKingDiff int) {
+	spaceDiff, kingDiff := SpaceAndWeakKingDiffs(b)
+	return spaceDiff, kingDiff, 0, 0
+}
+
+// KnightTropismDiffs exposes knight king-tropism MG/EG diffs.
+func KnightTropismDiffs(b *gm.Board) (mg int, eg int) {
+	return knightKingTropism(b)
 }
 
 // BishopPairDiffsScaled returns MG/EG diffs for the bishop-pair feature,
@@ -686,101 +721,108 @@ func BishopPairDiffsScaled(b *gm.Board) (mg int, eg int) {
 	return mg, eg
 }
 
-// QueenInfiltrationCounts exposes the engine's refined queen infiltration occupancy condition
-// to the tuner. It returns 0/1 counts for each side indicating whether a queen occupies
-// an enemy weak square in the enemy half outside the enemy pawn attack span.
-func QueenInfiltrationCounts(b *gm.Board) (wInf int, bInf int) {
-	// Build pawn attack maps (captures only)
-	wp, bp := b.White.Pawns, b.Black.Pawns
-	wPawnAttackBB := ((wp &^ bitboardFileA) << 7) | ((wp &^ bitboardFileH) << 9)
-	bPawnAttackBB := ((bp &^ bitboardFileH) >> 7) | ((bp &^ bitboardFileA) >> 9)
-
-	// King inner zones
-	inner := getKingSafetyTable(b, true, wPawnAttackBB, bPawnAttackBB)
-
-	// Movement maps for N/B/R only (align with weak-square logic)
-	var movementBB [2][5]uint64
-	all := b.White.All | b.Black.All
-	for x := b.White.Knights; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		movementBB[0][0] |= KnightMasks[sq]
-	}
-	for x := b.Black.Knights; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		movementBB[1][0] |= KnightMasks[sq]
-	}
-	for x := b.White.Bishops; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		movementBB[0][1] |= gm.CalculateBishopMoveBitboard(uint8(sq), all&^PositionBB[sq])
-	}
-	for x := b.Black.Bishops; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		movementBB[1][1] |= gm.CalculateBishopMoveBitboard(uint8(sq), all&^PositionBB[sq])
-	}
-	for x := b.White.Rooks; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		movementBB[0][2] |= gm.CalculateRookMoveBitboard(uint8(sq), all&^PositionBB[sq])
-	}
-	for x := b.Black.Rooks; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		movementBB[1][2] |= gm.CalculateRookMoveBitboard(uint8(sq), all&^PositionBB[sq])
-	}
-
-	// Weak-square bitboards
-	weakSquares, _ := getWeakSquares(movementBB, inner, wPawnAttackBB, bPawnAttackBB)
-
-	// Build pawn attack spans limited to own half (as in engine evaluation)
-	wSpan := calculatePawnFileFill(wPawnAttackBB, true) & ranksBelow[4]
-	bSpan := calculatePawnFileFill(bPawnAttackBB, false) & ranksAbove[4]
-
-	// White queen occupies enemy weak squares in enemy half, outside black span
-	if (b.White.Queens & weakSquares[1] & ranksAbove[4] &^ bSpan) != 0 {
-		wInf = 1
-	}
-	// Black queen occupies enemy weak squares in enemy half, outside white span
-	if (b.Black.Queens & weakSquares[0] & ranksBelow[4] &^ wSpan) != 0 {
-		bInf = 1
-	}
-	return
-}
-
 // BishopXrayCounts returns unit diffs for bishop x-ray targets (MG-only logic in engine):
 //
-//	kDiff = (# white bishop xrays vs king) - (# black bishop xrays vs king)
-//	rDiff = (# ... vs rook)
-//	qDiff = (# ... vs queen)
+//	kDiff = (# white bishop xrays vs king with enemy blocker) - (# black ...), weighted by BishopXrayKingMG
+//	rDiff = (# events that use the rook-weight term: pins vs rook/king with lower-value blocker, or discovered attacks) diff
+//	qDiff = (# queen x-rays with lower-value blocker (or discovered) ) diff
 func BishopXrayCounts(b *gm.Board) (kDiff int, rDiff int, qDiff int) {
 	all := b.White.All | b.Black.All
-	whiteMask := all &^ b.White.Knights
-	blackMask := all &^ b.Black.Knights
 	// White bishops
 	for x := b.White.Bishops; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		occupied := whiteMask &^ PositionBB[sq]
-		bb := gm.CalculateBishopMoveBitboard(uint8(sq), occupied)
-		if bb&b.Black.Kings != 0 {
-			kDiff++
-		}
-		if bb&b.Black.Rooks != 0 {
-			rDiff++
-		}
-		if bb&b.Black.Queens != 0 {
-			qDiff++
+		bb := PositionBB[sq]
+		occupied := all &^ bb
+
+		normal := gm.CalculateBishopMoveBitboard(uint8(sq), occupied)
+		directHits := normal & all
+
+		for y := directHits; y != 0; y &= y - 1 {
+			blockerSq := bits.TrailingZeros64(y)
+			blockerBB := PositionBB[blockerSq]
+
+			xrayOccupied := occupied &^ blockerBB
+			xray := gm.CalculateBishopMoveBitboard(uint8(sq), xrayOccupied)
+			revealed := xray &^ normal
+
+			revealedEnemies := revealed & b.Black.All
+			if revealedEnemies == 0 {
+				continue
+			}
+
+			blockerIsOwn := (blockerBB & b.White.All) != 0
+			if blockerIsOwn {
+				// Discovered attack through own piece: king/rook use rook-weight term
+				if revealedEnemies&b.Black.Kings != 0 {
+					rDiff++
+				}
+				if revealedEnemies&b.Black.Queens != 0 {
+					qDiff++
+				}
+				if revealedEnemies&b.Black.Rooks != 0 {
+					rDiff++
+				}
+				continue
+			}
+
+			blockerValue := getPieceValue(blockerBB, &b.Black)
+			if revealedEnemies&b.Black.Kings != 0 {
+				kDiff++
+			}
+			if revealedEnemies&b.Black.Queens != 0 && blockerValue < 9 {
+				qDiff++
+			}
+			if revealedEnemies&b.Black.Rooks != 0 && blockerValue < 5 {
+				rDiff++
+			}
 		}
 	}
 	// Black bishops
 	for x := b.Black.Bishops; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		occupied := blackMask &^ PositionBB[sq]
-		bb := gm.CalculateBishopMoveBitboard(uint8(sq), occupied)
-		if bb&b.White.Kings != 0 {
-			kDiff--
-		}
-		if bb&b.White.Rooks != 0 {
-			rDiff--
-		}
-		if bb&b.White.Queens != 0 {
-			qDiff--
+		bb := PositionBB[sq]
+		occupied := all &^ bb
+
+		normal := gm.CalculateBishopMoveBitboard(uint8(sq), occupied)
+		directHits := normal & all
+
+		for y := directHits; y != 0; y &= y - 1 {
+			blockerSq := bits.TrailingZeros64(y)
+			blockerBB := PositionBB[blockerSq]
+
+			xrayOccupied := occupied &^ blockerBB
+			xray := gm.CalculateBishopMoveBitboard(uint8(sq), xrayOccupied)
+			revealed := xray &^ normal
+
+			revealedEnemies := revealed & b.White.All
+			if revealedEnemies == 0 {
+				continue
+			}
+
+			blockerIsOwn := (blockerBB & b.Black.All) != 0
+			if blockerIsOwn {
+				if revealedEnemies&b.White.Kings != 0 {
+					rDiff--
+				}
+				if revealedEnemies&b.White.Queens != 0 {
+					qDiff--
+				}
+				if revealedEnemies&b.White.Rooks != 0 {
+					rDiff--
+				}
+				continue
+			}
+
+			blockerValue := getPieceValue(blockerBB, &b.White)
+			if revealedEnemies&b.White.Kings != 0 {
+				kDiff--
+			}
+			if revealedEnemies&b.White.Queens != 0 && blockerValue < 9 {
+				qDiff--
+			}
+			if revealedEnemies&b.White.Rooks != 0 && blockerValue < 5 {
+				rDiff--
+			}
 		}
 	}
 	return
@@ -840,14 +882,14 @@ func CenterMobilityScales(b *gm.Board) (knDelta int, biDelta int) {
 //	1: KnightCanAttackPiece (MG)
 //	2: StackedRooks (MG)
 //	3: RookXrayQueen (MG)
-//	4: ConnectedRooks (MG)
-//	5: SeventhRank (MG)
+//	4: RookXrayKing (MG)
+//	5: (unused)
+//	6: BishopOutpost (MG)
 //
 // EG array:
 //
 //	0: KnightOutpost (EG)
 //	1: KnightCanAttackPiece (EG)
-//	Others are 0 (MG-only features in engine eval)
 func ExtrasDiffs(b *gm.Board) (mg [7]int, eg [2]int) {
 	// Outposts: recompute outpost bitboards
 	wp, bp := b.White.Pawns, b.Black.Pawns
@@ -911,47 +953,105 @@ func ExtrasDiffs(b *gm.Board) (mg [7]int, eg [2]int) {
 	bStacks := bits.OnesCount64(bFiles) / 8
 	mg[2] = wStacks - bStacks
 
-	// Rook xray queen: count occurrences directly
-	rxCnt := 0
+	// Rook x-rays (king/queen) using engine logic
+	rxKingDiff, rxQueenDiff := rookXrayDiffs(b)
+	mg[3] = rxQueenDiff
+	mg[4] = rxKingDiff
+
+	// Seventh-rank handled in P1 scalars (EG only); no MG contribution here
+	return mg, eg
+}
+
+// rookXrayDiffs mirrors the richer engine rook x-ray logic, returning MG-unit diffs
+// for x-rays against kings and queens.
+func rookXrayDiffs(b *gm.Board) (kingDiff int, queenDiff int) {
 	allPieces := b.White.All | b.Black.All
-	whiteMask := allPieces &^ b.White.Knights
-	blackMask := allPieces &^ b.Black.Knights
+
+	// White rooks
 	for x := b.White.Rooks; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		occupied := whiteMask &^ PositionBB[sq]
-		rookMoves := gm.CalculateRookMoveBitboard(uint8(sq), occupied)
-		if rookMoves&b.Black.Queens != 0 {
-			rxCnt++
+		rookBB := PositionBB[sq]
+		occupied := allPieces &^ rookBB
+
+		normal := gm.CalculateRookMoveBitboard(uint8(sq), occupied)
+		directHits := normal & allPieces
+
+		for y := directHits; y != 0; y &= y - 1 {
+			blockerSq := bits.TrailingZeros64(y)
+			blockerBB := PositionBB[blockerSq]
+
+			xrayOccupied := occupied &^ blockerBB
+			xray := gm.CalculateRookMoveBitboard(uint8(sq), xrayOccupied)
+			revealed := xray &^ normal
+
+			revealedEnemies := revealed & b.Black.All
+			if revealedEnemies == 0 {
+				continue
+			}
+
+			blockerIsOwn := (blockerBB & b.White.All) != 0
+			if blockerIsOwn {
+				if revealedEnemies&b.Black.Kings != 0 {
+					kingDiff++
+				}
+				if revealedEnemies&b.Black.Queens != 0 {
+					queenDiff++
+				}
+				continue
+			}
+
+			blockerValue := getPieceValue(blockerBB, &b.Black)
+			if revealedEnemies&b.Black.Kings != 0 {
+				kingDiff++
+			}
+			if revealedEnemies&b.Black.Queens != 0 && blockerValue < 9 {
+				queenDiff++
+			}
 		}
 	}
+
+	// Black rooks
 	for x := b.Black.Rooks; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		occupied := blackMask &^ PositionBB[sq]
-		rookMoves := gm.CalculateRookMoveBitboard(uint8(sq), occupied)
-		if rookMoves&b.White.Queens != 0 {
-			rxCnt--
-		}
-	}
-	mg[3] = rxCnt
+		rookBB := PositionBB[sq]
+		occupied := allPieces &^ rookBB
 
-	// Connected rooks on same rank/file (bonus per connection) — approximate via adjacency on files
-	// Use file-based connections from getRookConnectedFiles as a proxy for connected rooks
-	// Count number of files where both ranks have rooks for each side
-	countConn := func(files uint64) int { return bits.OnesCount64(files) / 8 }
-	mg[4] = countConn(wFiles) - countConn(bFiles)
+		normal := gm.CalculateRookMoveBitboard(uint8(sq), occupied)
+		directHits := normal & allPieces
 
-	// Rooks on 7th (MG): count white rooks on rank 7 (index 6), black rooks on rank 2 (index 1)
-	w7, b7 := 0, 0
-	for wr := b.White.Rooks; wr != 0; wr &= wr - 1 {
-		if (bits.TrailingZeros64(wr) / 8) == 6 {
-			w7++
+		for y := directHits; y != 0; y &= y - 1 {
+			blockerSq := bits.TrailingZeros64(y)
+			blockerBB := PositionBB[blockerSq]
+
+			xrayOccupied := occupied &^ blockerBB
+			xray := gm.CalculateRookMoveBitboard(uint8(sq), xrayOccupied)
+			revealed := xray &^ normal
+
+			revealedEnemies := revealed & b.White.All
+			if revealedEnemies == 0 {
+				continue
+			}
+
+			blockerIsOwn := (blockerBB & b.Black.All) != 0
+			if blockerIsOwn {
+				if revealedEnemies&b.White.Kings != 0 {
+					kingDiff--
+				}
+				if revealedEnemies&b.White.Queens != 0 {
+					queenDiff--
+				}
+				continue
+			}
+
+			blockerValue := getPieceValue(blockerBB, &b.White)
+			if revealedEnemies&b.White.Kings != 0 {
+				kingDiff--
+			}
+			if revealedEnemies&b.White.Queens != 0 && blockerValue < 9 {
+				queenDiff--
+			}
 		}
 	}
-	for br := b.Black.Rooks; br != 0; br &= br - 1 {
-		if (bits.TrailingZeros64(br) / 8) == 1 {
-			b7++
-		}
-	}
-	mg[5] = w7 - b7
-	return mg, eg
+
+	return kingDiff, queenDiff
 }

@@ -14,10 +14,10 @@ const (
 	TTSize = 256
 
 	// Unusable score
-	UnusableScore = -32500
+	UnusableScore int32 = -32500
 
 	// Number of entries per bucket
-	BucketSize = 2
+	BucketSize = 4
 )
 
 // TTEntry represents a single transposition table entry
@@ -25,11 +25,10 @@ const (
 type TTEntry struct {
 	Hash       uint32  // Upper 32 bits of hash (lower bits are implicit from index)
 	Move       gm.Move // Move that caused this position
-	Score      int16   // Score from search
+	Score      int32   // Score from search
 	Depth      int8    // Search depth
 	Flag       int8    // Alpha/Beta/Exact flag
 	Generation uint8   // Which search this entry is from
-	_padding   [3]byte // Explicit padding to align to 16 bytes
 }
 
 // TTBucket holds multiple entries for the same hash index
@@ -124,7 +123,7 @@ func (TT *TransTable) ProbeEntry(hash uint64) (entry *TTEntry, found bool) {
 // useEntry determines if a TT entry can be used to cutoff search
 // Returns (usable, score) where usable indicates if we can use this entry
 // Note: This assumes the entry was obtained via ProbeEntry and matched
-func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha int16, beta int16, ply int8, excludedMove gm.Move) (usable bool, score int16) {
+func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha int32, beta int32, ply int8, excludedMove gm.Move) (usable bool, score int32) {
 	score = UnusableScore
 	usable = false
 
@@ -150,10 +149,10 @@ func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha 
 
 		// Adjust mate scores relative to current ply
 		if score > Checkmate {
-			score -= int16(ply)
+			score -= int32(ply)
 		}
 		if score < -Checkmate {
-			score += int16(ply)
+			score += int32(ply)
 		}
 
 		// Check if we can use this entry based on flag
@@ -178,7 +177,7 @@ func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha 
 
 // storeEntry stores a position in the transposition table
 // Uses a scoring system to determine which entry to replace
-func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move, score int16, flag int8) {
+func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move, score int32, flag int8) {
 	if !TT.isInitialized {
 		return
 	}
@@ -189,10 +188,10 @@ func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move
 
 	// Adjust mate scores for storage (make them relative to root)
 	if score > Checkmate {
-		score += int16(ply)
+		score += int32(ply)
 	}
 	if score < -Checkmate {
-		score -= int16(ply)
+		score -= int32(ply)
 	}
 
 	// First pass: check if position already exists in bucket

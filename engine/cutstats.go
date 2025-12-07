@@ -21,7 +21,7 @@ var cutStats CutStatistics
 // current search finishes. Set via a CLI/command toggle.
 var PrintCutStats bool
 
-func resetCutStats() {
+func ResetCutStats() {
 	cutStats = CutStatistics{}
 }
 
