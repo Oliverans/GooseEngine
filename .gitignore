@@ -83,8 +83,16 @@ __pycache__/
 # -------------------------
 # Custom files / dirs
 # -------------------------
+polyglot/
 cutechess_tours
 sprt.ps1
 perft_commands.txt
 *.json
 *.txt
+cmd/debug_eval/README.md
+cmd/texel/debug_eval_compare.go
+tuner/tuning_stages.md
+cmd/debug_eval/main.go
+*.epd
+*.bin
+*.zip

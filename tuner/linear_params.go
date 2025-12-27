@@ -5,12 +5,12 @@ package tuner
 //   - PST MG/EG blocks (6x64 each)
 //   - Material MG/EG (6 each)
 //   - Passed pawn MG/EG (64 each)
-//   - Phase 1 scalars (8)
-//   - Pawn structure scalars (14)
-//   - Mobility MG/EG (7 each)
-//   - King safety table (100) and correlates (4)
-//   - Extras (15) and material imbalance scalars (12)
-//   - Space/weak-king + tempo (5)
+//   - Phase 1 scalars (6)
+//   - Pawn structure scalars (16)
+//   - Mobility tables MG/EG (60 each)
+//   - King safety table (100), correlates (4), king endgame (2)
+//   - Extras (51) and material imbalance scalars (4)
+//   - Space/weak-king + tempo (4)
 func (le *LinearEval) Params() []float64 {
 	if le == nil {
 		return nil

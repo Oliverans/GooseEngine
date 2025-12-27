@@ -76,7 +76,7 @@ func BenchmarkMain(b *testing.B) {
 	// Optimizer with per-parameter LR scale
 	params := fe.Params()
 	// Defaults: lr=0.2, l2=1e-4
-	opt := NewAdaGrad(len(params), 0.2, 1e-4)
+	opt := NewAdaGrad(len(params), 0.2)
 	//opt.SetLRScale(BuildLRScale(fe))
 
 	// Data

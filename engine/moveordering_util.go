@@ -14,13 +14,13 @@ type PairList []Pair
 // Masks for attacks
 // In order: knight on A1, B1, C1, ... F8, G8, H8
 
-func PawnCaptureBitboards(pawnBoard uint64, wToMove bool) (east uint64, west uint64) {
-	if wToMove {
-		west = (pawnBoard << 8 << 1) & ^bitboardFileA
-		east = (pawnBoard << 8 >> 1) & ^bitboardFileH
+func PawnCaptureBitboards(pawns uint64, white bool) (east uint64, west uint64) {
+	if white {
+		east = (pawns << 9) & ^bitboardFileA // file + 1
+		west = (pawns << 7) & ^bitboardFileH // file - 1
 	} else {
-		west = (pawnBoard >> 8 << 1) & ^bitboardFileA
-		east = (pawnBoard >> 8 >> 1) & ^bitboardFileH
+		east = (pawns >> 7) & ^bitboardFileA // file + 1
+		west = (pawns >> 9) & ^bitboardFileH // file - 1
 	}
 	return
 }
@@ -34,31 +34,31 @@ func (p PairList) Less(j, i int) bool { return p[i].Value < p[j].Value }
 
 // A struct representing a principal variation line.
 type PVLine struct {
-    Moves []gm.Move
+	Moves []gm.Move
 }
 
 // Clear the principal variation line.
 func (pvLine *PVLine) Clear() {
-    pvLine.Moves = pvLine.Moves[:0]
+	pvLine.Moves = pvLine.Moves[:0]
 }
 
 // Clone creates a deep copy of the PVLine to avoid sharing
 // the underlying slice storage between different PV holders.
 func (pvLine PVLine) Clone() PVLine {
-    if len(pvLine.Moves) == 0 {
-        return PVLine{}
-    }
-    newMoves := make([]gm.Move, len(pvLine.Moves))
-    copy(newMoves, pvLine.Moves)
-    return PVLine{Moves: newMoves}
+	if len(pvLine.Moves) == 0 {
+		return PVLine{}
+	}
+	newMoves := make([]gm.Move, len(pvLine.Moves))
+	copy(newMoves, pvLine.Moves)
+	return PVLine{Moves: newMoves}
 }
 
 // Update the principal variation line with a new best move,
 // and a new line of best play after the best move.
 func (pvLine *PVLine) Update(move gm.Move, newPVLine PVLine) {
-    pvLine.Clear()
-    pvLine.Moves = append(pvLine.Moves, move)
-    pvLine.Moves = append(pvLine.Moves, newPVLine.Moves...)
+	pvLine.Clear()
+	pvLine.Moves = append(pvLine.Moves, move)
+	pvLine.Moves = append(pvLine.Moves, newPVLine.Moves...)
 }
 
 // Get the best move from the principal variation line.

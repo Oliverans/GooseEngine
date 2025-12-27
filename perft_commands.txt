@@ -1,3 +1,0 @@
-// -bench=    requires the function name of the test to be ran
-go test -bench=BenchmarkMain=. -cpuprofile cpu.prof
-go tool pprof cpu.prof 

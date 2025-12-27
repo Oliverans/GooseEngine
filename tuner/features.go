@@ -58,3 +58,48 @@ func NewBoardFromSample(s Sample) *Position {
     _ = b.ComputeZobrist()
     return b
 }
+
+// NewBoardFromBinarySample creates a board from BinarySample using bitboards
+func NewBoardFromBinarySample(bs BinarySample) *Position {
+    b := &gm.Board{}
+
+    // Helper to set pieces from bitboard
+    setPieces := func(bb uint64, piece gm.Piece) {
+        for bb != 0 {
+            sq := BitScanForward(bb)
+            b.SetPiece(gm.Square(sq), piece)
+            bb &= bb - 1
+        }
+    }
+
+    // White pieces
+    setPieces(bs.WhitePawns, gm.WhitePawn)
+    setPieces(bs.WhiteKnights, gm.WhiteKnight)
+    setPieces(bs.WhiteBishops, gm.WhiteBishop)
+    setPieces(bs.WhiteRooks, gm.WhiteRook)
+    setPieces(bs.WhiteQueens, gm.WhiteQueen)
+    setPieces(bs.WhiteKings, gm.WhiteKing)
+
+    // Black pieces
+    setPieces(bs.BlackPawns, gm.BlackPawn)
+    setPieces(bs.BlackKnights, gm.BlackKnight)
+    setPieces(bs.BlackBishops, gm.BlackBishop)
+    setPieces(bs.BlackRooks, gm.BlackRook)
+    setPieces(bs.BlackQueens, gm.BlackQueen)
+    setPieces(bs.BlackKings, gm.BlackKing)
+
+    // Set side to move
+    if bs.STM == 1 {
+        b.SetSideToMove(gm.White)
+    } else {
+        b.SetSideToMove(gm.Black)
+    }
+
+    // Sync bitboards and state
+    b.White = b.WhiteBitboards()
+    b.Black = b.BlackBitboards()
+    b.Wtomove = b.SideToMove() == gm.White
+    _ = b.ComputeZobrist()
+
+    return b
+}

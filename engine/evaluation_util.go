@@ -31,10 +31,11 @@ func InBetween(i, min, max int) bool {
 }
 
 // File bitboard masks for files A and H (for shifting operations)
-var (
+const (
 	bitboardFileA uint64 = 0x0101010101010101
 	bitboardFileH uint64 = 0x8080808080808080
 )
+
 var ClearRank [8]uint64 // (not used in evaluation.go but may be set elsewhere)
 var MaskRank [8]uint64
 var ranksAbove = [8]uint64{
@@ -57,19 +58,21 @@ func getKingSafetyTable(b *gm.Board, inner bool, wPawnAttackBB, bPawnAttackBB ui
 		rank := kingSq / 8
 		file := kingSq % 8
 		// Always include one rank above and below (or within board bounds)
-		if rank == 0 {
+		switch rank {
+		case 0:
 			zone |= zone<<8 | zone<<16
-		} else if rank == 7 {
+		case 7:
 			zone |= zone>>8 | zone>>16
-		} else {
+		default:
 			zone |= zone<<8 | zone>>8
 		}
 		// Always include one file to left and right (with bounds check)
-		if file == 0 {
+		switch file {
+		case 0:
 			zone |= zone<<1 | zone<<2
-		} else if file == 7 {
+		case 7:
 			zone |= zone>>1 | zone>>2
-		} else {
+		default:
 			zone |= ((zone &^ bitboardFileA) >> 1) | ((zone &^ bitboardFileH) << 1)
 		}
 		// Exclude friendly pawn-attacked squares for inner zone
@@ -147,24 +150,6 @@ func getOutpostsBB(b *gm.Board, wPawnAttackBB, bPawnAttackBB uint64) (outposts [
 	return
 }
 
-// Determine a basic material value (for x-ray logic)
-func getPieceValue(pieceBB uint64, side *gm.Bitboards) int {
-	switch {
-	case pieceBB&side.Pawns != 0:
-		return 1
-	case pieceBB&side.Knights != 0:
-		return 3
-	case pieceBB&side.Bishops != 0:
-		return 3
-	case pieceBB&side.Rooks != 0:
-		return 5
-	case pieceBB&side.Queens != 0:
-		return 9
-	default:
-		return 0
-	}
-}
-
 // =============================================================================
 // PAWN HASH TABLE
 // =============================================================================
@@ -187,18 +172,22 @@ type PawnHashEntry struct {
 	BSemiOpenFiles uint64
 
 	// Pawn structure bitboards
-	WPassedBB    uint64
-	BPassedBB    uint64
-	WIsolatedBB  uint64
-	BIsolatedBB  uint64
-	WBackwardBB  uint64
-	BBackwardBB  uint64
-	WBlockedBB   uint64
-	BBlockedBB   uint64
-	WLeverBB     uint64
-	BLeverBB     uint64
-	WWeakLeverBB uint64
-	BWeakLeverBB uint64
+	WPassedBB      uint64
+	BPassedBB      uint64
+	WIsolatedBB    uint64
+	BIsolatedBB    uint64
+	WBackwardBB    uint64
+	BBackwardBB    uint64
+	WBlockedBB     uint64
+	BBlockedBB     uint64
+	WLeverBB       uint64
+	BLeverBB       uint64
+	WLeverPushedBB uint64
+	BLeverPushedBB uint64
+	WWeakLeverBB   uint64
+	BWeakLeverBB   uint64
+	WCandidateBB   uint64
+	BCandidateBB   uint64
 
 	// Precomputed pawn scores
 	PawnScoreMG int
@@ -275,14 +264,13 @@ func ComputePawnEntry(b *gm.Board, debug bool) PawnHashEntry {
 	entry.WPassedBB, entry.BPassedBB = getPassedPawnsBitboards(b, entry.WPawnAttackBB, entry.BPawnAttackBB)
 	entry.WBlockedBB, entry.BBlockedBB = getBlockedPawnsBitboards(b)
 	entry.WBackwardBB, entry.BBackwardBB = getBackwardPawnsBitboards(b, entry.WPawnAttackBB, entry.BPawnAttackBB, entry.WIsolatedBB, entry.BIsolatedBB, entry.WPassedBB, entry.BPassedBB)
-	wLever, bLever, wMultiLever, bMultiLever := getPawnLeverBitboards(b)
+	wLever, bLever, wLeverPush, bLeverPush, wWeakLever, bWeakLever := getPawnLeverBitboards(b, entry.WPawnAttackBB, entry.BPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W)
 	entry.WLeverBB = wLever
+	entry.WLeverPushedBB = wLeverPush
 	entry.BLeverBB = bLever
-	// Weak levers: multi-lever pawns not supported by a friendly pawn
-	wSupported := entry.WPawnAttackBB & b.White.Pawns
-	bSupported := entry.BPawnAttackBB & b.Black.Pawns
-	entry.WWeakLeverBB = wMultiLever &^ wSupported
-	entry.BWeakLeverBB = bMultiLever &^ bSupported
+	entry.BLeverPushedBB = bLeverPush
+	entry.WWeakLeverBB = wWeakLever
+	entry.BWeakLeverBB = bWeakLever
 
 	// 4. Pawn score components
 	pawnPsqtMG, pawnPsqtEG := countPieceTables(&b.White.Pawns, &b.Black.Pawns, &PSQT_MG[gm.PieceTypePawn], &PSQT_EG[gm.PieceTypePawn])
@@ -290,21 +278,24 @@ func ComputePawnEntry(b *gm.Board, debug bool) PawnHashEntry {
 	doubledMG, doubledEG := pawnDoublingPenalties(b)
 	connMG, connEG, phalMG, phalEG := connectedOrPhalanxPawnBonus(b, entry.WPawnAttackBB, entry.BPawnAttackBB)
 	passedMG, passedEG := passedPawnBonus(entry.WPassedBB, entry.BPassedBB)
+	candidateMG, candidateEG, wCandidate, bCandidate := candidatePassedBonus(b, entry.WPassedBB, entry.BPassedBB, entry.WLeverBB, entry.BLeverBB, entry.WLeverPushedBB, entry.BLeverPushedBB)
+	entry.WCandidateBB = wCandidate
+	entry.BCandidateBB = bCandidate
 	blockedMG, blockedEG := blockedPawnBonus(entry.WBlockedBB, entry.BBlockedBB)
 	backMG, backEG := backwardPawnPenalty(entry.WBackwardBB, entry.BBackwardBB)
 	weakLeverMG, weakLeverEG := pawnWeakLeverPenalty(entry.WWeakLeverBB, entry.BWeakLeverBB)
 
 	// Sum all pawn contributions
-	entry.PawnScoreMG = pawnPsqtMG + isoMG + doubledMG + connMG + phalMG + passedMG + blockedMG + backMG + weakLeverMG
-	entry.PawnScoreEG = pawnPsqtEG + isoEG + doubledEG + connEG + phalEG + passedEG + blockedEG + backEG + weakLeverEG
+	entry.PawnScoreMG = pawnPsqtMG + isoMG + doubledMG + connMG + phalMG + passedMG + candidateMG + blockedMG + backMG + weakLeverMG
+	entry.PawnScoreEG = pawnPsqtEG + isoEG + doubledEG + connEG + phalEG + passedEG + candidateEG + blockedEG + backEG + weakLeverEG
 
 	if debug {
 		println("################### PAWN PARAMETERS ###################")
 		println("Pawn MG:\t", "PSQT: ", pawnPsqtMG, "\tIsolated: ", isoMG, "\tDoubled: ", doubledMG,
-			"\tConnected: ", connMG, "\tPhalanx: ", phalMG, "\tPassed: ", passedMG,
+			"\tConnected: ", connMG, "\tPhalanx: ", phalMG, "\tPassed: ", passedMG, "\tCandidate: ", candidateMG,
 			"\tBlocked: ", blockedMG, "\tBackward: ", backMG, "\tWeakLever: ", weakLeverMG)
 		println("Pawn EG:\t", "PSQT: ", pawnPsqtEG, "\tIsolated: ", isoEG, "\tDoubled: ", doubledEG,
-			"\tConnected: ", connEG, "\tPhalanx: ", phalEG, "\tPassed: ", passedEG,
+			"\tConnected: ", connEG, "\tPhalanx: ", phalEG, "\tPassed: ", passedEG, "\tCandidate: ", candidateEG,
 			"\tBlocked: ", blockedEG, "\tBackward: ", backEG, "\tWeakLever: ", weakLeverEG)
 	}
 	return entry
@@ -385,20 +376,17 @@ func getPassedPawnsBitboards(b *gm.Board, _ uint64, _ uint64) (wPassed uint64, b
 }
 
 func getBlockedPawnsBitboards(b *gm.Board) (wBlocked uint64, bBlocked uint64) {
-	thirdAndFourthRank := onlyRank[2] | onlyRank[3]
-	fifthAndSixthRank := onlyRank[4] | onlyRank[5]
-
 	for x := b.White.Pawns; x != 0; x &= x - 1 {
 		sqBB := PositionBB[bits.TrailingZeros64(x)]
 		above := sqBB << 8
-		if (fifthAndSixthRank&sqBB) > 0 && (b.Black.Pawns&above) > 0 {
+		if b.Black.Pawns&above > 0 {
 			wBlocked |= sqBB
 		}
 	}
 	for x := b.Black.Pawns; x != 0; x &= x - 1 {
 		sqBB := PositionBB[bits.TrailingZeros64(x)]
-		above := sqBB >> 8
-		if (thirdAndFourthRank&sqBB) > 0 && (b.White.Pawns&above) > 0 {
+		below := sqBB >> 8
+		if (b.White.Pawns & below) > 0 {
 			bBlocked |= sqBB
 		}
 	}
@@ -439,32 +427,52 @@ func getBackwardPawnsBitboards(b *gm.Board, wPawnAttackBB uint64, bPawnAttackBB 
 	return wBackward, bBackward
 }
 
-func getPawnLeverBitboards(b *gm.Board) (wLever uint64, bLever uint64, wMultiLever uint64, bMultiLever uint64) {
-	wPawnAttackWest, wPawnAttackEast := PawnCaptureBitboards(b.White.Pawns, true)
-	bPawnAttackWest, bPawnAttackEast := PawnCaptureBitboards(b.Black.Pawns, false)
+func getPawnLeverBitboards(
+	b *gm.Board,
+	wPawnAttackBB uint64, bPawnAttackBB uint64,
+	wPawnAttackBB_E uint64, wPawnAttackBB_W uint64,
+	bPawnAttackBB_E uint64, bPawnAttackBB_W uint64,
+) (
+	wLever uint64, bLever uint64,
+	wLeverPush uint64, bLeverPush uint64,
+	wWeakLever uint64, bWeakLever uint64,
+) {
+	occ := b.White.All | b.Black.All
+	empty := ^occ
 
-	wHitsBPawnWest := wPawnAttackWest & b.Black.Pawns
-	wHitsBPawnEast := wPawnAttackEast & b.Black.Pawns
-	wLeverFromWest := ((wHitsBPawnWest &^ bitboardFileH) >> 7) & b.White.Pawns
-	wLeverFromEast := ((wHitsBPawnEast &^ bitboardFileA) >> 9) & b.White.Pawns
-	wLever = wLeverFromWest | wLeverFromEast
+	wHitTargets := wPawnAttackBB & b.Black.Pawns
+	wLever = ((wHitTargets &^ bitboardFileH) >> 7) | ((wHitTargets &^ bitboardFileA) >> 9) //&b.White.Pawns
 
-	bHitsWPawnWest := bPawnAttackWest & b.White.Pawns
-	bHitsWPawnEast := bPawnAttackEast & b.White.Pawns
+	bHitTargets := bPawnAttackBB & b.White.Pawns
+	bLever = ((bHitTargets &^ bitboardFileA) << 7) | ((bHitTargets &^ bitboardFileH) << 9) //&b.Black.Pawns
 
-	bLeverFromWest := ((bHitsWPawnWest &^ bitboardFileH) << 9) & b.Black.Pawns
-	bLeverFromEast := ((bHitsWPawnEast &^ bitboardFileA) << 7) & b.Black.Pawns
-	bLever = bLeverFromWest | bLeverFromEast
+	wDoubleAtt := wPawnAttackBB_E & wPawnAttackBB_W // squares attacked by two white pawns
+	bDoubleAtt := bPawnAttackBB_E & bPawnAttackBB_W // squares attacked by two black pawns
 
-	// Multi-lever: pawns whose advance square is attacked by BOTH enemy pawn directions
-	wFront := b.White.Pawns << 8
-	bFront := b.Black.Pawns >> 8
-	wMultiTargets := wFront & bPawnAttackWest & bPawnAttackEast
-	bMultiTargets := bFront & wPawnAttackWest & wPawnAttackEast
-	wMultiLever = (wMultiTargets >> 8) & b.White.Pawns
-	bMultiLever = (bMultiTargets << 8) & b.Black.Pawns
+	wWeakLever = wLever & bDoubleAtt &^ wPawnAttackBB
+	bWeakLever = bLever & wDoubleAtt &^ bPawnAttackBB
 
-	return wLever, bLever, wMultiLever, bMultiLever
+	// White push levers
+	wOne := (b.White.Pawns << 8) & empty
+	wOneAtt_E, wOneAttW := PawnCaptureBitboards(wOne, true)
+	wOneAtt := wOneAtt_E | wOneAttW
+
+	wHitAfterPush := wOneAtt & b.Black.Pawns
+	wPushedLeverSources := ((wHitAfterPush &^ bitboardFileH) >> 7) | ((wHitAfterPush &^ bitboardFileA) >> 9)
+	wPushedLevers := wPushedLeverSources & wOne
+	wLeverPush = wPushedLevers >> 8
+
+	// Black push levers
+	bOne := (b.Black.Pawns >> 8) & empty
+	bOneAtt_E, bOneAtt_W := PawnCaptureBitboards(bOne, false)
+	bOneAtt := bOneAtt_E | bOneAtt_W
+
+	bHitAfterPush := bOneAtt & b.White.Pawns
+	bPushedLeverSources := ((bHitAfterPush &^ bitboardFileA) << 7) | ((bHitAfterPush &^ bitboardFileH) << 9)
+	bPushedLevers := bPushedLeverSources & bOne
+	bLeverPush = bPushedLevers << 8
+
+	return
 }
 
 func getPawnStormBitboards(b *gm.Board, wWing uint64, bWing uint64) (wStorm uint64, bStorm uint64) {
@@ -655,15 +663,6 @@ func getKingWingMasks(b *gm.Board) (wWing uint64, bWing uint64) {
 		bWing = kSide
 	}
 	return wWing, bWing
-}
-
-func calculatePawnFileFill(pawnBitboard uint64, isWhite bool) uint64 {
-	if isWhite {
-		pawnBitboard |= calculatePawnNorthFill(pawnBitboard)
-	} else {
-		pawnBitboard |= calculatePawnSouthFill(pawnBitboard)
-	}
-	return pawnBitboard
 }
 
 func calculatePawnNorthFill(pawnBitboard uint64) uint64 {

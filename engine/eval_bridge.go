@@ -5,9 +5,17 @@ import (
 	"math/bits"
 )
 
+func pawnAttackBitboards(b *gm.Board) (wPawnAttackBB, bPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W uint64) {
+	wPawnAttackBB_E, wPawnAttackBB_W = PawnCaptureBitboards(b.White.Pawns, true)
+	bPawnAttackBB_E, bPawnAttackBB_W = PawnCaptureBitboards(b.Black.Pawns, false)
+	wPawnAttackBB = wPawnAttackBB_E | wPawnAttackBB_W
+	bPawnAttackBB = bPawnAttackBB_E | bPawnAttackBB_W
+	return
+}
+
 // PawnStructDiffs computes unit feature differences (white minus black or vice-versa as noted)
-// for pawn-structure terms, separately for MG and EG, using the engine's bitboard helpers and masks.
-// The order of features per phase is:
+// for pawn-structure terms (Tier 2), separately for MG and EG, using the engine's bitboard helpers and masks.
+// The feature indices are:
 //
 //	0: Doubled      (diff = bCount - wCount)
 //	1: Isolated     (diff = bCount - wCount)
@@ -33,7 +41,7 @@ func PawnStructDiffs(b *gm.Board) (mg [8]int, eg [8]int) {
 			bDoub += bn - 1
 		}
 	}
-	doubDiff := bDoub - wDoub
+	doubDiff := bDoub - wDoub // FIXED: Now (White - Black) to match phalanx/blocked convention
 	mg[0], eg[0] = doubDiff, doubDiff
 
 	// Isolated: count pawns with no friendly pawns on adjacent files (same-file ignored)
@@ -66,12 +74,11 @@ func PawnStructDiffs(b *gm.Board) (mg [8]int, eg [8]int) {
 			bIso++
 		}
 	}
-	isoDiff := bIso - wIso
+	isoDiff := bIso - wIso //wIso - bIso // FIXED: Now (White - Black) to match phalanx/blocked convention
 	mg[1], eg[1] = isoDiff, isoDiff
 
 	// Pawn attack maps
-	wPawnAttackBB := ((wp &^ bitboardFileA) << 7) | ((wp &^ bitboardFileH) << 9)
-	bPawnAttackBB := ((bp &^ bitboardFileH) >> 7) | ((bp &^ bitboardFileA) >> 9)
+	wPawnAttackBB, bPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W := pawnAttackBitboards(b)
 
 	// Connected pawns (unit counts):
 	// MG: pawns defended by a pawn (i.e., on pawn attack map)
@@ -98,22 +105,22 @@ func PawnStructDiffs(b *gm.Board) (mg [8]int, eg [8]int) {
 
 	// Blocked advanced pawns via engine helper (own advanced pawns blocked)
 	wBlkBB, bBlkBB := getBlockedPawnsBitboards(b)
-	blkDiff := bits.OnesCount64(wBlkBB) - bits.OnesCount64(bBlkBB)
+	thirdAndFourthRank := onlyRank[2] | onlyRank[3]
+	fifthAndSixthRank := onlyRank[4] | onlyRank[5]
+	blkDiff := bits.OnesCount64(wBlkBB&fifthAndSixthRank) - bits.OnesCount64(bBlkBB&thirdAndFourthRank)
 	mg[4], eg[4] = blkDiff, blkDiff
 
 	// Pawn levers: enemy pawns hitting the square in front of our pawn
-	wLeverBB, bLeverBB, wMultiLever, bMultiLever := getPawnLeverBitboards(b)
+	wLeverBB, bLeverBB, wLeverPushed, bLeverPushed, wWeakLever, bWeakLever := getPawnLeverBitboards(b, wPawnAttackBB, bPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W)
+	_ = wLeverPushed
+	_ = bLeverPushed
 	wLeverCnt := bits.OnesCount64(wLeverBB)
 	bLeverCnt := bits.OnesCount64(bLeverBB)
 	leverDiff := wLeverCnt - bLeverCnt
 	mg[5], eg[5] = leverDiff, leverDiff
 
 	// Weak levers: multi-lever targets that lack pawn support
-	wSupported := wPawnAttackBB & b.White.Pawns
-	bSupported := bPawnAttackBB & b.Black.Pawns
-	wWeak := wMultiLever &^ wSupported
-	bWeak := bMultiLever &^ bSupported
-	weakDiff := bits.OnesCount64(bWeak) - bits.OnesCount64(wWeak)
+	weakDiff := bits.OnesCount64(bWeakLever) - bits.OnesCount64(wWeakLever)
 	mg[6], eg[6] = weakDiff, weakDiff
 
 	// Backward pawns via engine helper
@@ -131,25 +138,17 @@ func PawnStructDiffs(b *gm.Board) (mg [8]int, eg [8]int) {
 //
 //	0: KnightPerPawn
 //	1: BishopPerPawn
-//	2: MinorsForMajor
-//	3: RedundantRook
-//	4: RookQueenOverlap
-//	5: QueenManyMinors
-func ImbalanceDiffs(b *gm.Board) (mg [6]int, eg [6]int) {
+func ImbalanceDiffs(b *gm.Board) (mg [2]int, eg [2]int) {
 	pieceCount := countPieceTypes(b)
 	const White = 0
 	const Black = 1
 	wp := pieceCount[White][gm.PieceTypePawn]
 	wn := pieceCount[White][gm.PieceTypeKnight]
 	wb := pieceCount[White][gm.PieceTypeBishop]
-	wr := pieceCount[White][gm.PieceTypeRook]
-	wq := pieceCount[White][gm.PieceTypeQueen]
 
 	bp := pieceCount[Black][gm.PieceTypePawn]
 	bn := pieceCount[Black][gm.PieceTypeKnight]
 	bb := pieceCount[Black][gm.PieceTypeBishop]
-	br := pieceCount[Black][gm.PieceTypeRook]
-	bq := pieceCount[Black][gm.PieceTypeQueen]
 
 	wPawnDelta := wp - ImbalanceRefPawnCount
 	bPawnDelta := bp - ImbalanceRefPawnCount
@@ -159,54 +158,6 @@ func ImbalanceDiffs(b *gm.Board) (mg [6]int, eg [6]int) {
 	eg[0] = mg[0]
 	mg[1] = (wPawnDelta * wb) - (bPawnDelta * bb)
 	eg[1] = mg[1]
-
-	totalPawns := wp + bp
-	wMinors := wn + wb
-	bMinors := bn + bb
-
-	if totalPawns >= 11 && (wq+bq) > 0 {
-		if wr > br && wMinors < bMinors {
-			out := bMinors - wMinors
-			mg[2] += out
-			eg[2] += out
-		}
-		if br > wr && bMinors < wMinors {
-			out := wMinors - bMinors
-			mg[2] -= out
-			eg[2] -= out
-		}
-	}
-
-	if wr > 1 {
-		extra := wr - 1
-		mg[3] -= extra
-		eg[3] -= extra
-	}
-	if br > 1 {
-		extra := br - 1
-		mg[3] += extra
-		eg[3] += extra
-	}
-
-	if wq >= 1 && wr >= 2 {
-		mg[4] -= wr
-		eg[4] -= wr
-	}
-	if bq >= 1 && br >= 2 {
-		mg[4] += br
-		eg[4] += br
-	}
-
-	if wq > 0 && wMinors >= 3 {
-		extra := wMinors - 2
-		mg[5] -= extra
-		eg[5] -= extra
-	}
-	if bq > 0 && bMinors >= 3 {
-		extra := bMinors - 2
-		mg[5] += extra
-		eg[5] += extra
-	}
 	return mg, eg
 }
 
@@ -495,8 +446,8 @@ func KingSafetyOneHot(b *gm.Board) (onehot [100]int) {
 
 // KingSafetyCorrelates returns MG-unit diffs for correlated king-safety features:
 //
-//	semiOpenDiff = (# black king-adjacent semi-open files) - (# white ...)
-//	openDiff     = (# black king-adjacent open files) - (# white ...)
+//	semiOpenDiff = (# black king-adjacent or king-file semi-open files) - (# white ...)
+//	openDiff     = (# black king-adjacent or king-file open files) - (# white ...)
 //	minorDefDiff = (# white minor (N/B) defenders in inner ring) - (# black ...)
 //	pawnDefDiff  = min(3, white pawns in inner ring) - min(3, black ...)
 func KingSafetyCorrelates(b *gm.Board) (semiOpenDiff, openDiff, minorDefDiff, pawnDefDiff int) {
@@ -516,8 +467,8 @@ func KingSafetyCorrelates(b *gm.Board) (semiOpenDiff, openDiff, minorDefDiff, pa
 	// King-adjacent files masks
 	wKingFile := onlyFile[bits.TrailingZeros64(b.White.Kings)%8]
 	bKingFile := onlyFile[bits.TrailingZeros64(b.Black.Kings)%8]
-	wAdjFiles := ((wKingFile & ^bitboardFileA) >> 1) | ((wKingFile & ^bitboardFileH) << 1)
-	bAdjFiles := ((bKingFile & ^bitboardFileA) >> 1) | ((bKingFile & ^bitboardFileH) << 1)
+	wAdjFiles := wKingFile | ((wKingFile & ^bitboardFileA) >> 1) | ((wKingFile & ^bitboardFileH) << 1)
+	bAdjFiles := bKingFile | ((bKingFile & ^bitboardFileA) >> 1) | ((bKingFile & ^bitboardFileH) << 1)
 
 	// Count per side
 	countSemiOpen := func(adj uint64, ownFiles uint64) int {
@@ -668,13 +619,6 @@ func SpaceAndWeakKingDiffs(b *gm.Board) (spaceDiff int, weakKingDiff int) {
 	return
 }
 
-// WeakSquareProtectedCounts is deprecated; use SpaceAndWeakKingDiffs.
-// Deprecated: protected-square signals are no longer computed.
-func WeakSquareProtectedCounts(b *gm.Board) (weakDiff int, weakKingDiff int, protectedDiff int, protectedKingDiff int) {
-	spaceDiff, kingDiff := SpaceAndWeakKingDiffs(b)
-	return spaceDiff, kingDiff, 0, 0
-}
-
 // KnightTropismDiffs exposes knight king-tropism MG/EG diffs.
 func KnightTropismDiffs(b *gm.Board) (mg int, eg int) {
 	return knightKingTropism(b)
@@ -705,7 +649,8 @@ func BishopPairDiffsScaled(b *gm.Board) (mg int, eg int) {
 	openFiles := ^whiteFiles & ^blackFiles
 
 	// Pawn levers for center state
-	wLever, bLever, _, _ := getPawnLeverBitboards(b)
+	wPawnAttackBB, bPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W := pawnAttackBitboards(b)
+	wLever, bLever, _, _, _, _ := getPawnLeverBitboards(b, wPawnAttackBB, bPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W)
 
 	lockedCenter, openIdx := getCenterState(b, openFiles, wSemiOpen, bSemiOpen, wLever, bLever)
 	_, _, bpScaleMG := getCenterMobilityScales(lockedCenter, openIdx)
@@ -721,119 +666,64 @@ func BishopPairDiffsScaled(b *gm.Board) (mg int, eg int) {
 	return mg, eg
 }
 
-// BishopXrayCounts returns unit diffs for bishop x-ray targets (MG-only logic in engine):
-//
-//	kDiff = (# white bishop xrays vs king with enemy blocker) - (# black ...), weighted by BishopXrayKingMG
-//	rDiff = (# events that use the rook-weight term: pins vs rook/king with lower-value blocker, or discovered attacks) diff
-//	qDiff = (# queen x-rays with lower-value blocker (or discovered) ) diff
-func BishopXrayCounts(b *gm.Board) (kDiff int, rDiff int, qDiff int) {
-	all := b.White.All | b.Black.All
-	// White bishops
+// BadBishopDiffs returns MG/EG diffs for the bad-bishop term using blocked pawns.
+func BadBishopDiffs(b *gm.Board) (mg int, eg int) {
+	entry := GetPawnEntry(b, false)
+	wLightFixed := bits.OnesCount64(entry.WBlockedBB & lightSquares)
+	wDarkFixed := bits.OnesCount64(entry.WBlockedBB & darkSquares)
+	bLightFixed := bits.OnesCount64(entry.BBlockedBB & lightSquares)
+	bDarkFixed := bits.OnesCount64(entry.BBlockedBB & darkSquares)
+
 	for x := b.White.Bishops; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		bb := PositionBB[sq]
-		occupied := all &^ bb
-
-		normal := gm.CalculateBishopMoveBitboard(uint8(sq), occupied)
-		directHits := normal & all
-
-		for y := directHits; y != 0; y &= y - 1 {
-			blockerSq := bits.TrailingZeros64(y)
-			blockerBB := PositionBB[blockerSq]
-
-			xrayOccupied := occupied &^ blockerBB
-			xray := gm.CalculateBishopMoveBitboard(uint8(sq), xrayOccupied)
-			revealed := xray &^ normal
-
-			revealedEnemies := revealed & b.Black.All
-			if revealedEnemies == 0 {
-				continue
-			}
-
-			blockerIsOwn := (blockerBB & b.White.All) != 0
-			if blockerIsOwn {
-				// Discovered attack through own piece: king/rook use rook-weight term
-				if revealedEnemies&b.Black.Kings != 0 {
-					rDiff++
-				}
-				if revealedEnemies&b.Black.Queens != 0 {
-					qDiff++
-				}
-				if revealedEnemies&b.Black.Rooks != 0 {
-					rDiff++
-				}
-				continue
-			}
-
-			blockerValue := getPieceValue(blockerBB, &b.Black)
-			if revealedEnemies&b.Black.Kings != 0 {
-				kDiff++
-			}
-			if revealedEnemies&b.Black.Queens != 0 && blockerValue < 9 {
-				qDiff++
-			}
-			if revealedEnemies&b.Black.Rooks != 0 && blockerValue < 5 {
-				rDiff++
-			}
-		}
+		bm, be := badBishopPenalty(sq, wDarkFixed, wLightFixed)
+		mg += bm
+		eg += be
 	}
-	// Black bishops
 	for x := b.Black.Bishops; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		bb := PositionBB[sq]
-		occupied := all &^ bb
+		bm, be := badBishopPenalty(sq, bDarkFixed, bLightFixed)
+		mg -= bm
+		eg -= be
+	}
+	return mg, eg
+}
 
-		normal := gm.CalculateBishopMoveBitboard(uint8(sq), occupied)
-		directHits := normal & all
+// BadBishopUnitDiff returns the fixed-pawn count on bishop colors (white minus black).
+func BadBishopUnitDiff(b *gm.Board) int {
+	entry := GetPawnEntry(b, false)
+	wLightFixed := bits.OnesCount64(entry.WBlockedBB & lightSquares)
+	wDarkFixed := bits.OnesCount64(entry.WBlockedBB & darkSquares)
+	bLightFixed := bits.OnesCount64(entry.BBlockedBB & lightSquares)
+	bDarkFixed := bits.OnesCount64(entry.BBlockedBB & darkSquares)
 
-		for y := directHits; y != 0; y &= y - 1 {
-			blockerSq := bits.TrailingZeros64(y)
-			blockerBB := PositionBB[blockerSq]
-
-			xrayOccupied := occupied &^ blockerBB
-			xray := gm.CalculateBishopMoveBitboard(uint8(sq), xrayOccupied)
-			revealed := xray &^ normal
-
-			revealedEnemies := revealed & b.White.All
-			if revealedEnemies == 0 {
-				continue
-			}
-
-			blockerIsOwn := (blockerBB & b.Black.All) != 0
-			if blockerIsOwn {
-				if revealedEnemies&b.White.Kings != 0 {
-					rDiff--
-				}
-				if revealedEnemies&b.White.Queens != 0 {
-					qDiff--
-				}
-				if revealedEnemies&b.White.Rooks != 0 {
-					rDiff--
-				}
-				continue
-			}
-
-			blockerValue := getPieceValue(blockerBB, &b.White)
-			if revealedEnemies&b.White.Kings != 0 {
-				kDiff--
-			}
-			if revealedEnemies&b.White.Queens != 0 && blockerValue < 9 {
-				qDiff--
-			}
-			if revealedEnemies&b.White.Rooks != 0 && blockerValue < 5 {
-				rDiff--
-			}
+	diff := 0
+	for x := b.White.Bishops; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		if PositionBB[sq]&darkSquares != 0 {
+			diff += wDarkFixed
+		} else {
+			diff += wLightFixed
 		}
 	}
-	return
+	for x := b.Black.Bishops; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		if PositionBB[sq]&darkSquares != 0 {
+			diff -= bDarkFixed
+		} else {
+			diff -= bLightFixed
+		}
+	}
+	return diff
+}
+
+// KingPasserProximityTerm returns the EG-only king proximity term for passed pawns.
+func KingPasserProximityTerm(b *gm.Board) int {
+	entry := GetPawnEntry(b, false)
+	return kingPasserProximity(b, entry)
 }
 
 // PawnStormProxLeverDiffs exposes MG-only unit diffs for pawn storm/proximity/lever-storm terms.
-// Returns:
-//
-//	stormDiff = (# white storm advanced on enemy wing) - (# black storm ...)
-//	proxDiff  = (# black enemy pawns near our king wing) - (# white ...)
-//	leverStormDiff = (# black immediate levers in white king wing advanced) - (# white ...)
 func PawnStormProxLeverDiffs(b *gm.Board) (stormDiff int, proxDiff int, leverStormDiff int) {
 	// King wings
 	wWing, bWing := getKingWingMasks(b)
@@ -841,7 +731,8 @@ func PawnStormProxLeverDiffs(b *gm.Board) (stormDiff int, proxDiff int, leverSto
 	wStorm, bStorm := getPawnStormBitboards(b, wWing, bWing)
 	wProx, bProx := getEnemyPawnProximityBitboards(b, wWing, bWing)
 	// Lever bitboards
-	wLever, bLever, _, _ := getPawnLeverBitboards(b)
+	wPawnAttackBB, bPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W := pawnAttackBitboards(b)
+	wLever, bLever, _, _, _, _ := getPawnLeverBitboards(b, wPawnAttackBB, bPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W)
 	// Advanced lever in storm zone
 	wLeverStorm := bits.OnesCount64((wLever & bWing) & ranksAbove[3])
 	bLeverStorm := bits.OnesCount64((bLever & wWing) & ranksBelow[4])
@@ -849,6 +740,101 @@ func PawnStormProxLeverDiffs(b *gm.Board) (stormDiff int, proxDiff int, leverSto
 	stormDiff = bits.OnesCount64(wStorm) - bits.OnesCount64(bStorm)
 	proxDiff = bits.OnesCount64(bProx) - bits.OnesCount64(wProx)
 	leverStormDiff = bLeverStorm - wLeverStorm
+	return
+}
+
+// PawnStormCategoryDiffs returns unit counts for each pawn storm category.
+// Returns diffs (white - black) for each rank, decomposed by pawn type:
+//   - freeDiff: free advancing pawns (not blocked, not lever)
+//   - leverDiff: pawns with lever opportunity
+//   - weakLeverDiff: weak lever pawns (multi-lever, unsupported)
+//   - blockedDiff: pawns blocked by enemy pawn directly ahead
+//
+// The bool indicates opposite-side castling (where storms are active); if kings
+// are central or castled same-side, diffs are zeroed and the flag is false.
+//
+// All counts are rank-indexed arrays [8]int where index corresponds to attacker's rank.
+func PawnStormCategoryDiffs(b *gm.Board) (freeDiff, leverDiff, weakLeverDiff, blockedDiff [8]int, oppositeSide bool) {
+	// Get pawn hash entry for lever bitboards
+	pawnEntry := GetPawnEntry(b, false)
+
+	// Get king positions and zones
+	wKingSq := bits.TrailingZeros64(b.White.Kings)
+	bKingSq := bits.TrailingZeros64(b.Black.Kings)
+
+	wKingFile := wKingSq % 8
+	bKingFile := bKingSq % 8
+
+	wQueenside := wKingFile <= 2
+	wKingside := wKingFile >= 5
+	bQueenside := bKingFile <= 2
+	bKingside := bKingFile >= 5
+
+	// If both kings are central or castled same-side, storms are inactive.
+	if (!wQueenside && !wKingside && !bQueenside && !bKingside) || ((wQueenside && bQueenside) || (wKingside && bKingside)) {
+		return
+	}
+
+	oppositeSide = (wQueenside && bKingside) || (wKingside && bQueenside)
+
+	wKingZone := getKingFileZone(wKingFile)
+	bKingZone := getKingFileZone(bKingFile)
+
+	// Process white pawns attacking black king zone
+	for x := b.White.Pawns & bKingZone; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		pawnBB := PositionBB[sq]
+		rank := sq / 8
+
+		// Skip ranks that aren't relevant for pawn storm
+		if rank < 3 {
+			continue
+		}
+
+		// Classify pawn and increment appropriate diff
+		if PositionBB[sq+8]&b.Black.Pawns != 0 {
+			// Blocked by enemy pawn directly ahead
+			blockedDiff[rank]++
+		} else if pawnBB&pawnEntry.WLeverBB != 0 {
+			// Has lever opportunity
+			leverDiff[rank]++
+		} else if pawnBB&pawnEntry.WWeakLeverBB != 0 {
+			// Weak lever (multi-lever, unsupported)
+			weakLeverDiff[rank]++
+		} else {
+			// Free advancing pawn
+			freeDiff[rank]++
+		}
+	}
+
+	// Process black pawns attacking white king zone
+	for x := b.Black.Pawns & wKingZone; x != 0; x &= x - 1 {
+		sq := bits.TrailingZeros64(x)
+		pawnBB := PositionBB[sq]
+		rank := sq / 8
+		sideRank := 7 - rank // Black's perspective
+
+		// Skip ranks that aren't relevant for pawn storm
+		if sideRank < 3 {
+			continue
+		}
+
+		// Classify pawn and decrement appropriate diff (black subtracts from white)
+		if PositionBB[sq-8]&b.White.Pawns != 0 {
+			// Blocked by enemy pawn directly ahead
+			blockedDiff[sideRank]--
+		} else if pawnBB&pawnEntry.BLeverBB != 0 {
+			// Has lever opportunity
+			leverDiff[sideRank]--
+		} else if pawnBB&pawnEntry.BWeakLeverBB != 0 {
+			// Weak lever (multi-lever, unsupported)
+			weakLeverDiff[sideRank]--
+		} else {
+			// Free advancing pawn
+			freeDiff[sideRank]--
+		}
+	}
+
 	return
 }
 
@@ -869,7 +855,8 @@ func CenterMobilityScales(b *gm.Board) (knDelta int, biDelta int) {
 	bSemi := ^blackFiles & whiteFiles
 	openFiles := ^whiteFiles & ^blackFiles
 	// Pawn levers for center state
-	wLever, bLever, _, _ := getPawnLeverBitboards(b)
+	wPawnAttackBB, bPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W := pawnAttackBitboards(b)
+	wLever, bLever, _, _, _, _ := getPawnLeverBitboards(b, wPawnAttackBB, bPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W)
 	lockedCenter, openIdx := getCenterState(b, openFiles, wSemi, bSemi, wLever, bLever)
 	kn, bi, _ := getCenterMobilityScales(lockedCenter, openIdx)
 	return kn - 100, bi - 100
@@ -879,18 +866,14 @@ func CenterMobilityScales(b *gm.Board) (knDelta int, biDelta int) {
 // idx mapping (MG array):
 //
 //	0: KnightOutpost (MG)
-//	1: KnightCanAttackPiece (MG)
-//	2: StackedRooks (MG)
-//	3: RookXrayQueen (MG)
-//	4: RookXrayKing (MG)
-//	5: (unused)
-//	6: BishopOutpost (MG)
+//	1: StackedRooks (MG)
+//	2: BishopOutpost (MG)
 //
 // EG array:
 //
 //	0: KnightOutpost (EG)
-//	1: KnightCanAttackPiece (EG)
-func ExtrasDiffs(b *gm.Board) (mg [7]int, eg [2]int) {
+//	1: BishopOutpost (EG)
+func ExtrasDiffs(b *gm.Board) (mg [3]int, eg [2]int) {
 	// Outposts: recompute outpost bitboards
 	wp, bp := b.White.Pawns, b.Black.Pawns
 	wPawnAttackBB := ((wp &^ bitboardFileA) << 7) | ((wp &^ bitboardFileH) << 9)
@@ -902,156 +885,18 @@ func ExtrasDiffs(b *gm.Board) (mg [7]int, eg [2]int) {
 	bKnOut := bits.OnesCount64(b.Black.Knights & bOut)
 	mg[0] = wKnOut - bKnOut
 	eg[0] = mg[0]
-	// Bishop outposts (MG only)
+	// Bishop outposts
 	wBiOut := bits.OnesCount64(b.White.Bishops & wOut)
 	bBiOut := bits.OnesCount64(b.Black.Bishops & bOut)
-	mg[6] = wBiOut - bBiOut
+	mg[2] = wBiOut - bBiOut
+	eg[1] = mg[2]
 
-	// Knight threats (unit counts, not weighted):
-	// Count unique "a knight can attack a piece" events per side, mirroring engine logic
-	countKnightThreats := func(white bool) int {
-		wPieces := (b.White.Bishops | b.White.Rooks | b.White.Queens)
-		bPieces := (b.Black.Bishops | b.Black.Rooks | b.Black.Queens)
-		cnt := 0
-		if white {
-			for x := b.White.Knights; x != 0; x &= x - 1 {
-				from := bits.TrailingZeros64(x)
-				knightMoves := KnightMasks[from] &^ b.White.All
-				for y := knightMoves; y != 0; y &= y - 1 {
-					to := bits.TrailingZeros64(y)
-					threat := KnightMasks[to]
-					if threat&bPieces != 0 {
-						bPieces &^= threat
-						cnt++
-					}
-				}
-			}
-		} else {
-			for x := b.Black.Knights; x != 0; x &= x - 1 {
-				from := bits.TrailingZeros64(x)
-				knightMoves := KnightMasks[from] &^ b.Black.All
-				for y := knightMoves; y != 0; y &= y - 1 {
-					to := bits.TrailingZeros64(y)
-					threat := KnightMasks[to]
-					if threat&wPieces != 0 {
-						wPieces &^= threat
-						cnt++
-					}
-				}
-			}
-		}
-		return cnt
-	}
-	wKth := countKnightThreats(true)
-	bKth := countKnightThreats(false)
-	mg[1] = wKth - bKth
-	eg[1] = mg[1]
-
-	// Stacked rooks (connected on files) — unit stacks diff via helper
+	// Stacked rooks (connected on files) - unit stacks diff via helper
 	wFiles, bFiles := getRookConnectedFiles(b)
 	wStacks := bits.OnesCount64(wFiles) / 8
 	bStacks := bits.OnesCount64(bFiles) / 8
-	mg[2] = wStacks - bStacks
-
-	// Rook x-rays (king/queen) using engine logic
-	rxKingDiff, rxQueenDiff := rookXrayDiffs(b)
-	mg[3] = rxQueenDiff
-	mg[4] = rxKingDiff
+	mg[1] = wStacks - bStacks
 
 	// Seventh-rank handled in P1 scalars (EG only); no MG contribution here
 	return mg, eg
-}
-
-// rookXrayDiffs mirrors the richer engine rook x-ray logic, returning MG-unit diffs
-// for x-rays against kings and queens.
-func rookXrayDiffs(b *gm.Board) (kingDiff int, queenDiff int) {
-	allPieces := b.White.All | b.Black.All
-
-	// White rooks
-	for x := b.White.Rooks; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		rookBB := PositionBB[sq]
-		occupied := allPieces &^ rookBB
-
-		normal := gm.CalculateRookMoveBitboard(uint8(sq), occupied)
-		directHits := normal & allPieces
-
-		for y := directHits; y != 0; y &= y - 1 {
-			blockerSq := bits.TrailingZeros64(y)
-			blockerBB := PositionBB[blockerSq]
-
-			xrayOccupied := occupied &^ blockerBB
-			xray := gm.CalculateRookMoveBitboard(uint8(sq), xrayOccupied)
-			revealed := xray &^ normal
-
-			revealedEnemies := revealed & b.Black.All
-			if revealedEnemies == 0 {
-				continue
-			}
-
-			blockerIsOwn := (blockerBB & b.White.All) != 0
-			if blockerIsOwn {
-				if revealedEnemies&b.Black.Kings != 0 {
-					kingDiff++
-				}
-				if revealedEnemies&b.Black.Queens != 0 {
-					queenDiff++
-				}
-				continue
-			}
-
-			blockerValue := getPieceValue(blockerBB, &b.Black)
-			if revealedEnemies&b.Black.Kings != 0 {
-				kingDiff++
-			}
-			if revealedEnemies&b.Black.Queens != 0 && blockerValue < 9 {
-				queenDiff++
-			}
-		}
-	}
-
-	// Black rooks
-	for x := b.Black.Rooks; x != 0; x &= x - 1 {
-		sq := bits.TrailingZeros64(x)
-		rookBB := PositionBB[sq]
-		occupied := allPieces &^ rookBB
-
-		normal := gm.CalculateRookMoveBitboard(uint8(sq), occupied)
-		directHits := normal & allPieces
-
-		for y := directHits; y != 0; y &= y - 1 {
-			blockerSq := bits.TrailingZeros64(y)
-			blockerBB := PositionBB[blockerSq]
-
-			xrayOccupied := occupied &^ blockerBB
-			xray := gm.CalculateRookMoveBitboard(uint8(sq), xrayOccupied)
-			revealed := xray &^ normal
-
-			revealedEnemies := revealed & b.White.All
-			if revealedEnemies == 0 {
-				continue
-			}
-
-			blockerIsOwn := (blockerBB & b.Black.All) != 0
-			if blockerIsOwn {
-				if revealedEnemies&b.White.Kings != 0 {
-					kingDiff--
-				}
-				if revealedEnemies&b.White.Queens != 0 {
-					queenDiff--
-				}
-				continue
-			}
-
-			blockerValue := getPieceValue(blockerBB, &b.White)
-			if revealedEnemies&b.White.Kings != 0 {
-				kingDiff--
-			}
-			if revealedEnemies&b.White.Queens != 0 && blockerValue < 9 {
-				queenDiff--
-			}
-		}
-	}
-
-	return kingDiff, queenDiff
 }

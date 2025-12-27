@@ -8,12 +8,11 @@ type Adam struct {
 	Beta1   float64 // Typically 0.9
 	Beta2   float64 // Typically 0.999
 	Eps     float64
-	L2      float64
 	T       int // Timestep (for bias correction)
 	LRScale []float64
 }
 
-func NewAdam(numParams int, lr, l2 float64) *Adam {
+func NewAdam(numParams int, lr float64) *Adam {
 	return &Adam{
 		M:       make([]float64, numParams),
 		V:       make([]float64, numParams),
@@ -21,10 +20,25 @@ func NewAdam(numParams int, lr, l2 float64) *Adam {
 		Beta1:   0.9,
 		Beta2:   0.999,
 		Eps:     1e-8,
-		L2:      l2,
 		T:       0,
 		LRScale: nil,
 	}
+}
+
+// SetLR updates the base learning rate.
+func (opt *Adam) SetLR(lr float64) {
+	opt.LR = lr
+}
+
+// GetLR returns the current base learning rate.
+func (opt *Adam) GetLR() float64 {
+	return opt.LR
+}
+
+// SetLRScale sets an optional per-parameter learning-rate multiplier vector.
+// If the slice is nil or the length does not match params, scaling is ignored.
+func (opt *Adam) SetLRScale(scale []float64) {
+	opt.LRScale = scale
 }
 
 func (opt *Adam) Step(params []float64, grads []float64) {
@@ -37,7 +51,7 @@ func (opt *Adam) Step(params []float64, grads []float64) {
 
 	for i := range params {
 		g := grads[i]
-		if g == 0 && opt.L2 == 0 {
+		if g == 0 {
 			continue
 		}
 
@@ -48,10 +62,6 @@ func (opt *Adam) Step(params []float64, grads []float64) {
 		// Bias-corrected estimates
 		mHat := opt.M[i] / bc1
 		vHat := opt.V[i] / bc2
-
-		if opt.L2 != 0 {
-			g += opt.L2 * params[i]
-		}
 
 		s := 1.0
 		if useScale {

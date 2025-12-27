@@ -42,12 +42,6 @@ func BenchmarkEpoch(b *testing.B) {
 			batch = n
 		}
 	}
-	l2 := 1e-4
-	if v := os.Getenv("TUNER_BENCH_L2"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			l2 = f
-		}
-	}
 
 	data, err := LoadDataset(path, false, rows)
 	if err != nil || len(data) == 0 {
@@ -60,7 +54,7 @@ func BenchmarkEpoch(b *testing.B) {
 
 	// Optimizer
 	params := fe.Params()
-	opt := NewAdaGrad(len(params), 0.2, l2)
+	opt := NewAdaGrad(len(params), 0.2)
 	//opt.SetLRScale(BuildLRScale(fe))
 
 	// Config mirrored inline in the manual epoch loop below.

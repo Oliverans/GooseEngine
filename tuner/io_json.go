@@ -4,11 +4,9 @@ package tuner
 import (
 	"encoding/json"
 	"os"
-
-	gm "chess-engine/goosemg"
 )
 
-const modelLayoutTag = "linear_v6_pst_first_square_passers_phase6_no_pawnlever"
+const modelLayoutTag = "linear_v10_candidate_bad_bishop_phase6_trimmed_imbalance"
 
 type pstJSON struct {
 	MG [6][64]float64 `json:"mg"`
@@ -48,13 +46,19 @@ type modelJSON struct {
 	PST    *pstJSON  `json:"pst,omitempty"`
 	Theta  []float64 `json:"theta,omitempty"`
 	// Grouped arrays
-	MaterialMG []float64 `json:"material_mg,omitempty"`
-	MaterialEG []float64 `json:"material_eg,omitempty"`
-	PassersMG  []float64 `json:"passers_mg,omitempty"`
-	PassersEG  []float64 `json:"passers_eg,omitempty"`
-	MobilityMG []float64 `json:"mobility_mg,omitempty"`
-	MobilityEG []float64 `json:"mobility_eg,omitempty"`
-	KingSafety []float64 `json:"king_safety_table,omitempty"`
+	MaterialMG       []float64 `json:"material_mg,omitempty"`
+	MaterialEG       []float64 `json:"material_eg,omitempty"`
+	PassersMG        []float64 `json:"passers_mg,omitempty"`
+	PassersEG        []float64 `json:"passers_eg,omitempty"`
+	KnightMobilityMG []float64 `json:"knight_mobility_mg,omitempty"`
+	KnightMobilityEG []float64 `json:"knight_mobility_eg,omitempty"`
+	BishopMobilityMG []float64 `json:"bishop_mobility_mg,omitempty"`
+	BishopMobilityEG []float64 `json:"bishop_mobility_eg,omitempty"`
+	RookMobilityMG   []float64 `json:"rook_mobility_mg,omitempty"`
+	RookMobilityEG   []float64 `json:"rook_mobility_eg,omitempty"`
+	QueenMobilityMG  []float64 `json:"queen_mobility_mg,omitempty"`
+	QueenMobilityEG  []float64 `json:"queen_mobility_eg,omitempty"`
+	KingSafety       []float64 `json:"king_safety_table,omitempty"`
 	// Phase 1 scalars
 	BishopPairMG       *float64 `json:"bishop_pair_mg,omitempty"`
 	BishopPairEG       *float64 `json:"bishop_pair_eg,omitempty"`
@@ -63,20 +67,22 @@ type modelJSON struct {
 	SeventhRankEG      *float64 `json:"seventh_rank_eg,omitempty"`
 	QueenCentralizedEG *float64 `json:"queen_centralized_eg,omitempty"`
 	// Phase 2 pawn-structure scalars
-	DoubledMG   *float64 `json:"doubled_mg,omitempty"`
-	DoubledEG   *float64 `json:"doubled_eg,omitempty"`
-	IsolatedMG  *float64 `json:"isolated_mg,omitempty"`
-	IsolatedEG  *float64 `json:"isolated_eg,omitempty"`
-	ConnectedMG *float64 `json:"connected_mg,omitempty"`
-	ConnectedEG *float64 `json:"connected_eg,omitempty"`
-	PhalanxMG   *float64 `json:"phalanx_mg,omitempty"`
-	PhalanxEG   *float64 `json:"phalanx_eg,omitempty"`
-	BlockedMG   *float64 `json:"blocked_mg,omitempty"`
-	BlockedEG   *float64 `json:"blocked_eg,omitempty"`
-	WeakLeverMG *float64 `json:"weaklever_mg,omitempty"`
-	WeakLeverEG *float64 `json:"weaklever_eg,omitempty"`
-	BackwardMG  *float64 `json:"backward_mg,omitempty"`
-	BackwardEG  *float64 `json:"backward_eg,omitempty"`
+	DoubledMG            *float64 `json:"doubled_mg,omitempty"`
+	DoubledEG            *float64 `json:"doubled_eg,omitempty"`
+	IsolatedMG           *float64 `json:"isolated_mg,omitempty"`
+	IsolatedEG           *float64 `json:"isolated_eg,omitempty"`
+	ConnectedMG          *float64 `json:"connected_mg,omitempty"`
+	ConnectedEG          *float64 `json:"connected_eg,omitempty"`
+	PhalanxMG            *float64 `json:"phalanx_mg,omitempty"`
+	PhalanxEG            *float64 `json:"phalanx_eg,omitempty"`
+	BlockedMG            *float64 `json:"blocked_mg,omitempty"`
+	BlockedEG            *float64 `json:"blocked_eg,omitempty"`
+	WeakLeverMG          *float64 `json:"weaklever_mg,omitempty"`
+	WeakLeverEG          *float64 `json:"weaklever_eg,omitempty"`
+	BackwardMG           *float64 `json:"backward_mg,omitempty"`
+	BackwardEG           *float64 `json:"backward_eg,omitempty"`
+	CandidatePassedPctMG *float64 `json:"candidate_passed_pct_mg,omitempty"`
+	CandidatePassedPctEG *float64 `json:"candidate_passed_pct_eg,omitempty"`
 	// King correlates
 	KingSemiOpenFilePenalty *float64 `json:"king_semi_open_file_penalty,omitempty"`
 	KingOpenFilePenalty     *float64 `json:"king_open_file_penalty,omitempty"`
@@ -86,31 +92,23 @@ type modelJSON struct {
 	KnightOutpostMG      *float64 `json:"knight_outpost_mg,omitempty"`
 	KnightOutpostEG      *float64 `json:"knight_outpost_eg,omitempty"`
 	BishopOutpostMG      *float64 `json:"bishop_outpost_mg,omitempty"`
-	KnightThreatsMG      *float64 `json:"knight_can_attack_piece_mg,omitempty"`
-	KnightThreatsEG      *float64 `json:"knight_can_attack_piece_eg,omitempty"`
+	BishopOutpostEG      *float64 `json:"bishop_outpost_eg,omitempty"`
+	BadBishopMG          *float64 `json:"bad_bishop_mg,omitempty"`
+	BadBishopEG          *float64 `json:"bad_bishop_eg,omitempty"`
 	StackedRooksMG       *float64 `json:"stacked_rooks_mg,omitempty"`
 	PawnStormMG          *float64 `json:"pawn_storm_mg,omitempty"`
 	PawnProximityPenalty *float64 `json:"pawn_proximity_penalty_mg,omitempty"`
 	KnightMobCenterMG    *float64 `json:"knight_mobility_center_mg,omitempty"`
 	BishopMobCenterMG    *float64 `json:"bishop_mobility_center_mg,omitempty"`
 	// Imbalance scalars
-	ImbalanceKnightPerPawnMG    *float64 `json:"imbalance_knight_per_pawn_mg,omitempty"`
-	ImbalanceKnightPerPawnEG    *float64 `json:"imbalance_knight_per_pawn_eg,omitempty"`
-	ImbalanceBishopPerPawnMG    *float64 `json:"imbalance_bishop_per_pawn_mg,omitempty"`
-	ImbalanceBishopPerPawnEG    *float64 `json:"imbalance_bishop_per_pawn_eg,omitempty"`
-	ImbalanceMinorsForMajorMG   *float64 `json:"imbalance_minors_for_major_mg,omitempty"`
-	ImbalanceMinorsForMajorEG   *float64 `json:"imbalance_minors_for_major_eg,omitempty"`
-	ImbalanceRedundantRookMG    *float64 `json:"imbalance_redundant_rook_mg,omitempty"`
-	ImbalanceRedundantRookEG    *float64 `json:"imbalance_redundant_rook_eg,omitempty"`
-	ImbalanceRookQueenOverlapMG *float64 `json:"imbalance_rook_queen_overlap_mg,omitempty"`
-	ImbalanceRookQueenOverlapEG *float64 `json:"imbalance_rook_queen_overlap_eg,omitempty"`
-	ImbalanceQueenManyMinorsMG  *float64 `json:"imbalance_queen_many_minors_mg,omitempty"`
-	ImbalanceQueenManyMinorsEG  *float64 `json:"imbalance_queen_many_minors_eg,omitempty"`
+	ImbalanceKnightPerPawnMG *float64 `json:"imbalance_knight_per_pawn_mg,omitempty"`
+	ImbalanceKnightPerPawnEG *float64 `json:"imbalance_knight_per_pawn_eg,omitempty"`
+	ImbalanceBishopPerPawnMG *float64 `json:"imbalance_bishop_per_pawn_mg,omitempty"`
+	ImbalanceBishopPerPawnEG *float64 `json:"imbalance_bishop_per_pawn_eg,omitempty"`
 	// Space/weak-king + tempo
 	SpaceMG           *float64 `json:"space_mg,omitempty"`
 	SpaceEG           *float64 `json:"space_eg,omitempty"`
 	WeakKingSquaresMG *float64 `json:"weak_king_squares_mg,omitempty"`
-	WeakKingSquaresEG *float64 `json:"weak_king_squares_eg,omitempty"`
 	Tempo             *float64 `json:"tempo_bonus,omitempty"`
 }
 
@@ -128,8 +126,14 @@ func SaveModelJSON(path string, fe Featurizer, pst *PST) error {
 			payload.MaterialEG = append(payload.MaterialEG, le.MatEG[:]...)
 			payload.PassersMG = append(payload.PassersMG, le.PasserMG[:]...)
 			payload.PassersEG = append(payload.PassersEG, le.PasserEG[:]...)
-			payload.MobilityMG = append(payload.MobilityMG, le.MobilityMG[:]...)
-			payload.MobilityEG = append(payload.MobilityEG, le.MobilityEG[:]...)
+			payload.KnightMobilityMG = append(payload.KnightMobilityMG, le.KnightMobilityMG[:]...)
+			payload.KnightMobilityEG = append(payload.KnightMobilityEG, le.KnightMobilityEG[:]...)
+			payload.BishopMobilityMG = append(payload.BishopMobilityMG, le.BishopMobilityMG[:]...)
+			payload.BishopMobilityEG = append(payload.BishopMobilityEG, le.BishopMobilityEG[:]...)
+			payload.RookMobilityMG = append(payload.RookMobilityMG, le.RookMobilityMG[:]...)
+			payload.RookMobilityEG = append(payload.RookMobilityEG, le.RookMobilityEG[:]...)
+			payload.QueenMobilityMG = append(payload.QueenMobilityMG, le.QueenMobilityMG[:]...)
+			payload.QueenMobilityEG = append(payload.QueenMobilityEG, le.QueenMobilityEG[:]...)
 			payload.KingSafety = append(payload.KingSafety, le.KingSafety[:]...)
 			// Phase 1
 			payload.BishopPairMG = floatPtr(le.BishopPairMG)
@@ -153,6 +157,8 @@ func SaveModelJSON(path string, fe Featurizer, pst *PST) error {
 			payload.WeakLeverEG = floatPtr(le.WeakLeverEG)
 			payload.BackwardMG = floatPtr(le.BackwardMG)
 			payload.BackwardEG = floatPtr(le.BackwardEG)
+			payload.CandidatePassedPctMG = floatPtr(le.CandidatePassedPctMG)
+			payload.CandidatePassedPctEG = floatPtr(le.CandidatePassedPctEG)
 			// King correlates
 			payload.KingSemiOpenFilePenalty = floatPtr(le.KingSemiOpenFilePenalty)
 			payload.KingOpenFilePenalty = floatPtr(le.KingOpenFilePenalty)
@@ -162,10 +168,10 @@ func SaveModelJSON(path string, fe Featurizer, pst *PST) error {
 			payload.KnightOutpostMG = floatPtr(le.KnightOutpostMG)
 			payload.KnightOutpostEG = floatPtr(le.KnightOutpostEG)
 			payload.BishopOutpostMG = floatPtr(le.BishopOutpostMG)
-			payload.KnightThreatsMG = floatPtr(le.KnightThreatsMG)
-			payload.KnightThreatsEG = floatPtr(le.KnightThreatsEG)
+			payload.BishopOutpostEG = floatPtr(le.BishopOutpostEG)
+			payload.BadBishopMG = floatPtr(le.BadBishopMG)
+			payload.BadBishopEG = floatPtr(le.BadBishopEG)
 			payload.StackedRooksMG = floatPtr(le.StackedRooksMG)
-			payload.PawnStormMG = floatPtr(le.PawnStormMG)
 			payload.PawnProximityPenalty = floatPtr(le.PawnProximityMG)
 			payload.KnightMobCenterMG = floatPtr(le.KnightMobCenterMG)
 			payload.BishopMobCenterMG = floatPtr(le.BishopMobCenterMG)
@@ -174,19 +180,10 @@ func SaveModelJSON(path string, fe Featurizer, pst *PST) error {
 			payload.ImbalanceKnightPerPawnEG = floatPtr(le.ImbalanceKnightPerPawnEG)
 			payload.ImbalanceBishopPerPawnMG = floatPtr(le.ImbalanceBishopPerPawnMG)
 			payload.ImbalanceBishopPerPawnEG = floatPtr(le.ImbalanceBishopPerPawnEG)
-			payload.ImbalanceMinorsForMajorMG = floatPtr(le.ImbalanceMinorsForMajorMG)
-			payload.ImbalanceMinorsForMajorEG = floatPtr(le.ImbalanceMinorsForMajorEG)
-			payload.ImbalanceRedundantRookMG = floatPtr(le.ImbalanceRedundantRookMG)
-			payload.ImbalanceRedundantRookEG = floatPtr(le.ImbalanceRedundantRookEG)
-			payload.ImbalanceRookQueenOverlapMG = floatPtr(le.ImbalanceRookQueenOverlapMG)
-			payload.ImbalanceRookQueenOverlapEG = floatPtr(le.ImbalanceRookQueenOverlapEG)
-			payload.ImbalanceQueenManyMinorsMG = floatPtr(le.ImbalanceQueenManyMinorsMG)
-			payload.ImbalanceQueenManyMinorsEG = floatPtr(le.ImbalanceQueenManyMinorsEG)
 			// Space/weak-king + tempo
 			payload.SpaceMG = floatPtr(le.SpaceMG)
 			payload.SpaceEG = floatPtr(le.SpaceEG)
 			payload.WeakKingSquaresMG = floatPtr(le.WeakKingSquaresMG)
-			payload.WeakKingSquaresEG = floatPtr(le.WeakKingSquaresEG)
 			payload.Tempo = floatPtr(le.Tempo)
 		}
 	}
@@ -237,18 +234,33 @@ func LoadModelJSON(path string, fe Featurizer, pst *PST) error {
 	if len(m.PassersEG) == 64 {
 		copy(le.PasserEG[:], m.PassersEG)
 	}
-	if len(m.MobilityMG) == 7 {
-		copy(le.MobilityMG[:], m.MobilityMG)
+	if len(m.KnightMobilityMG) == len(le.KnightMobilityMG) {
+		copy(le.KnightMobilityMG[:], m.KnightMobilityMG)
 	}
-	if len(m.MobilityEG) == 7 {
-		copy(le.MobilityEG[:], m.MobilityEG)
+	if len(m.KnightMobilityEG) == len(le.KnightMobilityEG) {
+		copy(le.KnightMobilityEG[:], m.KnightMobilityEG)
+	}
+	if len(m.BishopMobilityMG) == len(le.BishopMobilityMG) {
+		copy(le.BishopMobilityMG[:], m.BishopMobilityMG)
+	}
+	if len(m.BishopMobilityEG) == len(le.BishopMobilityEG) {
+		copy(le.BishopMobilityEG[:], m.BishopMobilityEG)
+	}
+	if len(m.RookMobilityMG) == len(le.RookMobilityMG) {
+		copy(le.RookMobilityMG[:], m.RookMobilityMG)
+	}
+	if len(m.RookMobilityEG) == len(le.RookMobilityEG) {
+		copy(le.RookMobilityEG[:], m.RookMobilityEG)
+	}
+	if len(m.QueenMobilityMG) == len(le.QueenMobilityMG) {
+		copy(le.QueenMobilityMG[:], m.QueenMobilityMG)
+	}
+	if len(m.QueenMobilityEG) == len(le.QueenMobilityEG) {
+		copy(le.QueenMobilityEG[:], m.QueenMobilityEG)
 	}
 	if len(m.KingSafety) == 100 {
 		copy(le.KingSafety[:], m.KingSafety)
 	}
-	// Enforce invariant: Pawn/King mobility not trained.
-	le.MobilityMG[gm.PieceTypePawn], le.MobilityMG[gm.PieceTypeKing] = 0, 0
-	le.MobilityEG[gm.PieceTypePawn], le.MobilityEG[gm.PieceTypeKing] = 0, 0
 	// Phase 1
 	if m.BishopPairMG != nil {
 		le.BishopPairMG = *m.BishopPairMG
@@ -311,6 +323,12 @@ func LoadModelJSON(path string, fe Featurizer, pst *PST) error {
 	if m.BackwardEG != nil {
 		le.BackwardEG = *m.BackwardEG
 	}
+	if m.CandidatePassedPctMG != nil {
+		le.CandidatePassedPctMG = *m.CandidatePassedPctMG
+	}
+	if m.CandidatePassedPctEG != nil {
+		le.CandidatePassedPctEG = *m.CandidatePassedPctEG
+	}
 	// King correlates
 	if m.KingSemiOpenFilePenalty != nil {
 		le.KingSemiOpenFilePenalty = *m.KingSemiOpenFilePenalty
@@ -334,17 +352,17 @@ func LoadModelJSON(path string, fe Featurizer, pst *PST) error {
 	if m.BishopOutpostMG != nil {
 		le.BishopOutpostMG = *m.BishopOutpostMG
 	}
-	if m.KnightThreatsMG != nil {
-		le.KnightThreatsMG = *m.KnightThreatsMG
+	if m.BishopOutpostEG != nil {
+		le.BishopOutpostEG = *m.BishopOutpostEG
 	}
-	if m.KnightThreatsEG != nil {
-		le.KnightThreatsEG = *m.KnightThreatsEG
+	if m.BadBishopMG != nil {
+		le.BadBishopMG = *m.BadBishopMG
+	}
+	if m.BadBishopEG != nil {
+		le.BadBishopEG = *m.BadBishopEG
 	}
 	if m.StackedRooksMG != nil {
 		le.StackedRooksMG = *m.StackedRooksMG
-	}
-	if m.PawnStormMG != nil {
-		le.PawnStormMG = *m.PawnStormMG
 	}
 	if m.PawnProximityPenalty != nil {
 		le.PawnProximityMG = *m.PawnProximityPenalty
@@ -368,30 +386,6 @@ func LoadModelJSON(path string, fe Featurizer, pst *PST) error {
 	if m.ImbalanceBishopPerPawnEG != nil {
 		le.ImbalanceBishopPerPawnEG = *m.ImbalanceBishopPerPawnEG
 	}
-	if m.ImbalanceMinorsForMajorMG != nil {
-		le.ImbalanceMinorsForMajorMG = *m.ImbalanceMinorsForMajorMG
-	}
-	if m.ImbalanceMinorsForMajorEG != nil {
-		le.ImbalanceMinorsForMajorEG = *m.ImbalanceMinorsForMajorEG
-	}
-	if m.ImbalanceRedundantRookMG != nil {
-		le.ImbalanceRedundantRookMG = *m.ImbalanceRedundantRookMG
-	}
-	if m.ImbalanceRedundantRookEG != nil {
-		le.ImbalanceRedundantRookEG = *m.ImbalanceRedundantRookEG
-	}
-	if m.ImbalanceRookQueenOverlapMG != nil {
-		le.ImbalanceRookQueenOverlapMG = *m.ImbalanceRookQueenOverlapMG
-	}
-	if m.ImbalanceRookQueenOverlapEG != nil {
-		le.ImbalanceRookQueenOverlapEG = *m.ImbalanceRookQueenOverlapEG
-	}
-	if m.ImbalanceQueenManyMinorsMG != nil {
-		le.ImbalanceQueenManyMinorsMG = *m.ImbalanceQueenManyMinorsMG
-	}
-	if m.ImbalanceQueenManyMinorsEG != nil {
-		le.ImbalanceQueenManyMinorsEG = *m.ImbalanceQueenManyMinorsEG
-	}
 	// Space/weak-king + tempo
 	if m.SpaceMG != nil {
 		le.SpaceMG = *m.SpaceMG
@@ -401,9 +395,6 @@ func LoadModelJSON(path string, fe Featurizer, pst *PST) error {
 	}
 	if m.WeakKingSquaresMG != nil {
 		le.WeakKingSquaresMG = *m.WeakKingSquaresMG
-	}
-	if m.WeakKingSquaresEG != nil {
-		le.WeakKingSquaresEG = *m.WeakKingSquaresEG
 	}
 	if m.Tempo != nil {
 		le.Tempo = *m.Tempo

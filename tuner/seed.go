@@ -72,14 +72,28 @@ func SeedFromEngineDefaults(le *LinearEval, pst *PST) {
 	le.WeakLeverEG = float64(eng.DefaultWeakLeverPenaltyEG())
 	le.BackwardMG = float64(eng.DefaultBackwardPawnMG())
 	le.BackwardEG = float64(eng.DefaultBackwardPawnEG())
+	le.CandidatePassedPctMG = float64(eng.CandidatePassedPctMG)
+	le.CandidatePassedPctEG = float64(eng.CandidatePassedPctEG)
 
-	// Phase 3: mobility weights
-	mobMGVals := eng.DefaultMobilityValueMG()
-	mobEGVals := eng.DefaultMobilityValueEG()
-	for i := 0; i < 7; i++ {
-		le.MobilityMG[i] = float64(mobMGVals[i])
-		le.MobilityEG[i] = float64(mobEGVals[i])
+	// Phase 3: mobility tables
+	for i := 0; i < len(le.KnightMobilityMG); i++ {
+		le.KnightMobilityMG[i] = float64(eng.KnightMobilityMG[i])
+		le.KnightMobilityEG[i] = float64(eng.KnightMobilityEG[i])
 	}
+	for i := 0; i < len(le.BishopMobilityMG); i++ {
+		le.BishopMobilityMG[i] = float64(eng.BishopMobilityMG[i])
+		le.BishopMobilityEG[i] = float64(eng.BishopMobilityEG[i])
+	}
+	for i := 0; i < len(le.RookMobilityMG); i++ {
+		le.RookMobilityMG[i] = float64(eng.RookMobilityMG[i])
+		le.RookMobilityEG[i] = float64(eng.RookMobilityEG[i])
+	}
+	for i := 0; i < len(le.QueenMobilityMG); i++ {
+		le.QueenMobilityMG[i] = float64(eng.QueenMobilityMG[i])
+		le.QueenMobilityEG[i] = float64(eng.QueenMobilityEG[i])
+	}
+	le.KnightMobCenterMG = 0.01
+	le.BishopMobCenterMG = 0.01
 
 	// Phase 4: King safety table
 	ks := eng.DefaultKingSafetyTable()
@@ -98,22 +112,34 @@ func SeedFromEngineDefaults(le *LinearEval, pst *PST) {
 	le.KnightOutpostMG = float64(eng.DefaultKnightOutpostMG())
 	le.KnightOutpostEG = float64(eng.DefaultKnightOutpostEG())
 	le.BishopOutpostMG = float64(eng.DefaultBishopOutpostMG())
-	le.KnightThreatsMG = float64(eng.DefaultKnightCanAttackPieceMG())
-	le.KnightThreatsEG = float64(eng.DefaultKnightCanAttackPieceEG())
+	le.BishopOutpostEG = float64(eng.DefaultBishopOutpostEG())
+	le.BadBishopMG = float64(eng.BadBishopMG)
+	le.BadBishopEG = float64(eng.BadBishopEG)
 	le.KnightTropismMG = float64(eng.KnightTropismMG)
 	le.KnightTropismEG = float64(eng.KnightTropismEG)
 	le.StackedRooksMG = float64(eng.DefaultStackedRooksMG())
 	// SeventhRankMG has no engine default; seed 0
-	// New extras
-	le.PawnStormMG = float64(eng.DefaultPawnStormMG())
+	// Pawn storm percentage arrays from engine defaults
+	defBase := eng.DefaultPawnStormBaseMG()
+	defFree := eng.DefaultPawnStormFreePct()
+	defLever := eng.DefaultPawnStormLeverPct()
+	defWeak := eng.DefaultPawnStormWeakLeverPct()
+	defBlocked := eng.DefaultPawnStormBlockedPct()
+	for i := 0; i < 8; i++ {
+		le.PawnStormBaseMG[i] = float64(defBase[i])
+		le.PawnStormFreePct[i] = float64(defFree[i])
+		le.PawnStormLeverPct[i] = float64(defLever[i])
+		le.PawnStormWeakLeverPct[i] = float64(defWeak[i])
+		le.PawnStormBlockedPct[i] = float64(defBlocked[i])
+	}
+	le.PawnStormOppositeMult = float64(eng.DefaultPawnStormOppositeMult())
 	le.PawnProximityMG = float64(eng.DefaultPawnProximityPenaltyMG())
-	// Center mobility tuning starts at 0 (no change from base engine behavior)
+	// Center mobility scaling seeded to match engine's center-scaling behavior.
 
 	// Phase 6: Space/weak-king + Tempo
 	le.SpaceMG = float64(eng.DefaultSpaceBonusMG())
 	le.SpaceEG = float64(eng.DefaultSpaceBonusEG())
 	le.WeakKingSquaresMG = float64(eng.DefaultWeakKingSquarePenaltyMG())
-	le.WeakKingSquaresEG = float64(eng.DefaultWeakKingSquarePenaltyEG())
 	if tb := eng.DefaultTempoBonus(); tb != 0 {
 		le.Tempo = float64(tb)
 	} else {
@@ -125,12 +151,4 @@ func SeedFromEngineDefaults(le *LinearEval, pst *PST) {
 	le.ImbalanceKnightPerPawnEG = float64(eng.DefaultImbalanceKnightPerPawnEG())
 	le.ImbalanceBishopPerPawnMG = float64(eng.DefaultImbalanceBishopPerPawnMG())
 	le.ImbalanceBishopPerPawnEG = float64(eng.DefaultImbalanceBishopPerPawnEG())
-	le.ImbalanceMinorsForMajorMG = float64(eng.DefaultImbalanceMinorsForMajorMG())
-	le.ImbalanceMinorsForMajorEG = float64(eng.DefaultImbalanceMinorsForMajorEG())
-	le.ImbalanceRedundantRookMG = float64(eng.DefaultImbalanceRedundantRookMG())
-	le.ImbalanceRedundantRookEG = float64(eng.DefaultImbalanceRedundantRookEG())
-	le.ImbalanceRookQueenOverlapMG = float64(eng.DefaultImbalanceRookQueenOverlapMG())
-	le.ImbalanceRookQueenOverlapEG = float64(eng.DefaultImbalanceRookQueenOverlapEG())
-	le.ImbalanceQueenManyMinorsMG = float64(eng.DefaultImbalanceQueenManyMinorsMG())
-	le.ImbalanceQueenManyMinorsEG = float64(eng.DefaultImbalanceQueenManyMinorsEG())
 }

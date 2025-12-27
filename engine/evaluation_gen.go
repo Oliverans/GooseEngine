@@ -1,5 +1,1 @@
 package engine
-
-func init() {
-
-}

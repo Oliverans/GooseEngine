@@ -15,7 +15,7 @@ var (
 	baseMobilityValueEG   [7]int
 	baseAttackerInner     [7]int
 	baseAttackerOuter     [7]int
-	// Phase 1
+	// Tier 1/4: P1 scalars (BishopPair → Tier 4, rest → Tier 1)
 	baseBishopPairBonusMG        int
 	baseBishopPairBonusEG        int
 	baseRookSemiOpenFileBonusMG  int
@@ -24,7 +24,7 @@ var (
 	baseCentralizedQueenBonusEG  int
 	baseQueenInfiltrationBonusMG int
 	baseQueenInfiltrationBonusEG int
-	// Phase 2
+	// Tier 2: Pawn structure
 	baseDoubledPawnPenaltyMG  int
 	baseDoubledPawnPenaltyEG  int
 	baseIsolatedPawnMG        int
@@ -48,37 +48,32 @@ var (
 	baseSpaceBonusMG               int
 	baseSpaceBonusEG               int
 	baseWeakKingSquarePenaltyMG    int
-	baseWeakKingSquarePenaltyEG    int
 	baseTempoBonus                 int
-	// Extras (phase 5)
+	// Tier 1/3: Extras (Outposts/StackedRooks → Tier 1, Tropism/PawnStorm → Tier 3)
 	baseKnightOutpostMG        int
 	baseKnightOutpostEG        int
 	baseBishopOutpostMG        int
+	baseBishopOutpostEG        int
 	baseKnightCanAttackPieceMG int
 	baseKnightCanAttackPieceEG int
 	baseStackedRooksMG         int
-	baseRookXrayKingMG         int
-	baseRookXrayQueenMG        int
-	baseConnectedRooksBonusMG  int
 	// Bishop x-ray and pawn storm family
 	baseBishopXrayKingMG       int
 	baseBishopXrayRookMG       int
 	baseBishopXrayQueenMG      int
 	basePawnStormMG            int
 	basePawnProximityPenaltyMG int
+	basePawnStormBaseMG        [8]int
+	basePawnStormFreePct       [8]int
+	basePawnStormLeverPct      [8]int
+	basePawnStormWeakLeverPct  [8]int
+	basePawnStormBlockedPct    [8]int
+	basePawnStormOppositeMult  int
 	// Imbalance scalars
 	baseImbalanceKnightPerPawnMG    int
 	baseImbalanceKnightPerPawnEG    int
 	baseImbalanceBishopPerPawnMG    int
 	baseImbalanceBishopPerPawnEG    int
-	baseImbalanceMinorsForMajorMG   int
-	baseImbalanceMinorsForMajorEG   int
-	baseImbalanceRedundantRookMG    int
-	baseImbalanceRedundantRookEG    int
-	baseImbalanceRookQueenOverlapMG int
-	baseImbalanceRookQueenOverlapEG int
-	baseImbalanceQueenManyMinorsMG  int
-	baseImbalanceQueenManyMinorsEG  int
 )
 
 func init() {
@@ -93,14 +88,14 @@ func init() {
 	baseMobilityValueEG = mobilityValueEG
 	baseAttackerInner = attackerInner
 	baseAttackerOuter = attackerOuter
-	// Phase 1
+	// Tier 1/4: P1 scalars
 	baseBishopPairBonusMG = BishopPairBonusMG
 	baseBishopPairBonusEG = BishopPairBonusEG
 	baseRookSemiOpenFileBonusMG = RookSemiOpenMG
 	baseRookOpenFileBonusMG = RookOpenMG
 	baseSeventhRankBonusEG = RookSeventhRankEG
 	baseCentralizedQueenBonusEG = QueenCentralizationEG
-	// Phase 2
+	// Tier 2: Pawn structure
 	baseDoubledPawnPenaltyMG = PawnDoubledMG
 	baseDoubledPawnPenaltyEG = PawnDoubledEG
 	baseIsolatedPawnMG = IsolatedPawnMG
@@ -124,30 +119,23 @@ func init() {
 	baseSpaceBonusMG = SpaceBonusMG
 	baseSpaceBonusEG = SpaceBonusEG
 	baseWeakKingSquarePenaltyMG = WeakKingSquarePenaltyMG
-	baseWeakKingSquarePenaltyEG = WeakKingSquarePenaltyEG
 	baseTempoBonus = TempoBonus
 	// Extras
 	baseKnightOutpostMG = KnightOutpostMG
 	baseKnightOutpostEG = KnightOutpostEG
 	baseBishopOutpostMG = BishopOutpostMG
-	baseKnightCanAttackPieceMG = KnightThreatMG
-	baseKnightCanAttackPieceEG = KnightThreatEG
+	baseBishopOutpostEG = BishopOutpostEG
 	baseStackedRooksMG = RookStackedMG
-	baseConnectedRooksBonusMG = RookConnectedMG
-	basePawnStormMG = PawnStormMG
-	basePawnProximityPenaltyMG = PawnFrontProximityMG
+	basePawnStormFreePct = PawnStormFreePct
+	basePawnStormLeverPct = PawnStormLeverPct
+	basePawnStormWeakLeverPct = PawnStormWeakLeverPct
+	basePawnStormBlockedPct = PawnStormBlockedPct
+	basePawnStormBaseMG = PawnStormBaseMG
+	basePawnStormOppositeMult = PawnStormOppositeMultiplier
 	baseImbalanceKnightPerPawnMG = ImbalanceKnightPerPawnMG
 	baseImbalanceKnightPerPawnEG = ImbalanceKnightPerPawnEG
 	baseImbalanceBishopPerPawnMG = ImbalanceBishopPerPawnMG
 	baseImbalanceBishopPerPawnEG = ImbalanceBishopPerPawnEG
-	baseImbalanceMinorsForMajorMG = ImbalanceMinorsForMajorMG
-	baseImbalanceMinorsForMajorEG = ImbalanceMinorsForMajorEG
-	baseImbalanceRedundantRookMG = ImbalanceRedundantRookMG
-	baseImbalanceRedundantRookEG = ImbalanceRedundantRookEG
-	baseImbalanceRookQueenOverlapMG = ImbalanceRookQueenOverlapMG
-	baseImbalanceRookQueenOverlapEG = ImbalanceRookQueenOverlapEG
-	baseImbalanceQueenManyMinorsMG = ImbalanceQueenManyMinorsMG
-	baseImbalanceQueenManyMinorsEG = ImbalanceQueenManyMinorsEG
 }
 
 // Accessors for baselines (evaluation.go values)
@@ -160,13 +148,13 @@ func DefaultPieceValueEG() [7]int { return basePieceValueEG }
 func DefaultPassedPawnPSQT_MG() [64]int { return basePassedPawnPSQT_MG }
 func DefaultPassedPawnPSQT_EG() [64]int { return basePassedPawnPSQT_EG }
 
-// Phase 3 mobility/attacker defaults
+// Tier 1: Mobility/attacker defaults
 func DefaultMobilityValueMG() [7]int { return baseMobilityValueMG }
 func DefaultMobilityValueEG() [7]int { return baseMobilityValueEG }
 func DefaultAttackerInner() [7]int   { return baseAttackerInner }
 func DefaultAttackerOuter() [7]int   { return baseAttackerOuter }
 
-// Phase 1 scalar defaults
+// Tier 1/4: P1 scalar defaults (BishopPair → Tier 4, rest → Tier 1)
 func DefaultBishopPairBonusMG() int        { return baseBishopPairBonusMG }
 func DefaultBishopPairBonusEG() int        { return baseBishopPairBonusEG }
 func DefaultRookSemiOpenFileBonusMG() int  { return baseRookSemiOpenFileBonusMG }
@@ -176,7 +164,7 @@ func DefaultCentralizedQueenBonusEG() int  { return baseCentralizedQueenBonusEG 
 func DefaultQueenInfiltrationBonusMG() int { return baseQueenInfiltrationBonusMG }
 func DefaultQueenInfiltrationBonusEG() int { return baseQueenInfiltrationBonusEG }
 
-// Phase 2 pawn structure defaults
+// Tier 2: Pawn structure defaults
 func DefaultDoubledPawnPenaltyMG() int  { return baseDoubledPawnPenaltyMG }
 func DefaultDoubledPawnPenaltyEG() int  { return baseDoubledPawnPenaltyEG }
 func DefaultIsolatedPawnMG() int        { return baseIsolatedPawnMG }
@@ -205,19 +193,16 @@ func DefaultKingPawnDefenseMG() int          { return baseKingPawnDefenseMG }
 func DefaultSpaceBonusMG() int            { return baseSpaceBonusMG }
 func DefaultSpaceBonusEG() int            { return baseSpaceBonusEG }
 func DefaultWeakKingSquarePenaltyMG() int { return baseWeakKingSquarePenaltyMG }
-func DefaultWeakKingSquarePenaltyEG() int { return baseWeakKingSquarePenaltyEG }
 func DefaultTempoBonus() int              { return baseTempoBonus }
 
-// Phase 5 extras defaults
+// Tier 1/3: Extras defaults (Outposts/StackedRooks → Tier 1, Tropism/Storm → Tier 3)
 func DefaultKnightOutpostMG() int        { return baseKnightOutpostMG }
 func DefaultKnightOutpostEG() int        { return baseKnightOutpostEG }
 func DefaultBishopOutpostMG() int        { return baseBishopOutpostMG }
+func DefaultBishopOutpostEG() int        { return baseBishopOutpostEG }
 func DefaultKnightCanAttackPieceMG() int { return baseKnightCanAttackPieceMG }
 func DefaultKnightCanAttackPieceEG() int { return baseKnightCanAttackPieceEG }
 func DefaultStackedRooksMG() int         { return baseStackedRooksMG }
-func DefaultRookXrayKingMG() int         { return baseRookXrayKingMG }
-func DefaultRookXrayQueenMG() int        { return baseRookXrayQueenMG }
-func DefaultConnectedRooksBonusMG() int  { return baseConnectedRooksBonusMG }
 
 // New accessors for bishop xray and pawn storm family
 func DefaultBishopXrayKingMG() int       { return baseBishopXrayKingMG }
@@ -225,17 +210,17 @@ func DefaultBishopXrayRookMG() int       { return baseBishopXrayRookMG }
 func DefaultBishopXrayQueenMG() int      { return baseBishopXrayQueenMG }
 func DefaultPawnStormMG() int            { return basePawnStormMG }
 func DefaultPawnProximityPenaltyMG() int { return basePawnProximityPenaltyMG }
+func DefaultPawnStormBaseMG() [8]int     { return basePawnStormBaseMG }
+func DefaultPawnStormFreePct() [8]int    { return basePawnStormFreePct }
+func DefaultPawnStormLeverPct() [8]int   { return basePawnStormLeverPct }
+func DefaultPawnStormWeakLeverPct() [8]int {
+	return basePawnStormWeakLeverPct
+}
+func DefaultPawnStormBlockedPct() [8]int { return basePawnStormBlockedPct }
+func DefaultPawnStormOppositeMult() int  { return basePawnStormOppositeMult }
 
 // Imbalance defaults
 func DefaultImbalanceKnightPerPawnMG() int    { return baseImbalanceKnightPerPawnMG }
 func DefaultImbalanceKnightPerPawnEG() int    { return baseImbalanceKnightPerPawnEG }
 func DefaultImbalanceBishopPerPawnMG() int    { return baseImbalanceBishopPerPawnMG }
 func DefaultImbalanceBishopPerPawnEG() int    { return baseImbalanceBishopPerPawnEG }
-func DefaultImbalanceMinorsForMajorMG() int   { return baseImbalanceMinorsForMajorMG }
-func DefaultImbalanceMinorsForMajorEG() int   { return baseImbalanceMinorsForMajorEG }
-func DefaultImbalanceRedundantRookMG() int    { return baseImbalanceRedundantRookMG }
-func DefaultImbalanceRedundantRookEG() int    { return baseImbalanceRedundantRookEG }
-func DefaultImbalanceRookQueenOverlapMG() int { return baseImbalanceRookQueenOverlapMG }
-func DefaultImbalanceRookQueenOverlapEG() int { return baseImbalanceRookQueenOverlapEG }
-func DefaultImbalanceQueenManyMinorsMG() int  { return baseImbalanceQueenManyMinorsMG }
-func DefaultImbalanceQueenManyMinorsEG() int  { return baseImbalanceQueenManyMinorsEG }
