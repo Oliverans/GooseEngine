@@ -46,6 +46,6 @@ Using bitboards and strong core evaluation features.
 - Knight: Outposts, King Tropism
 - Bishop: Outposts, Bishop Pair, Bad Bishop
 - Rook: Open File, Semi-Open File, Stacked/Connected Rooks, Seventh Rank
-- Queen: Centralization (EG only)
+- Queen: Centralization
 - King: Attack Units (inner/outer ring), Open/Semi-Open File Penalty, Minor Piece Defense, Pawn Shield Defense, Weak King Squares, King Passer Proximity, King Centralization Penalty (mop-up), mop-up (Chebyshev distance)
 - Positional features: Space Evaluation, Material Imbalance (knight/bishop imbalance vs pawn count), Center State (knight/bishop scaled by locked/open center), Theoretical Draw Detection & draw Score Divider, Tempo Bonus, Tapered Evaluation
