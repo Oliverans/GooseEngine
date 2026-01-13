@@ -11,8 +11,6 @@ var (
 	basePieceValueEG      [7]int
 	basePassedPawnPSQT_MG [64]int
 	basePassedPawnPSQT_EG [64]int
-	baseMobilityValueMG   [7]int
-	baseMobilityValueEG   [7]int
 	baseAttackerInner     [7]int
 	baseAttackerOuter     [7]int
 	// Tier 1/4: P1 scalars (BishopPair → Tier 4, rest → Tier 1)
@@ -70,10 +68,10 @@ var (
 	basePawnStormBlockedPct    [8]int
 	basePawnStormOppositeMult  int
 	// Imbalance scalars
-	baseImbalanceKnightPerPawnMG    int
-	baseImbalanceKnightPerPawnEG    int
-	baseImbalanceBishopPerPawnMG    int
-	baseImbalanceBishopPerPawnEG    int
+	baseImbalanceKnightPerPawnMG int
+	baseImbalanceKnightPerPawnEG int
+	baseImbalanceBishopPerPawnMG int
+	baseImbalanceBishopPerPawnEG int
 )
 
 func init() {
@@ -84,8 +82,6 @@ func init() {
 	basePieceValueEG = pieceValueEG
 	basePassedPawnPSQT_MG = PassedPawnPSQT_MG
 	basePassedPawnPSQT_EG = PassedPawnPSQT_EG
-	baseMobilityValueMG = mobilityValueMG
-	baseMobilityValueEG = mobilityValueEG
 	baseAttackerInner = attackerInner
 	baseAttackerOuter = attackerOuter
 	// Tier 1/4: P1 scalars
@@ -149,10 +145,8 @@ func DefaultPassedPawnPSQT_MG() [64]int { return basePassedPawnPSQT_MG }
 func DefaultPassedPawnPSQT_EG() [64]int { return basePassedPawnPSQT_EG }
 
 // Tier 1: Mobility/attacker defaults
-func DefaultMobilityValueMG() [7]int { return baseMobilityValueMG }
-func DefaultMobilityValueEG() [7]int { return baseMobilityValueEG }
-func DefaultAttackerInner() [7]int   { return baseAttackerInner }
-func DefaultAttackerOuter() [7]int   { return baseAttackerOuter }
+func DefaultAttackerInner() [7]int { return baseAttackerInner }
+func DefaultAttackerOuter() [7]int { return baseAttackerOuter }
 
 // Tier 1/4: P1 scalar defaults (BishopPair → Tier 4, rest → Tier 1)
 func DefaultBishopPairBonusMG() int        { return baseBishopPairBonusMG }
@@ -220,7 +214,7 @@ func DefaultPawnStormBlockedPct() [8]int { return basePawnStormBlockedPct }
 func DefaultPawnStormOppositeMult() int  { return basePawnStormOppositeMult }
 
 // Imbalance defaults
-func DefaultImbalanceKnightPerPawnMG() int    { return baseImbalanceKnightPerPawnMG }
-func DefaultImbalanceKnightPerPawnEG() int    { return baseImbalanceKnightPerPawnEG }
-func DefaultImbalanceBishopPerPawnMG() int    { return baseImbalanceBishopPerPawnMG }
-func DefaultImbalanceBishopPerPawnEG() int    { return baseImbalanceBishopPerPawnEG }
+func DefaultImbalanceKnightPerPawnMG() int { return baseImbalanceKnightPerPawnMG }
+func DefaultImbalanceKnightPerPawnEG() int { return baseImbalanceKnightPerPawnEG }
+func DefaultImbalanceBishopPerPawnMG() int { return baseImbalanceBishopPerPawnMG }
+func DefaultImbalanceBishopPerPawnEG() int { return baseImbalanceBishopPerPawnEG }

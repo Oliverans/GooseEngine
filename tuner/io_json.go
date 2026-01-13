@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-const modelLayoutTag = "linear_v10_candidate_bad_bishop_phase6_trimmed_imbalance"
+const modelLayoutTag = "linear_v11_tiered_layout"
 
 type pstJSON struct {
 	MG [6][64]float64 `json:"mg"`

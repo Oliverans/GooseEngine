@@ -23,6 +23,8 @@ var (
 	enableAnchoring = flag.Bool("anchoring", true, "Enable anchored L2 regularization")
 	tier1LR         = flag.Float64("tier1-lr", 0.3, "LR multiplier for Tier 1 params")
 	tier1Anchor     = flag.Float64("tier1-anchor", 0.1, "Anchor weight for Tier 1 params")
+	tier2Anchor     = flag.Float64("tier2-anchor", 0.01, "Anchor weight for Tier 2 params")
+	tier3Anchor     = flag.Float64("tier3-anchor", 0.01, "Anchor weight for Tier 3 params")
 	labelMode       = flag.String("label", "white", `Label meaning: "white" (P(White wins)) or "side" (P(STM wins))`)
 	epochs          = flag.Int("epochs", 3, "Training epochs")
 	batchSize       = flag.Int("batch", 32768, "Mini-batch size")
@@ -113,6 +115,8 @@ func main() {
 
 	anchorCfg := tuner.DefaultAnchorConfig()
 	anchorCfg.Tier1Lambda = *tier1Anchor
+	anchorCfg.Tier2Lambda = *tier2Anchor
+	anchorCfg.Tier3Lambda = *tier3Anchor
 
 	cfg := tuner.TrainConfig{
 		Epochs:            *epochs,

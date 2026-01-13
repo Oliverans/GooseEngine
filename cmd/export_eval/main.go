@@ -81,22 +81,25 @@ type modelJSON struct {
 }
 
 // Theta layout (length 1217)
-// 0..383:  PST MG (6x64)
+// 0..383: PST MG (6x64)
 // 384..767: PST EG (6x64)
 // 768..773: Material MG (6)
 // 774..779: Material EG (6)
-// 780..843: Passers MG (64)
-// 844..907: Passers EG (64)
-// 908..913: Phase 1 scalars (6)
-// 914..929: Phase 2 scalars (16)
-// 930..989: Mobility MG tables (60)
-// 990..1049: Mobility EG tables (60)
-// 1050..1149: KingSafetyTable (100)
-// 1150..1153: King-safety correlates (4)
-// 1154..1155: King endgame terms (2) (not exported)
-// 1156..1208: Extras (53)
-// 1209..1212: Material imbalance scalars (4)
-// 1213..1216: Space/Weak/Tempo (4)
+// 780..839: Mobility MG tables (60)
+// 840..899: Mobility EG tables (60)
+// 900..903: Core scalars (4)
+// 904..912: Tier1 extras (9)
+// 913..976: Passers MG (64)
+// 977..1040: Passers EG (64)
+// 1041..1056: PawnStruct (16)
+// 1057..1156: KingSafetyTable (100)
+// 1157..1160: King-safety correlates (4)
+// 1161..1162: King endgame terms (2) (not exported)
+// 1163..1206: Tier3 extras (44)
+// 1207..1207: WeakKingSquares (1)
+// 1208..1209: BishopPair (2)
+// 1210..1213: Material imbalance scalars (4)
+// 1214..1216: Space/Tempo (3)
 
 func rd(x float64) int { return int(math.Round(x)) }
 
@@ -226,9 +229,6 @@ func main() {
 	var bpMG, bpEG, rsMG, roMG, srEG, qcEG int
 	// Phase 2
 	var dMG, dEG, iMG, iEG, cMG, cEG, phMG, phEG, bMG, bEG, wlMG, wlEG, bwMG, bwEG int
-	// Mobility values (legacy scalars)
-	mobValueKnightMG, mobValueBishopMG, mobValueRookMG, mobValueQueenMG := 2, 4, 0, 0
-	mobValueKnightEG, mobValueBishopEG, mobValueRookEG, mobValueQueenEG := 5, 5, 5, 4
 	// Mobility tables
 	var knMobMG [9]int
 	var knMobEG [9]int
@@ -288,45 +288,6 @@ func main() {
 			matEG[i] = rd(th[idx])
 			idx++
 		}
-		// Passers MG/EG
-		for i := 0; i < 64 && idx < len(th); i++ {
-			passMG[i] = rd(th[idx])
-			idx++
-		}
-		for i := 0; i < 64 && idx < len(th); i++ {
-			passEG[i] = rd(th[idx])
-			idx++
-		}
-		// Phase 1 (6)
-		if idx+6 <= len(th) {
-			bpMG = rd(th[idx+0])
-			bpEG = rd(th[idx+1])
-			rsMG = rd(th[idx+2])
-			roMG = rd(th[idx+3])
-			srEG = rd(th[idx+4])
-			qcEG = rd(th[idx+5])
-		}
-		idx += 6
-		// Phase 2 (16)
-		if idx+16 <= len(th) {
-			dMG = rd(th[idx+0])
-			dEG = rd(th[idx+1])
-			iMG = rd(th[idx+2])
-			iEG = rd(th[idx+3])
-			cMG = rd(th[idx+4])
-			cEG = rd(th[idx+5])
-			phMG = rd(th[idx+6])
-			phEG = rd(th[idx+7])
-			bMG = rd(th[idx+8])
-			bEG = rd(th[idx+9])
-			wlMG = rd(th[idx+10])
-			wlEG = rd(th[idx+11])
-			bwMG = rd(th[idx+12])
-			bwEG = rd(th[idx+13])
-			candPctMG = rd(th[idx+14])
-			candPctEG = rd(th[idx+15])
-		}
-		idx += 16
 		// Mobility MG tables (60)
 		for i := 0; i < len(knMobMG) && idx < len(th); i++ {
 			knMobMG[i] = rd(th[idx])
@@ -361,6 +322,59 @@ func main() {
 			qMobEG[i] = rd(th[idx])
 			idx++
 		}
+		// Core scalars (4)
+		if idx+4 <= len(th) {
+			rsMG = rd(th[idx+0])
+			roMG = rd(th[idx+1])
+			srEG = rd(th[idx+2])
+			qcEG = rd(th[idx+3])
+		}
+		idx += 4
+
+		// Tier1 extras (9)
+		if idx+9 <= len(th) {
+			ex_knOutMG = rd(th[idx+0])
+			ex_knOutEG = rd(th[idx+1])
+			ex_biOutMG = rd(th[idx+2])
+			ex_biOutEG = rd(th[idx+3])
+			ex_stackMG = rd(th[idx+4])
+			// idx+5/6: Knight/Bishop mob center (not exported)
+			badBishopMG = rd(th[idx+7])
+			badBishopEG = rd(th[idx+8])
+		}
+		idx += 9
+
+		// Passers MG/EG
+		for i := 0; i < 64 && idx < len(th); i++ {
+			passMG[i] = rd(th[idx])
+			idx++
+		}
+		for i := 0; i < 64 && idx < len(th); i++ {
+			passEG[i] = rd(th[idx])
+			idx++
+		}
+
+		// PawnStruct (16)
+		if idx+16 <= len(th) {
+			dMG = rd(th[idx+0])
+			dEG = rd(th[idx+1])
+			iMG = rd(th[idx+2])
+			iEG = rd(th[idx+3])
+			cMG = rd(th[idx+4])
+			cEG = rd(th[idx+5])
+			phMG = rd(th[idx+6])
+			phEG = rd(th[idx+7])
+			bMG = rd(th[idx+8])
+			bEG = rd(th[idx+9])
+			wlMG = rd(th[idx+10])
+			wlEG = rd(th[idx+11])
+			bwMG = rd(th[idx+12])
+			bwEG = rd(th[idx+13])
+			candPctMG = rd(th[idx+14])
+			candPctEG = rd(th[idx+15])
+		}
+		idx += 16
+
 		// King safety table (100)
 		for i := 0; i < 100 && idx < len(th); i++ {
 			ks[i] = rd(th[idx])
@@ -380,30 +394,37 @@ func main() {
 		} else {
 			idx = len(th)
 		}
-		// Extras (53)
-		if idx+53 <= len(th) {
-			ex_knOutMG = rd(th[idx+0])
-			ex_knOutEG = rd(th[idx+1])
-			ex_tropMG = rd(th[idx+2])
-			ex_tropEG = rd(th[idx+3])
-			ex_stackMG = rd(th[idx+4])
-			ex_biOutMG = rd(th[idx+5])
-			ex_biOutEG = rd(th[idx+6])
-			// Pawn storm percentage arrays (32 params at idx+7 to idx+38)
+
+		// Tier3 extras (44)
+		if idx+44 <= len(th) {
+			ex_tropMG = rd(th[idx+0])
+			ex_tropEG = rd(th[idx+1])
 			for i := 0; i < 8; i++ {
-				ps_freePct[i] = rd(th[idx+7+i])
-				ps_leverPct[i] = rd(th[idx+15+i])
-				ps_weakLeverPct[i] = rd(th[idx+23+i])
-				ps_blockedPct[i] = rd(th[idx+31+i])
+				ps_freePct[i] = rd(th[idx+2+i])
+				ps_leverPct[i] = rd(th[idx+10+i])
+				ps_weakLeverPct[i] = rd(th[idx+18+i])
+				ps_blockedPct[i] = rd(th[idx+26+i])
 			}
-			ps_oppositeMult = rd(th[idx+39])
+			ps_oppositeMult = rd(th[idx+34])
 			for i := 0; i < 8; i++ {
-				ps_baseMG[i] = rd(th[idx+43+i])
+				ps_baseMG[i] = rd(th[idx+36+i])
 			}
-			badBishopMG = rd(th[idx+51])
-			badBishopEG = rd(th[idx+52])
 		}
-		idx += 53
+		idx += 44
+
+		// Weak king (1)
+		if idx+1 <= len(th) {
+			weakKingMG = rd(th[idx])
+		}
+		idx += 1
+
+		// Bishop pair (2)
+		if idx+2 <= len(th) {
+			bpMG = rd(th[idx+0])
+			bpEG = rd(th[idx+1])
+		}
+		idx += 2
+
 		// Imbalance (4)
 		if idx+4 <= len(th) {
 			imbKnPawnMG = rd(th[idx+0])
@@ -413,12 +434,11 @@ func main() {
 		}
 		idx += 4
 
-		// Phase 7 (4)
-		if idx+4 <= len(th) {
-			spaceMG = rd(th[idx+0])    // SpaceMG
-			spaceEG = rd(th[idx+1])    // SpaceEG
-			weakKingMG = rd(th[idx+2]) // WeakKingSquaresMG
-			tempo = rd(th[idx+3])      // Tempo
+		// Space/Tempo (3)
+		if idx+3 <= len(th) {
+			spaceMG = rd(th[idx+0]) // SpaceMG
+			spaceEG = rd(th[idx+1]) // SpaceEG
+			tempo = rd(th[idx+2])   // Tempo
 		}
 	} else {
 		// Grouped fields path (fallback)
@@ -509,18 +529,6 @@ func main() {
 		}
 		if m.BackwardEG != nil {
 			bwEG = rd(*m.BackwardEG)
-		}
-		if len(m.MobilityMG) == 7 {
-			mobValueKnightMG = rd(m.MobilityMG[2])
-			mobValueBishopMG = rd(m.MobilityMG[3])
-			mobValueRookMG = rd(m.MobilityMG[4])
-			mobValueQueenMG = rd(m.MobilityMG[5])
-		}
-		if len(m.MobilityEG) == 7 {
-			mobValueKnightEG = rd(m.MobilityEG[2])
-			mobValueBishopEG = rd(m.MobilityEG[3])
-			mobValueRookEG = rd(m.MobilityEG[4])
-			mobValueQueenEG = rd(m.MobilityEG[5])
 		}
 		if len(m.KnightMobilityMG) == len(knMobMG) {
 			for i := 0; i < len(knMobMG); i++ {
@@ -632,12 +640,6 @@ func main() {
 			matMG[0], matMG[1], matMG[2], matMG[3], matMG[4]))
 		out.WriteString(fmt.Sprintf("var pieceValueEG = [7]int{gm.PieceTypeKing: 0, gm.PieceTypePawn: %d, gm.PieceTypeKnight: %d, gm.PieceTypeBishop: %d, gm.PieceTypeRook: %d, gm.PieceTypeQueen: %d}\n",
 			matEG[0], matEG[1], matEG[2], matEG[3], matEG[4]))
-
-		// mobilityValueMG/EG
-		out.WriteString(fmt.Sprintf("var mobilityValueMG = [7]int{gm.PieceTypeKing: 0, gm.PieceTypePawn: 0, gm.PieceTypeKnight: %d, gm.PieceTypeBishop: %d, gm.PieceTypeRook: %d, gm.PieceTypeQueen: %d}\n",
-			mobValueKnightMG, mobValueBishopMG, mobValueRookMG, mobValueQueenMG))
-		out.WriteString(fmt.Sprintf("var mobilityValueEG = [7]int{gm.PieceTypeKing: 0, gm.PieceTypePawn: 0, gm.PieceTypeKnight: %d, gm.PieceTypeBishop: %d, gm.PieceTypeRook: %d, gm.PieceTypeQueen: %d}\n",
-			mobValueKnightEG, mobValueBishopEG, mobValueRookEG, mobValueQueenEG))
 
 		// Mobility tables
 		out.WriteString(fmt.Sprintf("var KnightMobilityMG = [9]int{%s}\n", formatArrayInline(knMobMG[:])))

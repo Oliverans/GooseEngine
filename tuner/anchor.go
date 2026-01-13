@@ -12,41 +12,42 @@ func BuildAnchorWeights(layout Layout, cfg AnchorConfig) []float64 {
 
 	// --- Tier 1 parameters ---
 	ps := layout.PawnStructStart
+	weights[ps+0] = cfg.Tier1Lambda  // DoubledMG
+	weights[ps+1] = cfg.Tier1Lambda  // DoubledEG
+	weights[ps+2] = cfg.Tier1Lambda  // IsolatedMG
+	weights[ps+3] = cfg.Tier1Lambda  // IsolatedEG
 	weights[ps+6] = cfg.Tier1Lambda  // PhalanxMG
 	weights[ps+7] = cfg.Tier1Lambda  // PhalanxEG
 	weights[ps+10] = cfg.Tier1Lambda // WeakLeverMG
 	weights[ps+11] = cfg.Tier1Lambda // WeakLeverEG
+	weights[ps+12] = cfg.Tier1Lambda // BackwardMG
+	weights[ps+13] = cfg.Tier1Lambda // BackwardEG
 
 	ksc := layout.KingCorrStart
 	weights[ksc+0] = cfg.Tier1Lambda // KingSemiOpenFile
 	weights[ksc+1] = cfg.Tier1Lambda // KingOpenFile
 
-	ex := layout.ExtrasStart
-	weights[ex+0] = cfg.Tier1Lambda // KnightOutpostMG
-	weights[ex+1] = cfg.Tier1Lambda // KnightOutpostEG
-	weights[ex+5] = cfg.Tier1Lambda // BishopOutpostMG (note: offset 5 in current layout)
-	weights[ex+6] = cfg.Tier1Lambda // BishopOutpostEG
-
 	// --- Tier 2 parameters ---
-	p1 := layout.P1Start
-	weights[p1+0] = cfg.Tier2Lambda // BishopPairMG
-	weights[p1+1] = cfg.Tier2Lambda // BishopPairEG
-	weights[p1+2] = cfg.Tier2Lambda // RookSemiOpenFileMG
-	weights[p1+3] = cfg.Tier2Lambda // RookOpenFileMG
-	weights[p1+4] = cfg.Tier2Lambda // SeventhRankEG
+	bp := layout.BishopPairStart
+	weights[bp+0] = cfg.Tier2Lambda // BishopPairMG
+	weights[bp+1] = cfg.Tier2Lambda // BishopPairEG
 
-	weights[ps+0] = cfg.Tier2Lambda  // DoubledMG
-	weights[ps+1] = cfg.Tier2Lambda  // DoubledEG
-	weights[ps+2] = cfg.Tier2Lambda  // IsolatedMG
-	weights[ps+3] = cfg.Tier2Lambda  // IsolatedEG
-	weights[ps+12] = cfg.Tier2Lambda // BackwardMG
-	weights[ps+13] = cfg.Tier2Lambda // BackwardEG
+	core := layout.CoreScalarStart
+	weights[core+0] = cfg.Tier2Lambda // RookSemiOpenFileMG
+	weights[core+1] = cfg.Tier2Lambda // RookOpenFileMG
+	weights[core+2] = cfg.Tier2Lambda // SeventhRankEG
 
 	weights[ksc+2] = cfg.Tier2Lambda // KingMinorDefense
 	weights[ksc+3] = cfg.Tier2Lambda // KingPawnDefense
 
-	wt := layout.WeakTempoStart
-	weights[wt+3] = cfg.Tier2Lambda // Tempo
+	ex1 := layout.Tier1ExtrasStart
+	weights[ex1+0] = cfg.Tier2Lambda // KnightOutpostMG
+	weights[ex1+1] = cfg.Tier2Lambda // KnightOutpostEG
+	weights[ex1+2] = cfg.Tier2Lambda // BishopOutpostMG
+	weights[ex1+3] = cfg.Tier2Lambda // BishopOutpostEG
+
+	st := layout.SpaceTempoStart
+	weights[st+2] = cfg.Tier2Lambda // Tempo
 
 	// --- Tier 3 parameters ---
 	weights[ps+4] = cfg.Tier3Lambda // ConnectedMG
@@ -54,9 +55,10 @@ func BuildAnchorWeights(layout Layout, cfg AnchorConfig) []float64 {
 	weights[ps+8] = cfg.Tier3Lambda // BlockedMG
 	weights[ps+9] = cfg.Tier3Lambda // BlockedEG
 
-	weights[ex+2] = cfg.Tier3Lambda // KnightTropismMG
-	weights[ex+3] = cfg.Tier3Lambda // KnightTropismEG
-	weights[ex+4] = cfg.Tier3Lambda // StackedRooksMG
+	ex3 := layout.Tier3ExtrasStart
+	weights[ex3+0] = cfg.Tier3Lambda // KnightTropismMG
+	weights[ex3+1] = cfg.Tier3Lambda // KnightTropismEG
+	weights[ex1+4] = cfg.Tier3Lambda // StackedRooksMG
 
 	// Material gets light anchor (traditional values are good starting points)
 	for i := layout.MaterialMGStart; i < layout.MaterialMGStart+6 && i < len(weights); i++ {

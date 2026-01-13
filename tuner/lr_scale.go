@@ -40,11 +40,11 @@ func DefaultLRScales() LRScaleConfig {
 		PawnPhalanx:   0.7,
 		KnightTropism: 0.7,
 		StackedRooks:  0.7,
+		Mobility:      0.7,
 
 		// Free: large groups, abundant signal
 		PST:        1.0,
 		PasserPSQT: 1.0,
-		Mobility:   1.0,
 	}
 }
 
@@ -79,14 +79,17 @@ func BuildLRScaleVector(layout Layout, cfg LRScaleConfig) []float64 {
 		scales[i] = cfg.PasserPSQT
 	}
 
-	// Phase 1 scalars
-	p1 := layout.P1Start
-	scales[p1+0] = cfg.BishopPair  // BishopPairMG
-	scales[p1+1] = cfg.BishopPair  // BishopPairEG
-	scales[p1+2] = cfg.RookFiles   // RookSemiOpenFileMG
-	scales[p1+3] = cfg.RookFiles   // RookOpenFileMG
-	scales[p1+4] = cfg.SeventhRank // SeventhRankEG
-	// p1+5 QueenCentralizedEG remains free
+	// Core scalars
+	core := layout.CoreScalarStart
+	scales[core+0] = cfg.RookFiles   // RookSemiOpenFileMG
+	scales[core+1] = cfg.RookFiles   // RookOpenFileMG
+	scales[core+2] = cfg.SeventhRank // SeventhRankEG
+	// core+3 QueenCentralizedEG remains free
+
+	// Bishop pair (Tier4)
+	bp := layout.BishopPairStart
+	scales[bp+0] = cfg.BishopPair // BishopPairMG
+	scales[bp+1] = cfg.BishopPair // BishopPairEG
 
 	// Phase 2: Pawn structure scalars
 	ps := layout.PawnStructStart
@@ -130,45 +133,46 @@ func BuildLRScaleVector(layout Layout, cfg LRScaleConfig) []float64 {
 
 	// Phase 4: King endgame (free)
 
-	// Phase 5: Extras
-	ex := layout.ExtrasStart
-	scales[ex+0] = cfg.KnightOutpost // KnightOutpostMG
-	scales[ex+1] = cfg.KnightOutpost // KnightOutpostEG
-	// KnightTropismMG/EG now at offsets 2/3
-	scales[ex+2] = cfg.KnightTropism // KnightTropismMG
-	scales[ex+3] = cfg.KnightTropism // KnightTropismEG
-	// StackedRooks/BishopOutpost at offsets 4/5/6
-	scales[ex+4] = cfg.StackedRooks  // StackedRooksMG
-	scales[ex+5] = cfg.BishopOutpost // BishopOutpostMG
-	scales[ex+6] = cfg.BishopOutpost // BishopOutpostEG
+	// Tier1 extras
+	ex1 := layout.Tier1ExtrasStart
+	scales[ex1+0] = cfg.KnightOutpost // KnightOutpostMG
+	scales[ex1+1] = cfg.KnightOutpost // KnightOutpostEG
+	scales[ex1+2] = cfg.BishopOutpost // BishopOutpostMG
+	scales[ex1+3] = cfg.BishopOutpost // BishopOutpostEG
+	scales[ex1+4] = cfg.StackedRooks  // StackedRooksMG
+	// ex1+5 KnightMobCenterMG remains free
+	// ex1+6 BishopMobCenterMG remains free
+	scales[ex1+7] = cfg.BadBishop // BadBishopMG
+	scales[ex1+8] = cfg.BadBishop // BadBishopEG
+
+	// Tier3 extras
+	ex3 := layout.Tier3ExtrasStart
+	scales[ex3+0] = cfg.KnightTropism // KnightTropismMG
+	scales[ex3+1] = cfg.KnightTropism // KnightTropismEG
 	// Pawn storm percentage arrays (per-rank)
 	for i := 0; i < 8; i++ {
-		scales[ex+7+i] = cfg.PawnStormBaseMG        // FreePct
-		scales[ex+15+i] = cfg.PawnStormLeverPct     // LeverPct
-		scales[ex+23+i] = cfg.PawnStormWeakLeverPct // WeakLeverPct
-		scales[ex+31+i] = cfg.PawnStormBlockedPct   // BlockedPct
+		scales[ex3+2+i] = cfg.PawnStormBaseMG        // FreePct
+		scales[ex3+10+i] = cfg.PawnStormLeverPct     // LeverPct
+		scales[ex3+18+i] = cfg.PawnStormWeakLeverPct // WeakLeverPct
+		scales[ex3+26+i] = cfg.PawnStormBlockedPct   // BlockedPct
 	}
 	// Opposite-side multiplier
-	scales[ex+39] = cfg.PawnStormOppositeMult
+	scales[ex3+34] = cfg.PawnStormOppositeMult
 	// Pawn storm base (per-rank)
 	for i := 0; i < 8; i++ {
-		scales[ex+43+i] = cfg.PawnStormBaseMG
+		scales[ex3+36+i] = cfg.PawnStormBaseMG
 	}
-	// Bad bishop (MG/EG)
-	scales[ex+51] = cfg.BadBishop
-	scales[ex+52] = cfg.BadBishop
 
 	// Phase 6: Imbalance
 	for i := layout.ImbalanceStart; i < layout.ImbalanceStart+4; i++ {
 		scales[i] = cfg.Imbalance
 	}
 
-	// Phase 7: Space/weak-king + Tempo
-	wt := layout.WeakTempoStart
-	scales[wt+0] = cfg.Space // SpaceMG
-	scales[wt+1] = cfg.Space // SpaceEG
-	// wt+2 weak king MG remains free
-	scales[wt+3] = cfg.Tempo // Tempo
+	// Phase 7: Space + Tempo (WeakKingSquares is its own Tier3 block)
+	st := layout.SpaceTempoStart
+	scales[st+0] = cfg.Space // SpaceMG
+	scales[st+1] = cfg.Space // SpaceEG
+	scales[st+2] = cfg.Tempo // Tempo
 
 	return scales
 }

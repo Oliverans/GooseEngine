@@ -76,27 +76,6 @@ func GetMoveListForPly(ply int8, count int) []move {
 	return moveListPool[ply][:count]
 }
 
-// QuickSEEWinning provides a fast upper bound on SEE value.
-func QuickSEEWinning(_ *gm.Board, move gm.Move) bool {
-	capturedPiece := move.CapturedPiece()
-	if capturedPiece == gm.NoPiece {
-		return false
-	}
-
-	victimValue := int(SeePieceValue[capturedPiece.Type()])
-	attackerValue := int(SeePieceValue[move.MovedPiece().Type()])
-
-	if victimValue >= attackerValue {
-		return true
-	}
-
-	if move.MovedPiece().Type() == gm.PieceTypePawn {
-		return true
-	}
-
-	return false
-}
-
 // Ordering the moves one at a time, at index given.
 // CHANGE 3: Updated to use int32 comparison
 func orderNextMove(currIndex uint8, moves *moveList) {
@@ -166,7 +145,6 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 			}
 
 		} else if isCapture {
-			// Capture scoring with lazy SEE
 			pieceTypeFrom := mv.MovedPiece().Type()
 			captureScore := mvvLva[capturedType][pieceTypeFrom]
 
@@ -174,8 +152,6 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 			attackerValue := int(SeePieceValue[pieceTypeFrom])
 
 			if victimValue >= attackerValue {
-				// Clearly winning capture (e.g., PxQ, NxR, BxR, RxQ, etc.)
-				// No need for SEE - it's definitely winning
 				diff := int32(victimValue - attackerValue)
 				moveEval = scoreWinningCapture + captureScore + diff
 
@@ -186,12 +162,8 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 					// Winning (e.g., protected piece takes unprotected higher piece)
 					moveEval = scoreWinningCapture + captureScore + int32(seeScore)
 				} else if seeScore == 0 {
-					// Equal trade
 					moveEval = scoreEqualCapture + captureScore
 				} else {
-					// Losing capture - still try it, but after quiet moves
-					// CHANGE 4: Losing captures get a reasonable base score
-					// so they're not completely ignored
 					moveEval = scoreLosingCapture + captureScore
 				}
 			}
@@ -205,8 +177,6 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 			moveEval = scoreKiller2
 
 		} else {
-			// Regular quiet move: base score + history
-			// CHANGE 5: History is now properly handled as signed value
 			histScore := int32(historyMove[side][mv.From()][mv.To()])
 			moveEval = scoreQuietBase + histScore
 
@@ -223,7 +193,7 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 	return movesList
 }
 
-func scoreMovesListCaptures(board *gm.Board, moves []gm.Move, ply int8) (movesList moveList, anyCaptures bool) {
+func scoreMovesListCaptures(moves []gm.Move, ply int8) (movesList moveList, anyCaptures bool) {
 	if ply < 0 {
 		ply = 0
 	}

@@ -31,7 +31,7 @@ var RazoringMargins = [4]int32{0, 150, 300, 450}
 var LateMovePruningMargins = [9]int{0, 3, 5, 9, 14, 20, 27, 35, 44}
 
 // =============================================================================
-// LMR/PRUNING PARAMETERS - int8 is fine for depth-related values
+// LMR/PRUNING PARAMETERS
 // =============================================================================
 var LMRDepthLimit int8 = 2
 var LMRMoveLimit = 2
@@ -45,6 +45,17 @@ var ProbCutSeeMargin int = 150
 
 var DeltaMargin int32 = 200
 var aspirationWindowSize int32 = 35
+
+// GetAspirationWindowSize returns the current aspiration window size
+func GetAspirationWindowSize() int32 {
+	return aspirationWindowSize
+}
+
+// SetAspirationWindowSize sets the aspiration window size
+func SetAspirationWindowSize(val int32) {
+	aspirationWindowSize = val
+}
+
 var prevSearchScore int32 = 0
 
 var TT TransTable
@@ -379,7 +390,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		probCutBeta := beta + 200
 
 		captures := b.GenerateCaptures()
-		scoredCaptures, hasCaptures := scoreMovesListCaptures(b, captures, ply)
+		scoredCaptures, hasCaptures := scoreMovesListCaptures(captures, ply)
 		if hasCaptures {
 			maxProbCutCaptures := Min(10, len(scoredCaptures.moves)) // TEST; most likely we're
 
@@ -400,7 +411,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 
 					if score >= probCutBeta {
 						unapplyFunc()
-						TT.storeEntry(posHash, depth-3, ply, move, score, BetaFlag)
+						TT.storeEntry(posHash, depth, ply, move, score, BetaFlag)
 						return score
 					}
 				}
@@ -630,7 +641,7 @@ func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8
 	if inCheck {
 		moveList = scoreMovesList(b, b.GenerateLegalMoves(), 0, ply, gm.Move(0), gm.Move(0))
 	} else {
-		moveList, _ = scoreMovesListCaptures(b, b.GenerateCaptures(), ply)
+		moveList, _ = scoreMovesListCaptures(b.GenerateCaptures(), ply)
 	}
 
 	movesSearched := 0

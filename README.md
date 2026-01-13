@@ -17,8 +17,9 @@ Using bitboards and strong core evaluation features.
 
 ### Search pruning techniques
 - Transposition table cutoffs
-- Static Null Move Pruning (also known as Reverse futility pruning, RFP;)
-- Null-move pruning
+- Static Null Move Pruning (also known as Reverse futility pruning, RFP)
+- Null-move pruning (with verification search)
+- Razoring
 - Late Move Pruning (LMP)
 - Futility pruning
 - Late Move Reductions (LMR)

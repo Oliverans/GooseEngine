@@ -460,12 +460,12 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 	le.ensureToggles()
 	const pieceCount = 6
 	const slotsPerPiece = 64
-	const mgBase = 0
-	const egBase = pieceCount * slotsPerPiece
 	le.ensureLayout()
 	if len(g) < le.layout.Total {
 		return
 	}
+	mgBase := le.layout.PSTMGStart
+	egBase := le.layout.PSTEGStart
 
 	mgf, egf := boardTaperedPhases(pos)
 
@@ -522,8 +522,8 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 	const scalePass = 1.0
 
 	// Material gradients (still Tier1)
-	matMGBase := egBase + pieceCount*slotsPerPiece
-	matEGBase := matMGBase + 6
+	matMGBase := le.layout.MaterialMGStart
+	matEGBase := le.layout.MaterialEGStart
 	if le.Toggles.Tier1Train {
 		var wCnt, bCnt [6]int
 		wCnt[P] = bits.OnesCount64(pos.White.Pawns)
@@ -547,8 +547,8 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 
 	// ===== TIER 2: Pawn Structure (Passers + PawnStruct) =====
 	// Passed pawns gradients (square-based)
-	passMGBase := matEGBase + 6
-	passEGBase := passMGBase + 64
+	passMGBase := le.layout.PasserMGStart
+	passEGBase := le.layout.PasserEGStart
 	if le.Toggles.Tier2Train {
 		wPassed, bPassed := passedPawns(pos)
 		for m := wPassed; m != 0; m &= m - 1 {
@@ -568,15 +568,8 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 		candidatePasserGrad(pos, pawnEntry, wPassed, bPassed, le.PasserMG, le.PasserEG, passMGBase, passEGBase, candMGIdx, candEGIdx, g, scale, mgf, egf, le.CandidatePassedPctMG, le.CandidatePassedPctEG)
 	}
 
-	// P1 scalars: BishopPair (Tier4), RookFiles/SeventhRank/QueenCentralized (Tier1)
-	off := passEGBase + 64
-	// BishopPair → Tier4
-	if le.Toggles.Tier4Train {
-		bpMG, bpEG := eng.BishopPairDiffsScaled((*gm.Board)(pos))
-		g[off+0] += scale * mgf * (float64(bpMG) / 100.0)
-		g[off+1] += scale * egf * float64(bpEG)
-	}
-	// RookFiles, SeventhRank, QueenCentralized → Tier1
+	// Core scalars (Tier1)
+	coreScalarBase := le.layout.CoreScalarStart
 	if le.Toggles.Tier1Train {
 		// Rook files (MG)
 		sw, sb, ow, ob := 0, 0, 0, 0
@@ -606,8 +599,8 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 				ob++
 			}
 		}
-		g[off+2] += scale * mgf * float64(sw-sb)
-		g[off+3] += scale * mgf * float64(ow-ob)
+		g[coreScalarBase+0] += scale * mgf * float64(sw-sb)
+		g[coreScalarBase+1] += scale * mgf * float64(ow-ob)
 		// Rooks on 7th (EG)
 		w7, b7 := 0, 0
 		for wr := pos.White.Rooks; wr != 0; wr &= wr - 1 {
@@ -627,7 +620,7 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 		if b7 >= 2 {
 			seventhUnits -= 2
 		}
-		g[off+4] += scale * egf * float64(seventhUnits)
+		g[coreScalarBase+2] += scale * egf * float64(seventhUnits)
 		// Queen centralization (EG)
 		const centerMask uint64 = 0x183c3c180000
 		wc := 0.0
@@ -638,11 +631,19 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 		if (pos.Black.Queens & centerMask) != 0 {
 			bc = 1.0
 		}
-		g[off+5] += scale * egf * (wc - bc)
+		g[coreScalarBase+3] += scale * egf * (wc - bc)
+	}
+
+	// Bishop pair (Tier4)
+	bishopPairBase := le.layout.BishopPairStart
+	if le.Toggles.Tier4Train {
+		bpMG, bpEG := eng.BishopPairDiffsScaled((*gm.Board)(pos))
+		g[bishopPairBase+0] += scale * mgf * (float64(bpMG) / 100.0)
+		g[bishopPairBase+1] += scale * egf * float64(bpEG)
 	}
 
 	// Pawn structure gradients (Tier2)
-	off += 6
+	pawnStructBase := le.layout.PawnStructStart
 	var mgDiffs [8]int
 	var egDiffs [8]int
 	if le.cache.pos == (*gm.Board)(pos) {
@@ -651,23 +652,21 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 		mgDiffs, egDiffs = eng.PawnStructDiffs((*gm.Board)(pos))
 	}
 	if le.Toggles.Tier2Train {
-		g[off+0] += scale * mgf * float64(mgDiffs[0])
-		g[off+1] += scale * egf * float64(egDiffs[0])
-		g[off+2] += scale * mgf * float64(mgDiffs[1])
-		g[off+3] += scale * egf * float64(egDiffs[1])
-		g[off+4] += scale * mgf * float64(mgDiffs[2])
-		g[off+5] += scale * egf * float64(egDiffs[2])
-		g[off+6] += scale * mgf * float64(mgDiffs[3])
-		g[off+7] += scale * egf * float64(egDiffs[3])
-		g[off+8] += scale * mgf * float64(mgDiffs[4])
-		g[off+9] += scale * egf * float64(egDiffs[4])
-		g[off+10] += scale * mgf * float64(mgDiffs[6])
-		g[off+11] += scale * egf * float64(egDiffs[6])
-		g[off+12] += scale * mgf * float64(mgDiffs[7])
-		g[off+13] += scale * egf * float64(egDiffs[7])
+		g[pawnStructBase+0] += scale * mgf * float64(mgDiffs[0])
+		g[pawnStructBase+1] += scale * egf * float64(egDiffs[0])
+		g[pawnStructBase+2] += scale * mgf * float64(mgDiffs[1])
+		g[pawnStructBase+3] += scale * egf * float64(egDiffs[1])
+		g[pawnStructBase+4] += scale * mgf * float64(mgDiffs[2])
+		g[pawnStructBase+5] += scale * egf * float64(egDiffs[2])
+		g[pawnStructBase+6] += scale * mgf * float64(mgDiffs[3])
+		g[pawnStructBase+7] += scale * egf * float64(egDiffs[3])
+		g[pawnStructBase+8] += scale * mgf * float64(mgDiffs[4])
+		g[pawnStructBase+9] += scale * egf * float64(egDiffs[4])
+		g[pawnStructBase+10] += scale * mgf * float64(mgDiffs[6])
+		g[pawnStructBase+11] += scale * egf * float64(egDiffs[6])
+		g[pawnStructBase+12] += scale * mgf * float64(mgDiffs[7])
+		g[pawnStructBase+13] += scale * egf * float64(egDiffs[7])
 	}
-
-	off += 16
 
 	// Mobility gradients (Tier1)
 	var mobCounts mobilityCounts
@@ -682,7 +681,7 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 	knScale := 1.0 + le.KnightMobCenterMG*float64(knDelta)
 	biScale := 1.0 + le.BishopMobCenterMG*float64(biDelta)
 
-	mobMGBase := off
+	mobMGBase := le.layout.MobilityMGStart
 	if le.Toggles.Tier1Train {
 		idx := mobMGBase
 		for i := 0; i < len(mobCounts.Knight); i++ {
@@ -701,9 +700,8 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 			g[idx+i] += scale * mgf * float64(mobCounts.Queen[i])
 		}
 	}
-	off += len(mobCounts.Knight) + len(mobCounts.Bishop) + len(mobCounts.Rook) + len(mobCounts.Queen)
 
-	mobEGBase := off
+	mobEGBase := le.layout.MobilityEGStart
 	if le.Toggles.Tier1Train {
 		idx := mobEGBase
 		for i := 0; i < len(mobCounts.Knight); i++ {
@@ -722,10 +720,10 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 			g[idx+i] += scale * egf * float64(mobCounts.Queen[i])
 		}
 	}
-	off += len(mobCounts.Knight) + len(mobCounts.Bishop) + len(mobCounts.Rook) + len(mobCounts.Queen)
 
 	// ===== TIER 3: King Safety (Table, Corr, Endgame, Tropism, PawnStorm, WeakKingSquares) =====
 	// King safety table (MG + EG with /4 factor)
+	kingTableBase := le.layout.KingTableStart
 	var ks [100]int
 	if le.cache.pos == (*gm.Board)(pos) {
 		ks = le.cache.ksOneHot
@@ -734,11 +732,12 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 	}
 	if le.Toggles.Tier3Train {
 		for i := 0; i < 100; i++ {
-			g[off+i] += scale * (mgf*float64(ks[i]) + egf*(float64(ks[i])/4.0))
+			g[kingTableBase+i] += scale * (mgf*float64(ks[i]) + egf*(float64(ks[i])/4.0))
 		}
 	}
-	off += 100
+
 	// King safety correlates (MG-only)
+	kingCorrBase := le.layout.KingCorrStart
 	var semiOpenDiff, openDiff, minorDefDiff, pawnDefDiff int
 	if le.cache.pos == (*gm.Board)(pos) {
 		semiOpenDiff, openDiff, minorDefDiff, pawnDefDiff = le.cache.ksSemiOpen, le.cache.ksOpen, le.cache.ksMinorDef, le.cache.ksPawnDef
@@ -746,24 +745,23 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 		semiOpenDiff, openDiff, minorDefDiff, pawnDefDiff = eng.KingSafetyCorrelates((*gm.Board)(pos))
 	}
 	if le.Toggles.Tier3Train {
-		g[off+0] += scale * mgf * float64(semiOpenDiff)
-		g[off+1] += scale * mgf * float64(openDiff)
-		g[off+2] += scale * mgf * float64(minorDefDiff)
-		g[off+3] += scale * mgf * float64(pawnDefDiff)
+		g[kingCorrBase+0] += scale * mgf * float64(semiOpenDiff)
+		g[kingCorrBase+1] += scale * mgf * float64(openDiff)
+		g[kingCorrBase+2] += scale * mgf * float64(minorDefDiff)
+		g[kingCorrBase+3] += scale * mgf * float64(pawnDefDiff)
 	}
 
 	// Endgame king terms (EG-only, still Tier3)
-	off += 4
+	kingEndgameBase := le.layout.KingEndgameStart
 	if le.Toggles.Tier3Train {
 		cmdDiff, mopDiff := eng.EndgameKingTerms((*gm.Board)(pos))
-		g[off+0] += scale * egf * float64(cmdDiff)
-		g[off+1] += scale * egf * float64(mopDiff)
+		g[kingEndgameBase+0] += scale * egf * float64(cmdDiff)
+		g[kingEndgameBase+1] += scale * egf * float64(mopDiff)
 	}
-	off += 2
 
-	// Extras block: Split across tiers
-	// Tier1: Outposts (off+0/1 knight, off+5/6 bishop), StackedRooks (off+4), MobCenter (off+41/42)
-	// Tier3: Tropism (off+2/3), PawnStorm (off+7-39, base at off+43-50)
+	// Extras blocks: Split across tiers
+	tier1ExtrasBase := le.layout.Tier1ExtrasStart
+	tier3ExtrasBase := le.layout.Tier3ExtrasStart
 	var exMG [3]int
 	var exEG [2]int
 	extrasTrain := le.Toggles.Tier1Train || le.Toggles.Tier3Train
@@ -773,38 +771,38 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 		} else {
 			exMG, exEG = eng.ExtrasDiffs((*gm.Board)(pos))
 		}
-		// Tier1: Outposts + StackedRooks + MobCenter
+		// Tier1: Outposts + StackedRooks + MobCenter + BadBishop
 		if le.Toggles.Tier1Train {
 			tog := le.Toggles.ParamTrain
 			if tog.ExtraKnightOutpostMG {
-				g[off+0] += scale * mgf * float64(exMG[0]) // KnightOutpostMG
+				g[tier1ExtrasBase+0] += scale * mgf * float64(exMG[0]) // KnightOutpostMG
 			}
 			if tog.ExtraKnightOutpostEG {
-				g[off+1] += scale * egf * float64(exEG[0]) // KnightOutpostEG
+				g[tier1ExtrasBase+1] += scale * egf * float64(exEG[0]) // KnightOutpostEG
 			}
 			if tog.ExtraBishopOutpostMG {
-				g[off+5] += scale * mgf * float64(exMG[2]) // BishopOutpostMG
+				g[tier1ExtrasBase+2] += scale * mgf * float64(exMG[2]) // BishopOutpostMG
 			}
 			if tog.ExtraBishopOutpostEG {
-				g[off+6] += scale * egf * float64(exEG[1]) // BishopOutpostEG
+				g[tier1ExtrasBase+3] += scale * egf * float64(exEG[1]) // BishopOutpostEG
 			}
-			g[off+4] += scale * mgf * float64(exMG[1]) // StackedRooksMG
+			g[tier1ExtrasBase+4] += scale * mgf * float64(exMG[1]) // StackedRooksMG
 			knDelta, biDelta := eng.CenterMobilityScales((*gm.Board)(pos))
 			if tog.ExtraKnightMobCenterMG {
-				g[off+41] += scale * mgf * float64(knDelta) * mobValues.KnightMG // KnightMobCenterMG
+				g[tier1ExtrasBase+5] += scale * mgf * float64(knDelta) * mobValues.KnightMG // KnightMobCenterMG
 			}
 			if tog.ExtraBishopMobCenterMG {
-				g[off+42] += scale * mgf * float64(biDelta) * mobValues.BishopMG // BishopMobCenterMG
+				g[tier1ExtrasBase+6] += scale * mgf * float64(biDelta) * mobValues.BishopMG // BishopMobCenterMG
 			}
 			badDiff := eng.BadBishopUnitDiff((*gm.Board)(pos))
-			g[off+51] += scale * mgf * float64(badDiff) // BadBishopMG
-			g[off+52] += scale * egf * float64(badDiff) // BadBishopEG
+			g[tier1ExtrasBase+7] += scale * mgf * float64(badDiff) // BadBishopMG
+			g[tier1ExtrasBase+8] += scale * egf * float64(badDiff) // BadBishopEG
 		}
 		// Tier3: Tropism + PawnStorm
 		if le.Toggles.Tier3Train {
 			tMG, tEG := eng.KnightTropismDiffs((*gm.Board)(pos))
-			g[off+2] += scale * mgf * float64(tMG) // KnightTropismMG (layout offset 2)
-			g[off+3] += scale * egf * float64(tEG) // KnightTropismEG (layout offset 3)
+			g[tier3ExtrasBase+0] += scale * mgf * float64(tMG) // KnightTropismMG
+			g[tier3ExtrasBase+1] += scale * egf * float64(tEG) // KnightTropismEG
 
 			// Pawn storm percentages
 			freeDiff, leverDiff, weakLeverDiff, blockedDiff, oppositeSide :=
@@ -825,16 +823,16 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 				baseGrad += float64(leverDiff[rank]) * (le.PawnStormLeverPct[rank] / 100.0)
 				baseGrad += float64(weakLeverDiff[rank]) * (le.PawnStormWeakLeverPct[rank] / 100.0)
 				baseGrad += float64(blockedDiff[rank]) * (le.PawnStormBlockedPct[rank] / 100.0)
-				g[off+43+rank] += scale * mgf * baseGrad * opMult
+				g[tier3ExtrasBase+36+rank] += scale * mgf * baseGrad * opMult
 				if base == 0 {
 					continue
 				}
 				basePct := base / 100.0
 
 				// PawnStormFreePct is treated as a fixed baseline (no gradient updates).
-				g[off+15+rank] += scale * mgf * float64(leverDiff[rank]) * basePct * opMult
-				g[off+23+rank] += scale * mgf * float64(weakLeverDiff[rank]) * basePct * opMult
-				g[off+31+rank] += scale * mgf * float64(blockedDiff[rank]) * basePct * opMult
+				g[tier3ExtrasBase+10+rank] += scale * mgf * float64(leverDiff[rank]) * basePct * opMult
+				g[tier3ExtrasBase+18+rank] += scale * mgf * float64(weakLeverDiff[rank]) * basePct * opMult
+				g[tier3ExtrasBase+26+rank] += scale * mgf * float64(blockedDiff[rank]) * basePct * opMult
 
 				stormSum += float64(freeDiff[rank]) * (base * le.PawnStormFreePct[rank] / 100.0)
 				stormSum += float64(leverDiff[rank]) * (base * le.PawnStormLeverPct[rank] / 100.0)
@@ -843,14 +841,13 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 			}
 
 			if oppositeSide {
-				g[off+39] += scale * mgf * stormSum / 100.0
+				g[tier3ExtrasBase+34] += scale * mgf * stormSum / 100.0
 			}
 		}
 	}
 
-	off += 53 // Extras block
-
 	// ---- Tier 4: Imbalance ----
+	imbalanceBase := le.layout.ImbalanceStart
 	var imbMG [2]int
 	var imbEG [2]int
 	if le.cache.pos == (*gm.Board)(pos) {
@@ -859,30 +856,31 @@ func (le *LinearEval) Grad(pos *Position, scale float64, g []float64) {
 		imbMG, imbEG = eng.ImbalanceDiffs((*gm.Board)(pos))
 	}
 	if le.Toggles.Tier4Train {
-		g[off+0] += scale * mgf * float64(imbMG[0])
-		g[off+1] += scale * egf * float64(imbEG[0])
-		g[off+2] += scale * mgf * float64(imbMG[1])
-		g[off+3] += scale * egf * float64(imbEG[1])
+		g[imbalanceBase+0] += scale * mgf * float64(imbMG[0])
+		g[imbalanceBase+1] += scale * egf * float64(imbEG[0])
+		g[imbalanceBase+2] += scale * mgf * float64(imbMG[1])
+		g[imbalanceBase+3] += scale * egf * float64(imbEG[1])
 	}
-	off += 4
 
 	// ---- Tier 3: WeakKingSquares / Tier 4: Space + Tempo ----
 	spaceDiff, weakKingDiff := eng.SpaceAndWeakKingDiffs((*gm.Board)(pos))
 
 	// Tier 4: Space + Tempo
+	spaceTempoBase := le.layout.SpaceTempoStart
 	if le.Toggles.Tier4Train {
-		g[off+0] += scale * mgf * float64(spaceDiff)
-		g[off+1] += scale * egf * float64(spaceDiff)
+		g[spaceTempoBase+0] += scale * mgf * float64(spaceDiff)
+		g[spaceTempoBase+1] += scale * egf * float64(spaceDiff)
 		if pos.Wtomove {
-			g[off+3] += scale * (mgf + egf)
+			g[spaceTempoBase+2] += scale * (mgf + egf)
 		} else {
-			g[off+3] -= scale * (mgf + egf)
+			g[spaceTempoBase+2] -= scale * (mgf + egf)
 		}
 	}
 
 	// Tier 3: WeakKingSquares
 	if le.Toggles.Tier3Train {
-		g[off+2] += scale * mgf * float64(weakKingDiff)
+		weakKingBase := le.layout.WeakKingStart
+		g[weakKingBase+0] += scale * mgf * float64(weakKingDiff)
 	}
 }
 
