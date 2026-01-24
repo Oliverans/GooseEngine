@@ -25,26 +25,28 @@ var benchPositions = []string{
 	"r1bq1rk1/ppp2ppp/2nb1n2/3pp3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 1",
 }
 
-const benchDepth = 10
+const benchDepth = 11
 
 // runBench runs a benchmark search on standard positions and reports total nodes
 func runBench() {
 	totalNodes := 0
+	var totalTimeSpent int64 = 0
 
 	for _, fen := range benchPositions {
 		board := gm.ParseFen(fen)
 		engine.ResetForNewGame()
-
-		// Reset node counter before search
 
 		// Search with fixed depth, large time, no time-based cutoff
 		engine.StartSearch(&board, uint8(benchDepth), 1000000, 0, true, false, false, false)
 
 		// Accumulate nodes
 		totalNodes += engine.GetNodeCount()
+		totalTimeSpent += engine.GetTimeSpent()
 	}
 
-	fmt.Printf("%d\n", totalNodes)
+	nps := uint64(float64(totalNodes*1000) / float64(totalTimeSpent))
+
+	fmt.Printf("%d nodes %d nps\n", totalNodes, nps)
 }
 
 // parseIntOption parses an integer value from "setoption name X value Y" commands
@@ -319,10 +321,7 @@ func uciLoop() {
 			fmt.Println("bestmove ", bestMove)
 
 			// Reset after search (while not incrementing time ...)
-			engine.ResetCutStats()
-			engine.AgeHistory()
-			engine.ClearKillers(&engine.KillerMoveTable)
-			engine.TT.NewSearch()
+			engine.UpdateBetweenSearches()
 		case "position":
 			posScanner := bufio.NewScanner(strings.NewReader(line))
 			posScanner.Split(bufio.ScanWords)

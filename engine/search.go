@@ -200,6 +200,7 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool, printSearchInform
 	searchShouldStop = false
 	timeHandler.stopSearch = false
 
+	totalTimeSpent += timeSpent
 	bestMove = prevPVLine.GetPVMove()
 
 	return int(bestScore), bestMove

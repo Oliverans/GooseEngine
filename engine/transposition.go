@@ -52,17 +52,6 @@ func (TT *TransTable) clearTT() {
 	TT.generation = 0
 }
 
-// init initializes the transposition table with the configured size
-func (TT *TransTable) init() {
-	// Calculate number of buckets based on memory size
-	// Each bucket is BucketSize * 16 bytes = 32 bytes for BucketSize=2
-	bucketBytes := uint64(BucketSize * 16)
-	TT.size = (TTSize * 1024 * 1024) / bucketBytes
-	TT.buckets = make([]TTBucket, TT.size)
-	TT.generation = 0
-	TT.isInitialized = true
-}
-
 // NewSearch should be called at the start of each new search
 // Increments the generation counter to age old entries
 func (TT *TransTable) NewSearch() {
@@ -73,27 +62,15 @@ func (TT *TransTable) NewSearch() {
 	}
 }
 
-// getEntry looks up an entry in the transposition table
-// Returns a pointer to the matching entry, or an empty entry if no match found
-// IMPORTANT: Caller should verify the hash matches before using the move
-func (TT *TransTable) getEntry(hash uint64) *TTEntry {
-	if !TT.isInitialized {
-		return &emptyEntry
-	}
-
-	bucketIdx := hash % TT.size
-	bucket := &TT.buckets[bucketIdx]
-	hashHigh := uint32(hash >> 32)
-
-	// Check all entries in the bucket for a match
-	for i := 0; i < BucketSize; i++ {
-		if bucket.Entries[i].Hash == hashHigh {
-			return &bucket.Entries[i]
-		}
-	}
-
-	// No match found - return empty entry (not a random entry!)
-	return &emptyEntry
+// init initializes the transposition table with the configured size
+func (TT *TransTable) init() {
+	// Calculate number of buckets based on memory size
+	// Each bucket is BucketSize * 16 bytes = 32 bytes for BucketSize=2
+	bucketBytes := uint64(BucketSize * 16)
+	TT.size = (TTSize * 1024 * 1024) / bucketBytes
+	TT.buckets = make([]TTBucket, TT.size)
+	TT.generation = 0
+	TT.isInitialized = true
 }
 
 // Empty entry returned when TT is not initialized or no match found

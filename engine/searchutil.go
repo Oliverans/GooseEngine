@@ -8,6 +8,7 @@ import (
 )
 
 var nodesChecked = 0
+var totalTimeSpent int64 = 0
 var LMR = [MaxDepth + 1][100]int8{}
 var counterMove [2][64][64]gm.Move
 var historyMove [2][64][64]int
@@ -162,8 +163,17 @@ func getMateOrCPScore(score int) string {
 	return fmt.Sprintf("cp %d", score)
 }
 
+func UpdateBetweenSearches() {
+	AgeHistory()        // Age history
+	ResetNodesChecked() // Reset nodes checked
+	ResetCutStats()     // Reset cut statistics
+	//ClearKillers(&KillerMoveTable)
+	TT.NewSearch() // Increment TT for aging
+}
+
 func ResetForNewGame() {
 	TT.clearTT()
+	TT.NewSearch()
 	ClearPawnHash()
 	ClearKillers(&KillerMoveTable)
 	ClearHistoryTable()
@@ -183,6 +193,8 @@ func ResetForNewGame() {
 		}
 	}
 	prevSearchScore = 0
+	nodesChecked = 0
+	totalTimeSpent = 0
 }
 
 func dumpRootMoveOrdering(board *gm.Board) {
@@ -282,4 +294,13 @@ func abs32(x int32) int32 {
 
 func GetNodeCount() int {
 	return nodesChecked
+}
+
+func GetTimeSpent() int64 {
+	return totalTimeSpent
+}
+
+func ResetNodesChecked() {
+	nodesChecked = 0
+	totalTimeSpent = 0
 }
