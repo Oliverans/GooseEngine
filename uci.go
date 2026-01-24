@@ -29,20 +29,19 @@ const benchDepth = 13
 
 // runBench runs a benchmark search on standard positions and reports total nodes
 func runBench() {
-	totalNodes := uint64(0)
+	totalNodes := 0
 
 	for _, fen := range benchPositions {
 		board := gm.ParseFen(fen)
 		engine.ResetForNewGame()
 
 		// Reset node counter before search
-		//engine.ResetNodeCount()
 
 		// Search with fixed depth, large time, no time-based cutoff
 		engine.StartSearch(&board, uint8(benchDepth), 1000000, 0, true, false, false)
 
 		// Accumulate nodes
-		//totalNodes += engine.GetNodeCount()
+		totalNodes += engine.GetNodeCount()
 	}
 
 	fmt.Printf("%d\n", totalNodes)

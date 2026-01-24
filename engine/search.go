@@ -194,7 +194,7 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool) (int, gm.Move) {
 	}
 
 	// Reset globals
-	nodesChecked = 0
+	//nodesChecked = 0
 	searchShouldStop = false
 	timeHandler.stopSearch = false
 

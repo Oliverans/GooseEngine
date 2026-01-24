@@ -279,3 +279,7 @@ func abs32(x int32) int32 {
 	}
 	return x
 }
+
+func GetNodeCount() int {
+	return nodesChecked
+}
