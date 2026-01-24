@@ -10,15 +10,15 @@ const (
 	BetaFlag
 	ExactFlag
 
-	// TT Size in MB
-	TTSize = 256
-
 	// Unusable score
 	UnusableScore int32 = -32500
 
 	// Number of entries per bucket
 	BucketSize = 4
 )
+
+// TTSize is the configured transposition table size in MB.
+var TTSize = 256
 
 // TTEntry represents a single transposition table entry
 // Optimized for size: 16 bytes with this layout
@@ -67,7 +67,7 @@ func (TT *TransTable) init() {
 	// Calculate number of buckets based on memory size
 	// Each bucket is BucketSize * 16 bytes = 32 bytes for BucketSize=2
 	bucketBytes := uint64(BucketSize * 16)
-	TT.size = (TTSize * 1024 * 1024) / bucketBytes
+	TT.size = (uint64(TTSize) * 1024 * 1024) / bucketBytes
 	TT.buckets = make([]TTBucket, TT.size)
 	TT.generation = 0
 	TT.isInitialized = true

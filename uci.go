@@ -70,7 +70,12 @@ type uciOption struct {
 	setter   func(int)
 }
 
+var uciThreads = 1
+
 var uciOptionSetters = map[string]uciOption{
+	"hash":    {1, 4096, func(v int) { engine.TTSize = v }},
+	"threads": {1, 1, func(v int) { uciThreads = v }},
+
 	"futilitymargindepth1": {70, 170, func(v int) { engine.FutilityMargins[1] = int32(v) }},
 	"futilitymargindepth2": {170, 270, func(v int) { engine.FutilityMargins[2] = int32(v) }},
 	"futilitymargindepth3": {270, 370, func(v int) { engine.FutilityMargins[3] = int32(v) }},
@@ -152,6 +157,9 @@ func uciLoop() {
 		case "uci":
 			fmt.Println("id name GooseEngine Alpha version 0.2")
 			fmt.Println("id author Goose")
+
+			fmt.Printf("option name Hash type spin default %d min 1 max 4096\n", engine.TTSize)
+			fmt.Printf("option name Threads type spin default %d min 1 max 1\n", uciThreads)
 
 			// --- Search / pruning parameters exposed as UCI options ---
 
