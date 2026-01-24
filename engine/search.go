@@ -62,7 +62,7 @@ var TT TransTable
 var timeHandler TimeHandler
 var GlobalStop = false
 
-func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool, moveOrderingOnly bool) string {
+func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool, moveOrderingOnly bool, printSearchInformation bool) string {
 	initVariables(board)
 
 	//Stat reset
@@ -89,7 +89,7 @@ func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useC
 		return ""
 	}
 
-	_, bestMove = rootsearch(board, depth, useCustomDepth)
+	_, bestMove = rootsearch(board, depth, useCustomDepth, printSearchInformation)
 
 	if PrintCutStats {
 		dumpCutStats()
@@ -99,7 +99,7 @@ func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useC
 	return bestMove.String()
 }
 
-func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool) (int, gm.Move) {
+func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool, printSearchInformation bool) (int, gm.Move) {
 	var timeSpent int64
 	var alpha int32 = -MaxScore
 	var beta int32 = MaxScore
@@ -179,14 +179,16 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool) (int, gm.Move) {
 		prevSearchScore = bestScore
 		prevPVLine = pvLine.Clone()
 
-		fmt.Println(
-			"info depth", i,
-			"score", getMateOrCPScore(int(score)),
-			"nodes", nodesChecked,
-			"time", timeSpent,
-			"nps", nps,
-			"pv", theMoves,
-		)
+		if printSearchInformation {
+			fmt.Println(
+				"info depth", i,
+				"score", getMateOrCPScore(int(score)),
+				"nodes", nodesChecked,
+				"time", timeSpent,
+				"nps", nps,
+				"pv", theMoves,
+			)
+		}
 
 		if mateFound {
 			break

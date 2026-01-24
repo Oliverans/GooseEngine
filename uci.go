@@ -25,7 +25,7 @@ var benchPositions = []string{
 	"r1bq1rk1/ppp2ppp/2nb1n2/3pp3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 1",
 }
 
-const benchDepth = 13
+const benchDepth = 10
 
 // runBench runs a benchmark search on standard positions and reports total nodes
 func runBench() {
@@ -38,7 +38,7 @@ func runBench() {
 		// Reset node counter before search
 
 		// Search with fixed depth, large time, no time-based cutoff
-		engine.StartSearch(&board, uint8(benchDepth), 1000000, 0, true, false, false)
+		engine.StartSearch(&board, uint8(benchDepth), 1000000, 0, true, false, false, false)
 
 		// Accumulate nodes
 		totalNodes += engine.GetNodeCount()
@@ -124,6 +124,8 @@ func uciLoop() {
 
 	var evalOnly = false
 	var moveOrderingOnly = false
+	var printSearchInformation = true
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		tokens := strings.Fields(line)
@@ -135,6 +137,8 @@ func uciLoop() {
 			runBench()
 		case "eval":
 			evalOnly = true
+		case "HideSearchInfo":
+			printSearchInformation = !printSearchInformation
 		case "moveordering":
 			moveOrderingOnly = true
 		case "cutstats":
@@ -307,7 +311,7 @@ func uciLoop() {
 				depthToUse = 50
 			}
 
-			bestMove := engine.StartSearch(&board, uint8(depthToUse), timeToUse, incToUse, useCustomDepth, evalOnly, moveOrderingOnly)
+			bestMove := engine.StartSearch(&board, uint8(depthToUse), timeToUse, incToUse, useCustomDepth, evalOnly, moveOrderingOnly, printSearchInformation)
 			fmt.Println("bestmove ", bestMove)
 
 			// Reset after search (while not incrementing time ...)

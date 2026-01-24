@@ -84,6 +84,7 @@ func main() {
 			useCustomDepth,
 			evalOnly,
 			moveOrderingOnly,
+			false,
 		)
 		iterElapsed := time.Since(iterStart)
 
