@@ -114,6 +114,10 @@ var uciOptionSetters = map[string]uciOption{
 }
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "bench" {
+		runBench()
+		os.Exit(0)
+	}
 	uciLoop()
 }
 
