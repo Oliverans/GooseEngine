@@ -11,6 +11,43 @@ import (
 	gm "chess-engine/goosemg"
 )
 
+// Standard bench positions used by many chess engines
+var benchPositions = []string{
+	"rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+	"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+	"8/2p5/3p4/KP5r/1R3p1k/8/4P1P1/8 w - - 0 1",
+	"r3k2r/Pppp1ppp/1b3nbN/nP6/BBP1P3/q4N2/Pp1P2PP/R2Q1RK1 w kq - 0 1",
+	"rnbq1k1r/pp1Pbppp/2p5/8/2B5/8/PPP1NnPP/RNBQK2R w KQ - 1 8",
+	"r4rk1/1pp1qppp/p1np1n2/2b1p1B1/2B1P1b1/P1NP1N2/1PP1QPPP/R4RK1 w - - 0 10",
+	"r3k2r/1bp1qpb1/p1np1np1/4p2p/2P1P3/1PN2N1P/PB1PQPB1/R3K2R w KQkq - 0 1",
+	"2kr3r/pbpn1pq1/1p2pn1p/3p2p1/2PP4/P1N1P1P1/1PQ1NPBP/R4RK1 w - - 0 1",
+	"r2qk2r/ppp1bppp/2n1bn2/3pp3/8/2NPBNP1/PPP1PPBP/R2QK2R w KQkq - 0 1",
+	"r1bq1rk1/ppp2ppp/2nb1n2/3pp3/2B1P3/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 1",
+}
+
+const benchDepth = 13
+
+// runBench runs a benchmark search on standard positions and reports total nodes
+func runBench() {
+	totalNodes := uint64(0)
+
+	for _, fen := range benchPositions {
+		board := gm.ParseFen(fen)
+		engine.ResetForNewGame()
+
+		// Reset node counter before search
+		//engine.ResetNodeCount()
+
+		// Search with fixed depth, large time, no time-based cutoff
+		engine.StartSearch(&board, uint8(benchDepth), 1000000, 0, true, false, false)
+
+		// Accumulate nodes
+		//totalNodes += engine.GetNodeCount()
+	}
+
+	fmt.Printf("%d\n", totalNodes)
+}
+
 // parseIntOption parses an integer value from "setoption name X value Y" commands
 func parseIntOption(scanner *bufio.Scanner, optionName string) (int, bool) {
 	if !scanner.Scan() {
@@ -95,6 +132,8 @@ func uciLoop() {
 			continue
 		}
 		switch strings.ToLower(tokens[0]) {
+		case "bench":
+			runBench()
 		case "eval":
 			evalOnly = true
 		case "moveordering":
