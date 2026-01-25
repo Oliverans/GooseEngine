@@ -1,6 +1,9 @@
 package goosemg
 
-import "math/bits"
+import (
+	"math/bits"
+	"strings"
+)
 
 // Move encodes a chess move in a 32-bit value.
 type Move uint32
@@ -74,7 +77,7 @@ func (m Move) String() string {
 	if promo != NoPiece {
 		// Append promotion piece letter
 		ch := charFromPiece(promo)
-		str += string(ch)
+		str += strings.ToLower(string(ch))
 	}
 	return str
 }
