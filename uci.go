@@ -34,7 +34,7 @@ func runBench() {
 
 	for _, fen := range benchPositions {
 		board := gm.ParseFen(fen)
-		engine.ResetForNewGame()
+		engine.SearchState.ResetForNewGame()
 
 		// Search with fixed depth, large time, no time-based cutoff
 		engine.StartSearch(&board, uint8(benchDepth), 1000000, 0, true, false, false, false)
@@ -128,7 +128,6 @@ func main() {
 func uciLoop() {
 	scanner := bufio.NewScanner(os.Stdin)
 	board := gm.ParseFen(gm.Startpos) // the game board
-	engine.History.History = make([]uint64, 500)
 
 	var evalOnly = false
 	var moveOrderingOnly = false
@@ -220,11 +219,11 @@ func uciLoop() {
 			fmt.Println("readyok")
 		case "ucinewgame":
 			board = gm.ParseFen(gm.Startpos)
-			engine.ResetForNewGame()
+			engine.SearchState.ResetForNewGame()
 		case "quit":
 			return
-		case "stop":
-			engine.GlobalStop = true
+	case "stop":
+		engine.SearchState.RequestStop()
 		case "go":
 			goScanner := bufio.NewScanner(strings.NewReader(line))
 			goScanner.Split(bufio.ScanWords)
@@ -324,7 +323,7 @@ func uciLoop() {
 			fmt.Println("bestmove ", bestMove)
 
 			// Reset after search (while not incrementing time ...)
-			engine.UpdateBetweenSearches()
+			engine.SearchState.UpdateBetweenSearches()
 		case "position":
 			posScanner := bufio.NewScanner(strings.NewReader(line))
 			posScanner.Split(bufio.ScanWords)
@@ -336,7 +335,7 @@ func uciLoop() {
 			if strings.ToLower(posScanner.Text()) == "startpos" {
 				board = gm.ParseFen(gm.Startpos)
 				posScanner.Scan() // advance the scanner to leave it in a consistent state
-				engine.ResetStateTracking(&board)
+				engine.SearchState.SyncPositionState(&board)
 			} else if strings.ToLower(posScanner.Text()) == "fen" {
 				fenstr := ""
 				for posScanner.Scan() && strings.ToLower(posScanner.Text()) != "moves" {
@@ -347,7 +346,7 @@ func uciLoop() {
 					continue
 				}
 				board = gm.ParseFen(fenstr)
-				engine.ResetStateTracking(&board)
+				engine.SearchState.SyncPositionState(&board)
 			} else {
 				fmt.Println("info string Invalid position subcommand")
 				continue
@@ -386,9 +385,8 @@ func uciLoop() {
 					}
 				}
 				board.Apply(nextMove)
-				engine.RecordState(&board)
+				engine.SearchState.RecordState(&board)
 			}
-			engine.History.HalfclockRepetition = int(board.HalfmoveClock())
 		case "setoption":
 			goScanner := bufio.NewScanner(strings.NewReader(line))
 			goScanner.Split(bufio.ScanWords)

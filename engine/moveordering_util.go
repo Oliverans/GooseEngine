@@ -11,20 +11,6 @@ type Pair struct {
 }
 type PairList []Pair
 
-// Masks for attacks
-// In order: knight on A1, B1, C1, ... F8, G8, H8
-
-func PawnCaptureBitboards(pawns uint64, white bool) (east uint64, west uint64) {
-	if white {
-		east = (pawns << 9) & ^bitboardFileA // file + 1
-		west = (pawns << 7) & ^bitboardFileH // file - 1
-	} else {
-		east = (pawns >> 7) & ^bitboardFileA // file + 1
-		west = (pawns >> 9) & ^bitboardFileH // file - 1
-	}
-	return
-}
-
 // Include sorting struct pairs :)
 // Thx @ https://medium.com/@kdnotes/how-to-sort-golang-maps-by-value-and-key-eedc1199d944
 // Obviously you can't sort a map, but I am sorting a Slice instead!

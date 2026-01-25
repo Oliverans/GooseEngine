@@ -47,6 +47,17 @@ var ranksBelow = [8]uint64{
 	0x000000ffffffffff, 0x0000ffffffffffff, 0x00ffffffffffffff, 0xffffffffffffffff,
 }
 
+func PawnCaptureBitboards(pawns uint64, white bool) (east uint64, west uint64) {
+	if white {
+		east = (pawns << 9) & ^bitboardFileA // file + 1
+		west = (pawns << 7) & ^bitboardFileH // file - 1
+	} else {
+		east = (pawns >> 7) & ^bitboardFileA // file + 1
+		west = (pawns >> 9) & ^bitboardFileH // file - 1
+	}
+	return
+}
+
 // Compute king safety zone bitboards (inner 1-ring or outer 2-ring)
 func getKingSafetyTable(b *gm.Board, inner bool, wPawnAttackBB, bPawnAttackBB uint64) [2]uint64 {
 	var kingZone [2]uint64

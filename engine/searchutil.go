@@ -7,28 +7,149 @@ import (
 	gm "chess-engine/goosemg"
 )
 
-var nodesChecked = 0
-var totalTimeSpent int64 = 0
+// =============================================================================
+// TYPES & CONSTANTS
+// =============================================================================
+
+// Precomputed reductions
+const MaxDepth int8 = 100
+
 var LMR = [MaxDepth + 1][100]int8{}
-var counterMove [2][64][64]gm.Move
-var historyMove [2][64][64]int
 var historyMaxVal = 8000 // Cap to prevent overflow, triggers aging
 
-// Clamp helper function
-func Clamp(f, low, high int8) int8 {
-	if f < low {
-		return low
-	}
-	if f > high {
-		return high
-	}
-	return f
-}
-
 // To keep track of 3-fold repetition and/or 50 move draw
+// (legacy: kept for UCI position tracking helpers)
 type HistoryStruct struct {
 	History             []uint64
 	HalfclockRepetition int
+}
+
+type KillerStruct struct {
+	KillerMoves [MaxDepth + 1][2]gm.Move
+}
+
+var KillerMoveLength = 2
+var KillerMoveScore = 10
+
+// =============================================================================
+// SEARCH STATE
+// =============================================================================
+
+// searchState centralizes lifecycle operations around search state.
+// It is currently a thin wrapper around existing globals.
+type searchState struct {
+	nodesChecked    int
+	totalTimeSpent  int64
+	cutStats        CutStatistics
+	stateStack      []State
+	killer          KillerStruct
+	counterMoves    [2][64][64]gm.Move
+	historyMoves    [2][64][64]int
+	prevSearchScore int32
+	searchShouldStop bool
+	GlobalStop       bool
+	tt              TransTable
+	timeHandler     TimeHandler
+}
+
+// SearchState is the package-level instance used by the engine.
+var SearchState = &searchState{}
+
+// =============================================================================
+// LIFECYCLE & STOP CONTROL
+// =============================================================================
+
+// ResetForNewGame clears all game-long state (TT, history, killers, counters, etc.).
+func (s *searchState) ResetForNewGame() {
+	ResetForNewGame()
+}
+
+// SyncPositionState rebuilds position-tracking state for a new root position.
+func (s *searchState) SyncPositionState(board *gm.Board) {
+	SearchState.ResetStateTracking(board)
+}
+
+// ResetForSearch performs per-search initialization.
+func (s *searchState) ResetForSearch(board *gm.Board) {
+	SearchState.ensureStateStackSynced(board)
+}
+
+// RequestStop signals an external stop (e.g. UCI stop command).
+func (s *searchState) RequestStop() {
+	s.GlobalStop = true
+}
+
+// ClearStop clears any external stop request.
+func (s *searchState) ClearStop() {
+	s.GlobalStop = false
+}
+
+// ShouldStopRoot returns true when the current search should stop,
+// including time-based termination checks.
+func (s *searchState) ShouldStopRoot() bool {
+	return s.searchShouldStop || s.GlobalStop || s.timeHandler.stopSearch || s.timeHandler.TimeStatus()
+}
+
+// ShouldStopNoClock returns true when the search should stop without polling the clock.
+func (s *searchState) ShouldStopNoClock() bool {
+	return s.searchShouldStop || s.GlobalStop || s.timeHandler.stopSearch
+}
+
+// UpdateBetweenSearches performs post-search maintenance/aging.
+func (s *searchState) UpdateBetweenSearches() {
+	UpdateBetweenSearches()
+}
+
+func UpdateBetweenSearches() {
+	AgeHistory()        // Age history
+	ResetNodesChecked() // Reset nodes checked
+	ResetCutStats()     // Reset cut statistics
+	//ClearKillers(&SearchState.killer)
+	SearchState.tt.NewSearch() // Increment TT for aging
+}
+
+func ResetForNewGame() {
+	SearchState.tt.clearTT()
+	SearchState.tt.NewSearch()
+	ClearPawnHash()
+	ClearKillers(&SearchState.killer)
+	ClearHistoryTable()
+	SearchState.stateStack = SearchState.stateStack[:0]
+	var nilMove gm.Move
+	for i := 0; i < 64; i++ {
+		for z := 0; z < 64; z++ {
+			SearchState.counterMoves[0][i][z] = nilMove
+			SearchState.counterMoves[1][i][z] = nilMove
+		}
+	}
+
+	SearchState.prevSearchScore = 0
+	SearchState.searchShouldStop = false
+	SearchState.GlobalStop = false
+	SearchState.nodesChecked = 0
+	SearchState.totalTimeSpent = 0
+}
+
+// =============================================================================
+// MOVE ORDERING STATE (KILLERS / HISTORY / COUNTERS)
+// =============================================================================
+
+func InsertKiller(move gm.Move, ply int8, k *KillerStruct) {
+	index := int(ply)
+	if index >= len(k.KillerMoves) {
+		index = len(k.KillerMoves) - 1
+	}
+	if move != k.KillerMoves[index][0] {
+		k.KillerMoves[index][1] = k.KillerMoves[index][0]
+		k.KillerMoves[index][0] = move
+	}
+}
+
+func ClearKillers(k *KillerStruct) {
+	for i := range k.KillerMoves {
+		k.KillerMoves[i][0] = 0
+		k.KillerMoves[i][1] = 0
+	}
 }
 
 /*
@@ -44,9 +165,9 @@ func storeCounter(sideToMove bool, prevMove gm.Move, move gm.Move) {
 	from := gm.Square(prevMove.From())
 	to := gm.Square(prevMove.To())
 	if sideToMove {
-		counterMove[0][from][to] = move
+		SearchState.counterMoves[0][from][to] = move
 	} else {
-		counterMove[1][from][to] = move
+		SearchState.counterMoves[1][from][to] = move
 	}
 }
 
@@ -59,12 +180,12 @@ func incrementHistoryScore(sideToMove bool, move gm.Move, depth int8) {
 	}
 
 	bonus := int(depth) * int(depth)
-	currentVal := historyMove[sideIdx][move.From()][move.To()]
+	currentVal := SearchState.historyMoves[sideIdx][move.From()][move.To()]
 	bonus = bonus - currentVal*bonus/historyMaxVal
 
-	historyMove[sideIdx][move.From()][move.To()] += bonus
+	SearchState.historyMoves[sideIdx][move.From()][move.To()] += bonus
 
-	if historyMove[sideIdx][move.From()][move.To()] >= historyMaxVal {
+	if SearchState.historyMoves[sideIdx][move.From()][move.To()] >= historyMaxVal {
 		AgeHistory()
 	}
 }
@@ -76,13 +197,13 @@ func decrementHistoryScoreBy(sideToMove bool, move gm.Move, depth int8) {
 	}
 
 	malus := int(depth) * int(depth)
-	currentVal := historyMove[sideIdx][move.From()][move.To()]
+	currentVal := SearchState.historyMoves[sideIdx][move.From()][move.To()]
 	malus = malus + currentVal*malus/historyMaxVal
 
-	historyMove[sideIdx][move.From()][move.To()] -= malus
+	SearchState.historyMoves[sideIdx][move.From()][move.To()] -= malus
 
-	if historyMove[sideIdx][move.From()][move.To()] <= -historyMaxVal {
-		historyMove[sideIdx][move.From()][move.To()] = -historyMaxVal
+	if SearchState.historyMoves[sideIdx][move.From()][move.To()] <= -historyMaxVal {
+		SearchState.historyMoves[sideIdx][move.From()][move.To()] = -historyMaxVal
 		AgeHistory()
 	}
 }
@@ -91,7 +212,7 @@ func AgeHistory() {
 	for side := 0; side < 2; side++ {
 		for from := 0; from < 64; from++ {
 			for to := 0; to < 64; to++ {
-				historyMove[side][from][to] /= 2
+				SearchState.historyMoves[side][from][to] /= 2
 			}
 		}
 	}
@@ -102,114 +223,15 @@ func AgeHistory() {
 func ClearHistoryTable() {
 	for sq1 := 0; sq1 < 64; sq1++ {
 		for sq2 := 0; sq2 < 64; sq2++ {
-			historyMove[0][sq1][sq2] = 0
-			historyMove[1][sq1][sq2] = 0
+			SearchState.historyMoves[0][sq1][sq2] = 0
+			SearchState.historyMoves[1][sq1][sq2] = 0
 		}
 	}
 }
 
-func Min(x, y int) int {
-	if x < y {
-		return x
-	}
-	return y
-}
-
-func Max(x, y int) int {
-	if x > y {
-		return x
-	}
-	return y
-}
-
-func hasMinorOrMajorPiece(b *gm.Board) (wCount int, bCount int) {
-	wCount = bits.OnesCount64(b.White.Bishops | b.White.Knights | b.White.Rooks | b.White.Queens)
-	bCount = bits.OnesCount64(b.Black.Bishops | b.Black.Knights | b.Black.Rooks | b.Black.Queens)
-	return wCount, bCount
-}
-
-// Precomputed reductions
-const MaxDepth int8 = 100
-
-func getPVLineString(pvLine PVLine) (theMoves string) {
-	for _, move := range pvLine.Moves {
-		theMoves += " "
-		theMoves += move.String()
-	}
-	return theMoves
-}
-
-// Taken from Blunder chess engine and slightly modified
-func getMateOrCPScore(score int) string {
-	mateValue := int(MaxScore)
-	mateThreshold := int(Checkmate)
-
-	if score >= mateThreshold {
-		pliesToMate := mateValue - score
-		if pliesToMate < 0 {
-			pliesToMate = 0
-		}
-		mateInN := (pliesToMate + 1) / 2
-		return fmt.Sprintf("mate %d", mateInN)
-	} else if score <= -mateThreshold {
-		pliesToMate := mateValue + score
-		if pliesToMate < 0 {
-			pliesToMate = 0
-		}
-		mateInN := (pliesToMate + 1) / 2
-		return fmt.Sprintf("mate %d", -mateInN)
-	}
-
-	return fmt.Sprintf("cp %d", score)
-}
-
-func UpdateBetweenSearches() {
-	AgeHistory()        // Age history
-	ResetNodesChecked() // Reset nodes checked
-	ResetCutStats()     // Reset cut statistics
-	//ClearKillers(&KillerMoveTable)
-	TT.NewSearch() // Increment TT for aging
-}
-
-func ResetForNewGame() {
-	TT.clearTT()
-	TT.NewSearch()
-	ClearPawnHash()
-	ClearKillers(&KillerMoveTable)
-	ClearHistoryTable()
-	stateStack = stateStack[:0]
-	var nilMove gm.Move
-	for i := 0; i < 64; i++ {
-		for z := 0; z < 64; z++ {
-			counterMove[0][i][z] = nilMove
-			counterMove[1][i][z] = nilMove
-		}
-	}
-
-	for i := 0; i < 64; i++ {
-		for z := 0; z < 64; z++ {
-			historyMove[0][i][z] = 0
-			historyMove[1][i][z] = 0
-		}
-	}
-	prevSearchScore = 0
-	nodesChecked = 0
-	totalTimeSpent = 0
-}
-
-func dumpRootMoveOrdering(board *gm.Board) {
-	legalMoves := board.GenerateLegalMoves()
-	var nullMove gm.Move
-	scoredMoves := scoreMovesList(board, legalMoves, 0, 0, nullMove, nullMove)
-	for i := uint8(0); i < uint8(len(scoredMoves.moves)); i++ {
-		orderNextMove(i, &scoredMoves)
-	}
-
-	fmt.Println("info string move ordering (start position)")
-	for idx, entry := range scoredMoves.moves {
-		fmt.Printf("info string #%d %s score=%d\n", idx+1, entry.move.String(), entry.score)
-	}
-}
+// =============================================================================
+// LMR REDUCTIONS
+// =============================================================================
 
 // OPTIMIZATION: Improved LMR reduction computation
 // Uses the precomputed LMR table with dynamic adjustments
@@ -285,22 +307,75 @@ func computeLMRReduction(depth int8, legalMoves int, moveIdx int, isPVNode bool,
 	return r
 }
 
-func abs32(x int32) int32 {
-	if x < 0 {
-		return -x
-	}
-	return x
-}
+// =============================================================================
+// SEARCH STATS
+// =============================================================================
 
 func GetNodeCount() int {
-	return nodesChecked
+	return SearchState.nodesChecked
 }
 
 func GetTimeSpent() int64 {
-	return totalTimeSpent
+	return SearchState.totalTimeSpent
 }
 
 func ResetNodesChecked() {
-	nodesChecked = 0
-	totalTimeSpent = 0
+	SearchState.nodesChecked = 0
+	SearchState.totalTimeSpent = 0
+}
+
+// =============================================================================
+// SUPPORT HELPERS
+// =============================================================================
+
+func hasMinorOrMajorPiece(b *gm.Board) (wCount int, bCount int) {
+	wCount = bits.OnesCount64(b.White.Bishops | b.White.Knights | b.White.Rooks | b.White.Queens)
+	bCount = bits.OnesCount64(b.Black.Bishops | b.Black.Knights | b.Black.Rooks | b.Black.Queens)
+	return wCount, bCount
+}
+
+func getPVLineString(pvLine PVLine) (theMoves string) {
+	for _, move := range pvLine.Moves {
+		theMoves += " "
+		theMoves += move.String()
+	}
+	return theMoves
+}
+
+// Taken from Blunder chess engine and slightly modified
+func getMateOrCPScore(score int) string {
+	mateValue := int(MaxScore)
+	mateThreshold := int(Checkmate)
+
+	if score >= mateThreshold {
+		pliesToMate := mateValue - score
+		if pliesToMate < 0 {
+			pliesToMate = 0
+		}
+		mateInN := (pliesToMate + 1) / 2
+		return fmt.Sprintf("mate %d", mateInN)
+	} else if score <= -mateThreshold {
+		pliesToMate := mateValue + score
+		if pliesToMate < 0 {
+			pliesToMate = 0
+		}
+		mateInN := (pliesToMate + 1) / 2
+		return fmt.Sprintf("mate %d", -mateInN)
+	}
+
+	return fmt.Sprintf("cp %d", score)
+}
+
+func dumpRootMoveOrdering(board *gm.Board) {
+	legalMoves := board.GenerateLegalMoves()
+	var nullMove gm.Move
+	scoredMoves := scoreMovesList(board, legalMoves, 0, 0, nullMove, nullMove)
+	for i := uint8(0); i < uint8(len(scoredMoves.moves)); i++ {
+		orderNextMove(i, &scoredMoves)
+	}
+
+	fmt.Println("info string move ordering (start position)")
+	for idx, entry := range scoredMoves.moves {
+		fmt.Printf("info string #%d %s score=%d\n", idx+1, entry.move.String(), entry.score)
+	}
 }

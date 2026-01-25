@@ -15,17 +15,16 @@ type CutStatistics struct {
 	QBetaCutoffs      uint64
 }
 
-var cutStats CutStatistics
-
 // PrintCutStats controls whether the engine dumps the cut statistics once the
 // current search finishes. Set via a CLI/command toggle.
 var PrintCutStats bool
 
 func ResetCutStats() {
-	cutStats = CutStatistics{}
+	SearchState.cutStats = CutStatistics{}
 }
 
 func dumpCutStats() {
+	cutStats := SearchState.cutStats
 	fmt.Println("info string Cut statistics:")
 	fmt.Printf("info string   TT cutoffs: %d\n", cutStats.TTCutoffs)
 	fmt.Printf("info string   Null-move cutoffs: %d\n", cutStats.NullMoveCutoffs)

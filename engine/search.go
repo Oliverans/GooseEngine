@@ -16,11 +16,6 @@ const (
 	DrawScore int32 = 0
 )
 
-var KillerMoveTable KillerStruct
-
-var SearchTime time.Duration
-var searchShouldStop bool
-
 // =============================================================================
 // MARGINS
 // =============================================================================
@@ -54,25 +49,19 @@ func SetAspirationWindowSize(val int32) {
 	aspirationWindowSize = val
 }
 
-var prevSearchScore int32 = 0
-
-var TT TransTable
-var timeHandler TimeHandler
-var GlobalStop = false
-
 func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool, moveOrderingOnly bool, printSearchInformation bool) string {
 	initVariables(board)
 
 	//Stat reset
-	ensureStateStackSynced(board)
+	SearchState.ResetForSearch(board)
 
-	if !TT.isInitialized {
-		TT.init()
+	if !SearchState.tt.isInitialized {
+		SearchState.tt.init()
 	}
 
-	GlobalStop = false
-	timeHandler.initTimemanagement(gameTime, increment, board.FullmoveNumber(), useCustomDepth)
-	timeHandler.StartTime(board.FullmoveNumber())
+	SearchState.GlobalStop = false
+	SearchState.timeHandler.initTimemanagement(gameTime, increment, board.FullmoveNumber(), useCustomDepth)
+	SearchState.timeHandler.StartTime(board.FullmoveNumber())
 
 	var bestMove gm.Move
 
@@ -102,12 +91,12 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool, printSearchInform
 	var alpha int32 = -MaxScore
 	var beta int32 = MaxScore
 	var bestScore int32 = -MaxScore
-	rootIndex := len(stateStack) - 1
+	rootIndex := len(SearchState.stateStack) - 1
 	var aspCounter = 0
 
-	if prevSearchScore != 0 {
-		alpha = prevSearchScore - aspirationWindowSize
-		beta = prevSearchScore + aspirationWindowSize
+	if SearchState.prevSearchScore != 0 {
+		alpha = SearchState.prevSearchScore - aspirationWindowSize
+		beta = SearchState.prevSearchScore + aspirationWindowSize
 	}
 
 	var nullMove gm.Move
@@ -118,10 +107,10 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool, printSearchInform
 
 	for i := uint8(1); i <= depth; i++ {
 		if !useCustomDepth && i > 1 {
-			if timeHandler.SoftTimeExceeded() && !timeHandler.ShouldExtendTime() {
+			if SearchState.timeHandler.SoftTimeExceeded() && !SearchState.timeHandler.ShouldExtendTime() {
 				break
 			}
-			if timeHandler.ShouldStopEarly() {
+			if SearchState.timeHandler.ShouldStopEarly() {
 				break
 			}
 		}
@@ -133,10 +122,10 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool, printSearchInform
 		score := alphabeta(b, alpha, beta, int8(i), 0, &pvLine, nullMove, false, false, 0, rootIndex)
 		timeSpent += time.Since(startTime).Milliseconds()
 
-		if searchShouldStop || timeHandler.TimeStatus() || timeHandler.stopSearch || GlobalStop {
+		if SearchState.ShouldStopRoot() {
 			if len(prevPVLine.Moves) == 0 && len(pvLine.Moves) > 0 {
 				bestScore = score
-				prevSearchScore = bestScore
+				SearchState.prevSearchScore = bestScore
 				prevPVLine = pvLine.Clone()
 			}
 			break
@@ -145,7 +134,7 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool, printSearchInform
 		if timeSpent == 0 {
 			timeSpent = 1
 		}
-		nps := uint64(float64(nodesChecked*1000) / float64(timeSpent))
+		nps := uint64(float64(SearchState.nodesChecked*1000) / float64(timeSpent))
 
 		theMoves := getPVLineString(pvLine)
 
@@ -167,21 +156,21 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool, printSearchInform
 		bestScore = score
 
 		if len(pvLine.Moves) > 0 {
-			timeHandler.UpdateStability(int16(score), uint32(pvLine.Moves[0]))
+			SearchState.timeHandler.UpdateStability(int16(score), uint32(pvLine.Moves[0]))
 		}
 
-		if timeHandler.ShouldExtendTime() {
-			timeHandler.ExtendTime()
+		if SearchState.timeHandler.ShouldExtendTime() {
+			SearchState.timeHandler.ExtendTime()
 		}
 
-		prevSearchScore = bestScore
+		SearchState.prevSearchScore = bestScore
 		prevPVLine = pvLine.Clone()
 
 		if printSearchInformation {
 			fmt.Println(
 				"info depth", i,
 				"score", getMateOrCPScore(int(score)),
-				"nodes", nodesChecked,
+				"nodes", SearchState.nodesChecked,
 				"time", timeSpent,
 				"nps", nps,
 				"pv", theMoves,
@@ -194,22 +183,22 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool, printSearchInform
 	}
 
 	// Reset globals
-	//nodesChecked = 0
-	searchShouldStop = false
-	timeHandler.stopSearch = false
+	//SearchState.nodesChecked = 0
+	SearchState.searchShouldStop = false
+	SearchState.timeHandler.stopSearch = false
 
-	totalTimeSpent += timeSpent
+	SearchState.totalTimeSpent += timeSpent
 	bestMove = prevPVLine.GetPVMove()
 
 	return int(bestScore), bestMove
 }
 
 func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLine *PVLine, prevMove gm.Move, didNull bool, isExtended bool, excludedMove gm.Move, rootIndex int) int32 {
-	nodesChecked++
+	SearchState.nodesChecked++
 
-	if nodesChecked&4095 == 0 {
-		if timeHandler.TimeStatus() {
-			searchShouldStop = true
+	if SearchState.nodesChecked&4095 == 0 {
+		if SearchState.timeHandler.TimeStatus() {
+			SearchState.searchShouldStop = true
 		}
 	}
 
@@ -217,7 +206,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		return Evaluation(b, false)
 	}
 
-	if GlobalStop || searchShouldStop {
+	if SearchState.ShouldStopNoClock() {
 		return 0
 	}
 
@@ -228,10 +217,10 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	var isRoot = ply == 0
 
 	if !isRoot {
-		if isDraw(int(ply), rootIndex) {
+		if SearchState.isDraw(int(ply), rootIndex) {
 			return DrawScore
 		}
-		if alpha < DrawScore && upcomingRepetition(int(ply), rootIndex) {
+		if alpha < DrawScore && SearchState.upcomingRepetition(int(ply), rootIndex) {
 			alpha = DrawScore
 		}
 	}
@@ -253,7 +242,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	}
 
 	if depth <= 0 {
-		return quiescence(b, alpha, beta, &childPVLine, 30, ply, rootIndex)
+		return quiescence(b, alpha, beta, pvLine, 30, ply, rootIndex)
 	}
 
 	posHash := b.Hash()
@@ -264,11 +253,11 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		we can use the stored score to either return immediately, or to
 		improve move ordering by trying the previously best move first.
 	*/
-	ttEntry, ttHit := TT.ProbeEntry(posHash)
-	usable, ttScore := TT.useEntry(ttEntry, posHash, depth, alpha, beta, ply, excludedMove)
+	ttEntry, ttHit := SearchState.tt.ProbeEntry(posHash)
+	usable, ttScore := SearchState.tt.useEntry(ttEntry, posHash, depth, alpha, beta, ply, excludedMove)
 
 	if usable && !isRoot && !isPVNode {
-		cutStats.TTCutoffs++
+		SearchState.cutStats.TTCutoffs++
 		return ttScore
 	}
 
@@ -304,8 +293,8 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			rfpMargin -= 50 // More aggressive when not improving
 		}
 		if staticScore-rfpMargin >= beta {
-			cutStats.StaticNullCutoffs++
-			TT.storeEntry(posHash, depth, ply, ttMove, staticScore-rfpMargin, BetaFlag)
+			SearchState.cutStats.StaticNullCutoffs++
+			SearchState.tt.storeEntry(posHash, depth, ply, ttMove, staticScore-rfpMargin, BetaFlag)
 			return staticScore - rfpMargin
 		}
 	}
@@ -331,8 +320,8 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		unApplyfunc()
 
 		if score >= beta && score < Checkmate {
-			cutStats.NullMoveCutoffs++
-			TT.storeEntry(posHash, depth, ply, ttMove, score, BetaFlag)
+			SearchState.cutStats.NullMoveCutoffs++
+			SearchState.tt.storeEntry(posHash, depth, ply, ttMove, score, BetaFlag)
 			if depth > 10 {
 				verifyScore := alphabeta(b, beta-1, beta, depth-1-R, ply, &childPVLine, prevMove, true, isExtended, 0, rootIndex)
 				if verifyScore >= beta {
@@ -412,7 +401,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 
 					if score >= probCutBeta {
 						unapplyFunc()
-						TT.storeEntry(posHash, depth, ply, move, score, BetaFlag)
+						SearchState.tt.storeEntry(posHash, depth, ply, move, score, BetaFlag)
 						return score
 					}
 				}
@@ -435,7 +424,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		var iidPV PVLine
 		alphabeta(b, alpha, beta, reducedDepth, ply, &iidPV, prevMove, false, true, 0, rootIndex)
 
-		iidEntry, _ := TT.ProbeEntry(posHash)
+		iidEntry, _ := SearchState.tt.ProbeEntry(posHash)
 		if iidEntry.Move != 0 {
 			ttMove = iidEntry.Move
 			bestMove = ttMove
@@ -488,7 +477,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 				lmpMargin = lmpMargin * 2 / 3
 			}
 			if lmpMargin > 0 && legalMoves > lmpMargin {
-				cutStats.LateMovePrunes++
+				SearchState.cutStats.LateMovePrunes++
 				continue
 			}
 		}
@@ -508,7 +497,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 				futilityMargin -= 50
 			}
 			if staticScore+futilityMargin <= alpha {
-				cutStats.FutilityPrunes++
+				SearchState.cutStats.FutilityPrunes++
 				continue
 			}
 		}
@@ -533,14 +522,14 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			nextDepth := calculateSearchDepth(depth-1, 0, extendMove)
 			score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, rootIndex)
 		} else {
-			moveHistoryScore := historyMove[sideIdx][move.From()][move.To()]
+			moveHistoryScore := SearchState.historyMoves[sideIdx][move.From()][move.To()]
 
 			var reduct int8 = 0
 			if depth >= LMRDepthLimit && legalMoves >= LMRMoveLimit && !moveGivesCheck && !tactical {
 				reduct = computeLMRReduction(
 					depth, legalMoves, int(index), isPVNode, tactical,
 					moveHistoryScore, improving,
-					IsKiller(move, ply, &KillerMoveTable), extendMove,
+					IsKiller(move, ply, &SearchState.killer), extendMove,
 				)
 			}
 
@@ -569,10 +558,10 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		}
 
 		if score >= beta {
-			cutStats.BetaCutoffs++
+			SearchState.cutStats.BetaCutoffs++
 			ttFlag = BetaFlag
 			if !isCapture {
-				InsertKiller(move, ply, &KillerMoveTable)
+				InsertKiller(move, ply, &SearchState.killer)
 				storeCounter(b.Wtomove, prevMove, move)
 
 				incrementHistoryScore(b.Wtomove, move, depth)
@@ -595,27 +584,27 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 				incrementHistoryScore(b.Wtomove, move, depth)
 			}
 		}
+		childPVLine.Clear()
 	}
 
-	childPVLine.Clear()
-
-	if !timeHandler.stopSearch && !GlobalStop && !searchShouldStop {
-		TT.storeEntry(posHash, depth, ply, bestMove, bestScore, ttFlag)
+	if !SearchState.ShouldStopNoClock() {
+		SearchState.tt.storeEntry(posHash, depth, ply, bestMove, bestScore, ttFlag)
 	}
 
 	return bestScore
 }
 
 func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8, ply int8, rootIndex int) int32 {
-	nodesChecked++
+	pvLine.Clear()
+	SearchState.nodesChecked++
 
-	if nodesChecked&2047 == 0 {
-		if timeHandler.TimeStatus() {
-			searchShouldStop = true
+	if SearchState.nodesChecked&2047 == 0 {
+		if SearchState.timeHandler.TimeStatus() {
+			SearchState.searchShouldStop = true
 		}
 	}
 
-	if GlobalStop || searchShouldStop {
+	if SearchState.ShouldStopNoClock() {
 		return 0
 	}
 
@@ -627,7 +616,7 @@ func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8
 	// Stand-pat pruning (not when in check)
 	if !inCheck {
 		if standpat >= beta {
-			cutStats.QStandPatCutoffs++
+			SearchState.cutStats.QStandPatCutoffs++
 			return standpat
 		}
 		if standpat > alpha {
@@ -691,7 +680,7 @@ func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8
 		}
 
 		if score >= beta {
-			cutStats.QBetaCutoffs++
+			SearchState.cutStats.QBetaCutoffs++
 			return score // Return score, not beta (more accurate)
 		}
 
@@ -716,18 +705,18 @@ func calculateSearchDepth(baseDepth int8, reduction int8, extendMove bool) int8 
 
 func applyMoveWithState(b *gm.Board, move gm.Move) func() {
 	unapply := b.Apply(move)
-	pushState(b)
+	SearchState.pushState(b)
 	return func() {
 		unapply()
-		popState()
+		SearchState.popState()
 	}
 }
 
 func applyNullMoveWithState(b *gm.Board) func() {
 	unapply := b.ApplyNullMove()
-	pushState(b)
+	SearchState.pushState(b)
 	return func() {
 		unapply()
-		popState()
+		SearchState.popState()
 	}
 }

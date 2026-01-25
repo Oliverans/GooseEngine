@@ -102,8 +102,8 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 	killerIdx := int(ply)
 	if killerIdx < 0 {
 		killerIdx = 0
-	} else if killerIdx >= len(KillerMoveTable.KillerMoves) {
-		killerIdx = len(KillerMoveTable.KillerMoves) - 1
+	} else if killerIdx >= len(SearchState.killer.KillerMoves) {
+		killerIdx = len(SearchState.killer.KillerMoves) - 1
 	}
 
 	movesList.moves = GetMoveListForPly(ply, len(moves))
@@ -168,20 +168,20 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 				}
 			}
 
-		} else if KillerMoveTable.KillerMoves[killerIdx][0] == mv {
+		} else if SearchState.killer.KillerMoves[killerIdx][0] == mv {
 			// First killer - high priority quiet move
 			moveEval = scoreKiller1
 
-		} else if KillerMoveTable.KillerMoves[killerIdx][1] == mv {
+		} else if SearchState.killer.KillerMoves[killerIdx][1] == mv {
 			// Second killer
 			moveEval = scoreKiller2
 
 		} else {
-			histScore := int32(historyMove[side][mv.From()][mv.To()])
+			histScore := int32(SearchState.historyMoves[side][mv.From()][mv.To()])
 			moveEval = scoreQuietBase + histScore
 
 			// Counter move bonus
-			if prevMove != 0 && counterMove[side][prevMove.From()][prevMove.To()] == mv {
+			if prevMove != 0 && SearchState.counterMoves[side][prevMove.From()][prevMove.To()] == mv {
 				moveEval = scoreCounterMove + histScore
 			}
 		}

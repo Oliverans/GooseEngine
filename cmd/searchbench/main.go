@@ -43,9 +43,6 @@ func main() {
 		}()
 	}
 
-	// --- Engine / board setup (mirrors uci.go behavior) ---
-	engine.History.History = make([]uint64, 500)
-
 	// This mimics "go depth N" in your UCI:
 	// timeToUse defaults to 250000 ms (no wtime/btime given).
 	timeToUseMs := 250000
@@ -71,9 +68,9 @@ func main() {
 		board := gm.ParseFen(fen)
 
 		// Match your UCI setup / new game handling
-		engine.ResetForNewGame()
-		engine.ResetStateTracking(&board)
-		engine.GlobalStop = false
+		engine.SearchState.ResetForNewGame()
+		engine.SearchState.SyncPositionState(&board)
+		engine.SearchState.ClearStop()
 
 		iterStart := time.Now()
 		bestMove := engine.StartSearch(

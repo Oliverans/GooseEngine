@@ -11,6 +11,6 @@ import (
 func BenchmarkMain(b *testing.B) {
 	board := gm.ParseFen(gm.Startpos) // the game board
 	var bestmove = engine.StartSearch(&board, 50, 1000, 500, false, false, false, false)
-	engine.ResetForNewGame()
+	engine.SearchState.ResetForNewGame()
 	fmt.Println("bestmove ", bestmove)
 }
