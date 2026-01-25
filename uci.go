@@ -109,10 +109,7 @@ var uciOptionSetters = map[string]uciOption{
 	"lmrhistorybonus": {450, 550, func(v int) { engine.LMRHistoryBonus = v }},
 	"lmrhistorymalus": {-150, -50, func(v int) { engine.LMRHistoryMalus = v }},
 
-	"nullmovemindepth": {0, 10, func(v int) { engine.NullMoveMinDepth = int8(v) }},
-
-	"seeprunedepth":       {6, 10, func(v int) { engine.SEEPruneDepth = int8(v) }},
-	"seeprunemargin":      {-100, -10, func(v int) { engine.SEEPruneMargin = v }},
+	"nullmovemindepth":    {0, 10, func(v int) { engine.NullMoveMinDepth = int8(v) }},
 	"quiescenceseemargin": {100, 200, func(v int) { engine.QuiescenceSeeMargin = v }},
 	"probcutseemargin":    {100, 200, func(v int) { engine.ProbCutSeeMargin = v }},
 
@@ -211,8 +208,6 @@ func uciLoop() {
 			fmt.Printf("option name LMRHistoryMalus type spin default %d min -150 max -50\n", engine.LMRHistoryMalus)
 
 			// SEE pruning parameters
-			fmt.Printf("option name SEEPruneDepth type spin default %d min 6 max 10\n", engine.SEEPruneDepth)
-			fmt.Printf("option name SEEPruneMargin type spin default %d min -100 max -10\n", engine.SEEPruneMargin)
 			fmt.Printf("option name QuiescenceSeeMargin type spin default %d min 100 max 200\n", engine.QuiescenceSeeMargin)
 			fmt.Printf("option name ProbCutSeeMargin type spin default %d min 100 max 200\n", engine.ProbCutSeeMargin)
 

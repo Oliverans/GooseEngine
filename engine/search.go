@@ -37,14 +37,12 @@ var LMRDepthLimit int8 = 2
 var LMRMoveLimit = 2
 var LMRHistoryBonus = 500
 var LMRHistoryMalus = -100
-var NullMoveMinDepth int8 = 2
-var SEEPruneDepth int8 = 8
-var SEEPruneMargin = -20
+var NullMoveMinDepth int8 = 4
 var QuiescenceSeeMargin int = 150
 var ProbCutSeeMargin int = 150
 
-var DeltaMargin int32 = 200
-var aspirationWindowSize int32 = 35
+var DeltaMargin int32 = 220
+var aspirationWindowSize int32 = 40
 
 // GetAspirationWindowSize returns the current aspiration window size
 func GetAspirationWindowSize() int32 {
