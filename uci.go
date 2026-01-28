@@ -105,7 +105,7 @@ var uciOptionSetters = map[string]uciOption{
 	"lmpdepth8":     {41, 47, func(v int) { engine.LateMovePruningMargins[8] = v }},
 
 	"lmrdepthlimit":   {0, 20, func(v int) { engine.LMRDepthLimit = int8(v) }},
-	"lmrmovelimit":    {1, 5, func(v int) { engine.LMRMoveLimit = v }},
+	"lmrmovelimit":    {2, 8, func(v int) { engine.LMRMoveLimit = v }},
 	"lmrhistorybonus": {450, 550, func(v int) { engine.LMRHistoryBonus = v }},
 	"lmrhistorymalus": {-150, -50, func(v int) { engine.LMRHistoryMalus = v }},
 
@@ -222,8 +222,8 @@ func uciLoop() {
 			engine.SearchState.ResetForNewGame()
 		case "quit":
 			return
-	case "stop":
-		engine.SearchState.RequestStop()
+		case "stop":
+			engine.SearchState.RequestStop()
 		case "go":
 			goScanner := bufio.NewScanner(strings.NewReader(line))
 			goScanner.Split(bufio.ScanWords)
