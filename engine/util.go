@@ -16,6 +16,20 @@ func Max(x, y int) int {
 	return y
 }
 
+func Max32(x, y int32) int32 {
+	if x > y {
+		return x
+	}
+	return y
+}
+
+func Max8(x, y int8) int8 {
+	if x > y {
+		return x
+	}
+	return y
+}
+
 // abs32 returns the absolute value of x.
 func abs32(x int32) int32 {
 	if x < 0 {

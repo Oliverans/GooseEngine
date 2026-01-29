@@ -32,7 +32,7 @@ var LMRDepthLimit int8 = 2
 var LMRMoveLimit = 2
 var LMRHistoryBonus = 500
 var LMRHistoryMalus = -100
-var NullMoveMinDepth int8 = 4
+var NullMoveMinDepth int8 = 3
 var QuiescenceSeeMargin int = 150
 var ProbCutSeeMargin int = 150
 
@@ -304,33 +304,20 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		If we give the opponent a free move, and we still raise beta even after
 		giving our opponent the free move, we can prune this branch
 	*/
-	if !inCheck && !isPVNode && !didNull && sideHasPieces && depth >= NullMoveMinDepth && !isRoot {
+	var margin int32 = Max32(0, 200-15*int32(depth)) // Margin to only look at positions already risking being beta nodes
+	if !inCheck && !isPVNode && !didNull && sideHasPieces && depth >= NullMoveMinDepth && !isRoot && staticScore >= beta-margin {
 		unApplyfunc := applyNullMoveWithState(b)
 
-		var R int8 = 3 + depth/3
-		if depth > 6 {
-			R++
-		}
-
-		if R > depth-1 {
-			R = depth - 1
-		}
-
+		var R = 3 + depth/4
 		score := -alphabeta(b, -beta, -beta+1, depth-1-R, ply+1, &childPVLine, bestMove, true, isExtended, 0, rootIndex)
 		unApplyfunc()
 
 		if score >= beta && score < Checkmate {
+			SearchState.tt.storeEntry(posHash, depth, ply, 0, score, BetaFlag)
 			SearchState.cutStats.NullMoveCutoffs++
-			SearchState.tt.storeEntry(posHash, depth, ply, ttMove, score, BetaFlag)
-			if depth > 10 {
-				verifyScore := alphabeta(b, beta-1, beta, depth-1-R, ply, &childPVLine, prevMove, true, isExtended, 0, rootIndex)
-				if verifyScore >= beta {
-					return verifyScore
-				}
-			} else {
-				return score
-			}
+			return score
 		}
+
 	}
 	/*
 		====== Razoring ======
