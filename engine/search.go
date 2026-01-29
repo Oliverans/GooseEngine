@@ -32,22 +32,16 @@ var LMRDepthLimit int8 = 2
 var LMRMoveLimit = 2
 var LMRHistoryBonus = 500
 var LMRHistoryMalus = -100
-var NullMoveMinDepth int8 = 3
+
+var NullMoveMinDepth int8 = 5
+var NMMarginBase int32 = 200
+var NMMarginDepth int32 = 15
+
 var QuiescenceSeeMargin int = 150
 var ProbCutSeeMargin int = 150
 
 var DeltaMargin int32 = 220
-var aspirationWindowSize int32 = 40
-
-// GetAspirationWindowSize returns the current aspiration window size
-func GetAspirationWindowSize() int32 {
-	return aspirationWindowSize
-}
-
-// SetAspirationWindowSize sets the aspiration window size
-func SetAspirationWindowSize(val int32) {
-	aspirationWindowSize = val
-}
+var AspirationWindowSize int32 = 40
 
 func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool, moveOrderingOnly bool, printSearchInformation bool) string {
 	initVariables(board)
@@ -95,8 +89,8 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool, printSearchInform
 	var aspCounter = 0
 
 	if SearchState.prevSearchScore != 0 {
-		alpha = SearchState.prevSearchScore - aspirationWindowSize
-		beta = SearchState.prevSearchScore + aspirationWindowSize
+		alpha = SearchState.prevSearchScore - AspirationWindowSize
+		beta = SearchState.prevSearchScore + AspirationWindowSize
 	}
 
 	var nullMove gm.Move
@@ -151,8 +145,8 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool, printSearchInform
 			mateFound = true
 		}
 
-		alpha = score - aspirationWindowSize
-		beta = score + aspirationWindowSize
+		alpha = score - AspirationWindowSize
+		beta = score + AspirationWindowSize
 		bestScore = score
 
 		if len(pvLine.Moves) > 0 {
@@ -304,7 +298,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		If we give the opponent a free move, and we still raise beta even after
 		giving our opponent the free move, we can prune this branch
 	*/
-	var margin int32 = Max32(0, 200-15*int32(depth)) // Margin to only look at positions already risking being beta nodes
+	var margin int32 = Max32(0, NMMarginBase-NMMarginDepth*int32(depth)) // Margin to only look at positions already risking being beta nodes
 	if !inCheck && !isPVNode && !didNull && sideHasPieces && depth >= NullMoveMinDepth && !isRoot && staticScore >= beta-margin {
 		unApplyfunc := applyNullMoveWithState(b)
 

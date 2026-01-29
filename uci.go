@@ -110,11 +110,13 @@ var uciOptionSetters = map[string]uciOption{
 	"lmrhistorymalus": {-150, -50, func(v int) { engine.LMRHistoryMalus = v }},
 
 	"nullmovemindepth":    {0, 10, func(v int) { engine.NullMoveMinDepth = int8(v) }},
+	"nmmarginbase":        {120, 250, func(v int) { engine.NullMoveMinDepth = int8(v) }},
+	"nmmargindepth":       {10, 25, func(v int) { engine.NullMoveMinDepth = int8(v) }},
 	"quiescenceseemargin": {100, 200, func(v int) { engine.QuiescenceSeeMargin = v }},
 	"probcutseemargin":    {100, 200, func(v int) { engine.ProbCutSeeMargin = v }},
 
 	"deltamargin":          {100, 300, func(v int) { engine.DeltaMargin = int32(v) }},
-	"aspirationwindowsize": {10, 100, func(v int) { engine.SetAspirationWindowSize(int32(v)) }},
+	"aspirationwindowsize": {10, 100, func(v int) { engine.AspirationWindowSize = int32(v) }},
 }
 
 func main() {
@@ -178,7 +180,9 @@ func uciLoop() {
 			fmt.Printf("option name LMRDepthLimit type spin default %d min 0 max 20\n", engine.LMRDepthLimit)
 
 			// Null-move pruning knobs
-			fmt.Printf("option name NullMoveMinDepth type spin default %d min 0 max 10\n", engine.NullMoveMinDepth)
+			fmt.Printf("option name NullMoveMinDepth type spin default %d min 2 max 10\n", engine.NullMoveMinDepth)
+			fmt.Printf("option name NMMarginBase type spin default %d min 120 max 250\n", engine.NMMarginBase)
+			fmt.Printf("option name NMMarginDepth type spin default %d min 10 max 25\n", engine.NMMarginDepth)
 
 			// Reverse Futility Pruning (Static Null Move) margins - base ±50
 			fmt.Printf("option name RFPMarginDepth1 type spin default %d min 50 max 150\n", engine.RFPMargins[1])
@@ -212,7 +216,7 @@ func uciLoop() {
 
 			// Other search parameters
 			fmt.Printf("option name DeltaMargin type spin default %d min 100 max 300\n", engine.DeltaMargin)
-			fmt.Printf("option name AspirationWindowSize type spin default %d min 10 max 100\n", engine.GetAspirationWindowSize())
+			fmt.Printf("option name AspirationWindowSize type spin default %d min 10 max 100\n", engine.AspirationWindowSize)
 
 			fmt.Println("uciok")
 		case "isready":
