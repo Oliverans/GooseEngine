@@ -76,8 +76,8 @@ var uciOptionSetters = map[string]uciOption{
 	"hash":    {1, 4096, func(v int) { engine.TTSize = v }},
 	"threads": {1, 1, func(v int) { uciThreads = v }},
 
-	"futilityscale": {10, 30, func(v int) { engine.FutilityScale = int32(v) }},
-	"futilityBase":  {50, 150, func(v int) { engine.FutilityBase = int32(v) }},
+	"futilityBase":  {10, 30, func(v int) { engine.FutilityBase = int32(v) }},
+	"futilityscale": {50, 150, func(v int) { engine.FutilityScale = int32(v) }},
 
 	"rfpscale":      {50, 150, func(v int) { engine.RFPScale = int32(v) }},
 	"razoringscale": {100, 200, func(v int) { engine.RazoringScale = int32(v) }},
@@ -141,8 +141,8 @@ func uciLoop() {
 			// --- Search / pruning parameters exposed as UCI options ---
 
 			// Futility margins (node-level) - base ±50
-			fmt.Printf("option name FutilityScale type spin default %d min 70 max 170\n", engine.FutilityScale)
-			fmt.Printf("option name FutilityBase type spin default %d min 70 max 170\n", engine.FutilityBase)
+			fmt.Printf("option name FutilityBase type spin default %d min 10 max 30\n", engine.FutilityBase)
+			fmt.Printf("option name FutilityScale type spin default %d min 50 max 150\n", engine.FutilityScale)
 
 			// Reverse Futility Pruning (Static Null Move) margins - base ±50
 			fmt.Printf("option name RFPScale type spin default %d min 50 max 150\n", engine.RFPScale)
