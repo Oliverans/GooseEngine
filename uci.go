@@ -158,9 +158,6 @@ func uciLoop() {
 			fmt.Printf("option name NMMarginBase type spin default %d min 120 max 250\n", engine.NMMarginBase)
 			fmt.Printf("option name NMMarginDepth type spin default %d min 10 max 25\n", engine.NMMarginDepth)
 
-			// Additional Futility margins - base ±50
-			fmt.Printf("option name FutilityScale type spin default %d min 270 max 370\n", engine.FutilityScale)
-
 			// Additional LMP margins - base ±3
 			fmt.Printf("option name LMPOffset type spin default %d min 1 max 6\n", engine.LMPOffset)
 
