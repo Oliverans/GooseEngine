@@ -96,3 +96,5 @@ cmd/debug_eval/main.go
 *.epd
 *.bin
 *.zip
+
+livereview/

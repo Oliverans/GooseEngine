@@ -38,18 +38,19 @@ var KillerMoveScore = 10
 // searchState centralizes lifecycle operations around search state.
 // It is currently a thin wrapper around existing globals.
 type searchState struct {
-	nodesChecked    int
-	totalTimeSpent  int64
-	cutStats        CutStatistics
-	stateStack      []State
-	killer          KillerStruct
-	counterMoves    [2][64][64]gm.Move
-	historyMoves    [2][64][64]int
-	prevSearchScore int32
+	nodesChecked     int
+	totalTimeSpent   int64
+	cutStats         CutStatistics
+	stateStack       []State
+	killer           KillerStruct
+	counterMoves     [2][64][64]gm.Move
+	historyMoves     [2][64][64]int
+	evalStack        [MaxDepth]int32
+	prevSearchScore  int32
 	searchShouldStop bool
 	GlobalStop       bool
-	tt              TransTable
-	timeHandler     TimeHandler
+	tt               TransTable
+	timeHandler      TimeHandler
 }
 
 // SearchState is the package-level instance used by the engine.

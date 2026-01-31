@@ -76,35 +76,14 @@ var uciOptionSetters = map[string]uciOption{
 	"hash":    {1, 4096, func(v int) { engine.TTSize = v }},
 	"threads": {1, 1, func(v int) { uciThreads = v }},
 
-	"futilitymargindepth1": {70, 170, func(v int) { engine.FutilityMargins[1] = int32(v) }},
-	"futilitymargindepth2": {170, 270, func(v int) { engine.FutilityMargins[2] = int32(v) }},
-	"futilitymargindepth3": {270, 370, func(v int) { engine.FutilityMargins[3] = int32(v) }},
-	"futilitymargindepth4": {370, 470, func(v int) { engine.FutilityMargins[4] = int32(v) }},
-	"futilitymargindepth5": {470, 570, func(v int) { engine.FutilityMargins[5] = int32(v) }},
-	"futilitymargindepth6": {570, 670, func(v int) { engine.FutilityMargins[6] = int32(v) }},
-	"futilitymargindepth7": {670, 770, func(v int) { engine.FutilityMargins[7] = int32(v) }},
+	"futilityscale": {10, 30, func(v int) { engine.FutilityScale = int32(v) }},
+	"futilityBase":  {50, 150, func(v int) { engine.FutilityBase = int32(v) }},
 
-	"razormargindepth1": {100, 200, func(v int) { engine.RazoringMargins[1] = int32(v) }},
-	"razormargindepth2": {250, 350, func(v int) { engine.RazoringMargins[2] = int32(v) }},
-	"razormargindepth3": {400, 500, func(v int) { engine.RazoringMargins[3] = int32(v) }},
+	"rfpscale":      {50, 150, func(v int) { engine.RFPScale = int32(v) }},
+	"razoringscale": {100, 200, func(v int) { engine.RazoringScale = int32(v) }},
 
-	"rfpmargindepth1": {50, 150, func(v int) { engine.RFPMargins[1] = int32(v) }},
-	"rfpmargindepth2": {150, 250, func(v int) { engine.RFPMargins[2] = int32(v) }},
-	"rfpmargindepth3": {250, 350, func(v int) { engine.RFPMargins[3] = int32(v) }},
-	"rfpmargindepth4": {350, 450, func(v int) { engine.RFPMargins[4] = int32(v) }},
-	"rfpmargindepth5": {450, 550, func(v int) { engine.RFPMargins[5] = int32(v) }},
-	"rfpmargindepth6": {550, 650, func(v int) { engine.RFPMargins[6] = int32(v) }},
-	"rfpmargindepth7": {650, 750, func(v int) { engine.RFPMargins[7] = int32(v) }},
-
-	"lmpdepth2":     {2, 8, func(v int) { engine.LateMovePruningMargins[2] = v }},
-	"lmpdepth3":     {6, 12, func(v int) { engine.LateMovePruningMargins[3] = v }},
-	"lmpdepth4":     {11, 17, func(v int) { engine.LateMovePruningMargins[4] = v }},
-	"lmpdepth5plus": {17, 23, func(v int) { engine.LateMovePruningMargins[5] = v }},
-	"lmpdepth6":     {24, 30, func(v int) { engine.LateMovePruningMargins[6] = v }},
-	"lmpdepth7":     {32, 38, func(v int) { engine.LateMovePruningMargins[7] = v }},
-	"lmpdepth8":     {41, 47, func(v int) { engine.LateMovePruningMargins[8] = v }},
-
-	"lmrdepthlimit":   {0, 20, func(v int) { engine.LMRDepthLimit = int8(v) }},
+	"lmpoffset":       {1, 6, func(v int) { engine.LMPOffset = v }},
+	"lmrdepthlimit":   {2, 20, func(v int) { engine.LMRDepthLimit = int8(v) }},
 	"lmrmovelimit":    {2, 8, func(v int) { engine.LMRMoveLimit = v }},
 	"lmrhistorybonus": {450, 550, func(v int) { engine.LMRHistoryBonus = v }},
 	"lmrhistorymalus": {-150, -50, func(v int) { engine.LMRHistoryMalus = v }},
@@ -162,19 +141,14 @@ func uciLoop() {
 			// --- Search / pruning parameters exposed as UCI options ---
 
 			// Futility margins (node-level) - base ±50
-			fmt.Printf("option name FutilityMarginDepth1 type spin default %d min 70 max 170\n", engine.FutilityMargins[1])
-			fmt.Printf("option name FutilityMarginDepth2 type spin default %d min 170 max 270\n", engine.FutilityMargins[2])
+			fmt.Printf("option name FutilityScale type spin default %d min 70 max 170\n", engine.FutilityScale)
+			fmt.Printf("option name FutilityBase type spin default %d min 70 max 170\n", engine.FutilityBase)
+
+			// Reverse Futility Pruning (Static Null Move) margins - base ±50
+			fmt.Printf("option name RFPScale type spin default %d min 50 max 150\n", engine.RFPScale)
 
 			// Razoring margins - base ±50
-			fmt.Printf("option name RazorMarginDepth1 type spin default %d min 100 max 200\n", engine.RazoringMargins[1])
-			fmt.Printf("option name RazorMarginDepth2 type spin default %d min 250 max 350\n", engine.RazoringMargins[2])
-			fmt.Printf("option name RazorMarginDepth3 type spin default %d min 400 max 500\n", engine.RazoringMargins[3])
-
-			// Late Move Pruning (LMP) thresholds - base ±3
-			fmt.Printf("option name LMPDepth2 type spin default %d min 2 max 8\n", engine.LateMovePruningMargins[2])
-			fmt.Printf("option name LMPDepth3 type spin default %d min 6 max 12\n", engine.LateMovePruningMargins[3])
-			fmt.Printf("option name LMPDepth4 type spin default %d min 11 max 17\n", engine.LateMovePruningMargins[4])
-			fmt.Printf("option name LMPDepth5Plus type spin default %d min 17 max 23\n", engine.LateMovePruningMargins[5])
+			fmt.Printf("option name RazoringScale type spin default %d min 100 max 200\n", engine.RazoringScale)
 
 			// LMR (Late Move Reductions) knobs
 			fmt.Printf("option name LMRDepthLimit type spin default %d min 0 max 20\n", engine.LMRDepthLimit)
@@ -184,26 +158,11 @@ func uciLoop() {
 			fmt.Printf("option name NMMarginBase type spin default %d min 120 max 250\n", engine.NMMarginBase)
 			fmt.Printf("option name NMMarginDepth type spin default %d min 10 max 25\n", engine.NMMarginDepth)
 
-			// Reverse Futility Pruning (Static Null Move) margins - base ±50
-			fmt.Printf("option name RFPMarginDepth1 type spin default %d min 50 max 150\n", engine.RFPMargins[1])
-			fmt.Printf("option name RFPMarginDepth2 type spin default %d min 150 max 250\n", engine.RFPMargins[2])
-			fmt.Printf("option name RFPMarginDepth3 type spin default %d min 250 max 350\n", engine.RFPMargins[3])
-			fmt.Printf("option name RFPMarginDepth4 type spin default %d min 350 max 450\n", engine.RFPMargins[4])
-			fmt.Printf("option name RFPMarginDepth5 type spin default %d min 450 max 550\n", engine.RFPMargins[5])
-			fmt.Printf("option name RFPMarginDepth6 type spin default %d min 550 max 650\n", engine.RFPMargins[6])
-			fmt.Printf("option name RFPMarginDepth7 type spin default %d min 650 max 750\n", engine.RFPMargins[7])
-
 			// Additional Futility margins - base ±50
-			fmt.Printf("option name FutilityMarginDepth3 type spin default %d min 270 max 370\n", engine.FutilityMargins[3])
-			fmt.Printf("option name FutilityMarginDepth4 type spin default %d min 370 max 470\n", engine.FutilityMargins[4])
-			fmt.Printf("option name FutilityMarginDepth5 type spin default %d min 470 max 570\n", engine.FutilityMargins[5])
-			fmt.Printf("option name FutilityMarginDepth6 type spin default %d min 570 max 670\n", engine.FutilityMargins[6])
-			fmt.Printf("option name FutilityMarginDepth7 type spin default %d min 670 max 770\n", engine.FutilityMargins[7])
+			fmt.Printf("option name FutilityScale type spin default %d min 270 max 370\n", engine.FutilityScale)
 
 			// Additional LMP margins - base ±3
-			fmt.Printf("option name LMPDepth6 type spin default %d min 24 max 30\n", engine.LateMovePruningMargins[6])
-			fmt.Printf("option name LMPDepth7 type spin default %d min 32 max 38\n", engine.LateMovePruningMargins[7])
-			fmt.Printf("option name LMPDepth8 type spin default %d min 41 max 47\n", engine.LateMovePruningMargins[8])
+			fmt.Printf("option name LMPOffset type spin default %d min 1 max 6\n", engine.LMPOffset)
 
 			// LMR parameters - base ±50 for history values
 			fmt.Printf("option name LMRMoveLimit type spin default %d min 1 max 5\n", engine.LMRMoveLimit)
@@ -408,6 +367,15 @@ func uciLoop() {
 							continue
 						}
 						opt.setter(val)
+					}
+				} else {
+					if token == "value" {
+						continue
+					}
+					// Unknown option - consume "value" and the actual value to stay in sync
+					fmt.Printf("info string Unknown option: %s\n", token)
+					if goScanner.Scan() && strings.ToLower(goScanner.Text()) == "value" {
+						goScanner.Scan() // consume the value itself
 					}
 				}
 			}

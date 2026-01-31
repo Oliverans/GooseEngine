@@ -108,7 +108,7 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 
 	movesList.moves = GetMoveListForPly(ply, len(moves))
 
-	for i := 0; i < len(moves); i++ {
+	for i := range moves {
 		mv := moves[i]
 		var moveEval int32
 
@@ -204,7 +204,7 @@ func scoreMovesListCaptures(moves []gm.Move, ply int8) (movesList moveList, anyC
 	pool := qMoveListPool[ply][:]
 	var capturedMovesIndex uint8
 
-	for i := 0; i < len(moves); i++ {
+	for i := range moves {
 		mv := moves[i]
 		capturedPiece := mv.CapturedPiece()
 		capturedType := capturedPiece.Type()

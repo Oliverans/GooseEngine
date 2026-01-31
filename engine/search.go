@@ -19,14 +19,18 @@ const (
 // =============================================================================
 // MARGINS
 // =============================================================================
-var FutilityMargins = [8]int32{0, 120, 220, 320, 420, 520, 620, 720}
-var RFPMargins = [8]int32{0, 100, 200, 300, 400, 500, 600, 700}
-var RazoringMargins = [4]int32{0, 150, 300, 450}
+var FutilityBase int32 = 20
+var FutilityScale int32 = 100
 
-var LateMovePruningMargins = [9]int{0, 3, 5, 9, 14, 20, 27, 35, 44}
+var RFPScale int32 = 100
+
+var RazoringScale int32 = 150
+
+var LMPOffset int = 3
+var AspirationWindowSize int32 = 40
 
 // =============================================================================
-// LMR/PRUNING PARAMETERS
+// LMR PARAMETERS
 // =============================================================================
 var LMRDepthLimit int8 = 2
 var LMRMoveLimit = 2
@@ -34,14 +38,15 @@ var LMRHistoryBonus = 500
 var LMRHistoryMalus = -100
 
 var NullMoveMinDepth int8 = 5
-var NMMarginBase int32 = 200
-var NMMarginDepth int32 = 15
+var NMMarginBase int32 = 205
+var NMMarginDepth int32 = 17
 
+// =============================================================================
+// QSEARCH PARAMETERS
+// =============================================================================
+var ProbCutSeeMargin int = 155
+var DeltaMargin int32 = 205
 var QuiescenceSeeMargin int = 150
-var ProbCutSeeMargin int = 150
-
-var DeltaMargin int32 = 220
-var AspirationWindowSize int32 = 40
 
 func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool, moveOrderingOnly bool, printSearchInformation bool) string {
 	initVariables(board)
@@ -262,18 +267,27 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	}
 
 	if usable {
-		staticScore = ttEntry.Score
 		bestMove = ttMove
+	}
+
+	staticScore = Evaluation(b, false)
+
+	// If we're
+	// Store eval (with invalid marker for check positions)
+	if inCheck {
+		SearchState.evalStack[ply] = -MaxScore // We never aggressively prune checks
 	} else {
-		staticScore = Evaluation(b, false)
+		SearchState.evalStack[ply] = staticScore
 	}
 
-	// If a static evaluation shows us potentially improving alpha, we can prune more aggressively
-	improving := false
+	// Calculate improving
+	improving := true // Default to true (conservative)
 	if ply >= 2 && !inCheck {
-		improving = staticScore > alpha
+		if SearchState.evalStack[ply-2] != -MaxScore {
+			improving = staticScore > SearchState.evalStack[ply-2]
+		}
+		// If ply-2 was in check, keep improving = true (conservative)
 	}
-
 	/*
 		====== STATIC NULL-MOVE PRUNING ======
 		If the static evaluation minus a safety margin still beats beta,
@@ -282,7 +296,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	var wCount, bCount = hasMinorOrMajorPiece(b)
 	var sideHasPieces = (b.Wtomove && wCount > 0) || (!b.Wtomove && bCount > 0)
 	if !inCheck && !isPVNode && depth <= 7 && depth >= 1 && abs32(beta) < Checkmate && !isRoot {
-		rfpMargin := RFPMargins[depth]
+		rfpMargin := RazoringScale * int32(depth)
 		if !improving {
 			rfpMargin -= 50 // More aggressive when not improving
 		}
@@ -320,7 +334,8 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		We drop into qsearch to confirm, and if it still fails low, we return early.
 	*/
 	if depth <= 3 && !isPVNode && !inCheck && !isRoot {
-		if staticScore+RazoringMargins[depth] < alpha {
+		razorMargin := RazoringScale * int32(depth)
+		if staticScore+razorMargin < alpha {
 			score := quiescence(b, alpha, beta, &childPVLine, 30, ply, rootIndex)
 			if score < alpha {
 				return score
@@ -453,7 +468,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			Skip quiet moves late in the move list at low depths.
 		*/
 		if depth <= 8 && !isPVNode && !tactical && !isRoot && legalMoves > 1 {
-			lmpMargin := LateMovePruningMargins[Min(int(depth), len(LateMovePruningMargins)-1)]
+			lmpMargin := int(depth) * (int(depth) + LMPOffset) / 2
 			if !improving {
 				lmpMargin = lmpMargin * 2 / 3
 			}
@@ -461,9 +476,6 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 				SearchState.cutStats.LateMovePrunes++
 				continue
 			}
-		}
-		if moveGivesCheck {
-			tactical = true
 		}
 
 		/*
@@ -473,7 +485,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			We skip all quiet moves, assuming only a capture could help
 		*/
 		if depth <= 7 && depth >= 1 && !moveGivesCheck && !isPVNode && !isRoot && !tactical && abs32(alpha) < Checkmate {
-			futilityMargin := FutilityMargins[depth]
+			futilityMargin := FutilityBase + FutilityScale*int32(depth)
 			if !improving {
 				futilityMargin -= 50
 			}
