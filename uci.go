@@ -76,7 +76,7 @@ var uciOptionSetters = map[string]uciOption{
 	"hash":    {1, 4096, func(v int) { engine.TTSize = v }},
 	"threads": {1, 1, func(v int) { uciThreads = v }},
 
-	"futilityBase":  {10, 30, func(v int) { engine.FutilityBase = int32(v) }},
+	"futilitybase":  {10, 30, func(v int) { engine.FutilityBase = int32(v) }},
 	"futilityscale": {50, 150, func(v int) { engine.FutilityScale = int32(v) }},
 
 	"rfpscale":      {50, 150, func(v int) { engine.RFPScale = int32(v) }},
