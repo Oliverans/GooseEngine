@@ -19,12 +19,12 @@ const (
 // =============================================================================
 // MARGINS
 // =============================================================================
-var FutilityBase int32 = 20
-var FutilityScale int32 = 100
+var FutilityBase int32 = 22
+var FutilityScale int32 = 110
 
-var RFPScale int32 = 100
+var RFPScale int32 = 105
 
-var RazoringScale int32 = 150
+var RazoringScale int32 = 130
 
 var LMPOffset int = 3
 var AspirationWindowSize int32 = 40
@@ -37,7 +37,7 @@ var LMRMoveLimit = 2
 var LMRHistoryBonus = 500
 var LMRHistoryMalus = -100
 
-var NullMoveMinDepth int8 = 5
+var NullMoveMinDepth int8 = 3
 var NMMarginBase int32 = 205
 var NMMarginDepth int32 = 17
 
@@ -296,7 +296,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	var wCount, bCount = hasMinorOrMajorPiece(b)
 	var sideHasPieces = (b.Wtomove && wCount > 0) || (!b.Wtomove && bCount > 0)
 	if !inCheck && !isPVNode && depth <= 7 && depth >= 1 && abs32(beta) < Checkmate && !isRoot {
-		rfpMargin := RazoringScale * int32(depth)
+		rfpMargin := RFPScale * int32(depth)
 		if !improving {
 			rfpMargin -= 50 // More aggressive when not improving
 		}
@@ -338,6 +338,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		if staticScore+razorMargin < alpha {
 			score := quiescence(b, alpha, beta, &childPVLine, 30, ply, rootIndex)
 			if score < alpha {
+				SearchState.cutStats.RazoringCutoffs++
 				return score
 			}
 		}
@@ -389,15 +390,15 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 				}
 
 				unapplyFunc := applyMoveWithState(b, move)
-
+				SearchState.ContHistPushMove(ply, move)
 				qScore := -quiescence(b, -probCutBeta, -probCutBeta+1, &childPVLine, 10, ply+1, rootIndex)
 
 				if qScore >= probCutBeta {
 					score := -alphabeta(b, -probCutBeta, -probCutBeta+1, depth-4, ply+1, &childPVLine, prevMove, didNull, isExtended, excludedMove, rootIndex)
-
 					if score >= probCutBeta {
 						unapplyFunc()
 						SearchState.tt.storeEntry(posHash, depth, ply, move, score, BetaFlag)
+						SearchState.cutStats.ProbCutCutoffs++
 						return score
 					}
 				}
@@ -462,6 +463,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 
 		// Tactical = capture, check, or promotion
 		tactical := isCapture || moveGivesCheck || isPromotion
+		isQuiet := !isCapture && !isPromotion && !moveGivesCheck
 
 		/*
 			====== LATE MOVE PRUNING ======
@@ -495,11 +497,12 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			}
 		}
 
-		if !isCapture {
+		if isQuiet {
 			quietMovesTried = append(quietMovesTried, move)
 		}
 
 		var unapplyFunc = applyMoveWithState(b, move)
+		SearchState.ContHistPushMove(ply, move)
 
 		/*
 			====== LATE MOVE REDUCTION ======
@@ -515,7 +518,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			nextDepth := calculateSearchDepth(depth-1, 0, extendMove)
 			score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, rootIndex)
 		} else {
-			moveHistoryScore := SearchState.historyMoves[sideIdx][move.From()][move.To()]
+			moveHistoryScore := HistoryCombinedScore(sideIdx, move, ply)
 
 			var reduct int8 = 0
 			if depth >= LMRDepthLimit && legalMoves >= LMRMoveLimit && !moveGivesCheck && !tactical {
@@ -553,15 +556,13 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		if score >= beta {
 			SearchState.cutStats.BetaCutoffs++
 			ttFlag = BetaFlag
-			if !isCapture {
+			if isQuiet {
 				InsertKiller(move, ply, &SearchState.killer)
-				storeCounter(b.Wtomove, prevMove, move)
-
-				incrementHistoryScore(b.Wtomove, move, depth)
+				HistoryUpdateAllGood(b.Wtomove, move, prevMove, ply, depth)
 
 				for _, failedMove := range quietMovesTried {
 					if failedMove != move {
-						decrementHistoryScoreBy(b.Wtomove, failedMove, depth)
+						HistoryUpdateAllBad(b.Wtomove, failedMove, ply, depth)
 					}
 				}
 			}
@@ -573,8 +574,8 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			ttFlag = ExactFlag
 			pvLine.Update(move, childPVLine)
 
-			if !isCapture {
-				incrementHistoryScore(b.Wtomove, move, depth)
+			if isQuiet {
+				HistoryUpdateGood(b.Wtomove, move, depth)
 			}
 		}
 		childPVLine.Clear()
@@ -663,6 +664,7 @@ func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8
 		}
 
 		unapplyFunc := applyMoveWithState(b, move)
+		SearchState.ContHistPushMove(ply, move)
 		movesSearched++
 
 		score := -quiescence(b, -beta, -alpha, &childPVLine, depth-1, ply+1, rootIndex)

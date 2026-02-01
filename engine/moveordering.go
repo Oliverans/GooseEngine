@@ -37,7 +37,7 @@ var SortingNormal int
 // 5. Killer 1:         700,000
 // 6. Killer 2:         690,000
 // 7. Counter move:     600,000 + history
-// 8. Quiet moves:      500,000 + history (can go negative but still above losing captures)
+// 8. Quiet moves:      500,000 + history + cont_history (can go negative but still above losing captures)
 // 9. Losing captures:  100,000 + MVV-LVA (still tried, but last)
 // 10. Under-promos:     50,000 + piece value
 
@@ -108,6 +108,9 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 
 	movesList.moves = GetMoveListForPly(ply, len(moves))
 
+	// Get continuation history context once for all moves
+	prev1Ply, prev2Ply := SearchState.ContHistContext(ply)
+
 	for i := range moves {
 		mv := moves[i]
 		var moveEval int32
@@ -177,12 +180,18 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 			moveEval = scoreKiller2
 
 		} else {
+			// Regular quiet move: combine main history + continuation history
 			histScore := int32(SearchState.historyMoves[side][mv.From()][mv.To()])
-			moveEval = scoreQuietBase + histScore
 
-			// Counter move bonus
+			// NEW: Add continuation history score (weighted at 50%)
+			contScore := int32(ContHistScore(side, mv, prev1Ply, prev2Ply))
+			combinedHist := histScore + contScore/2
+
+			moveEval = scoreQuietBase + combinedHist
+
+			// Counter move bonus (still uses combined history for tie-breaking)
 			if prevMove != 0 && SearchState.counterMoves[side][prevMove.From()][prevMove.To()] == mv {
-				moveEval = scoreCounterMove + histScore
+				moveEval = scoreCounterMove + combinedHist
 			}
 		}
 
@@ -234,4 +243,13 @@ func IsKiller(move gm.Move, ply int8, k *KillerStruct) bool {
 		index = len(k.KillerMoves) - 1
 	}
 	return move == k.KillerMoves[index][0] || move == k.KillerMoves[index][1]
+}
+
+// HistoryCombinedScore returns the combined history + continuation history score
+// Useful for LMR decisions in search
+func HistoryCombinedScore(side int, move gm.Move, ply int8) int {
+	mainHist := SearchState.historyMoves[side][move.From()][move.To()]
+	prev1Ply, prev2Ply := SearchState.ContHistContext(ply)
+	contHist := ContHistScore(side, move, prev1Ply, prev2Ply)
+	return mainHist + contHist/2
 }

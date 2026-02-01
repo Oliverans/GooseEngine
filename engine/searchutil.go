@@ -32,11 +32,187 @@ var KillerMoveLength = 2
 var KillerMoveScore = 10
 
 // =============================================================================
+// CONTINUATION HISTORY
+// =============================================================================
+
+// Continuation history tracks move sequences that work well together.
+// contHist1Ply[side][prevPiece][prevTo][currPiece][currTo] - 1-ply continuation
+// contHist2Ply[side][prevPiece][prevTo][currPiece][currTo] - 2-ply continuation
+//
+// Piece types are 0-5 (Pawn=0, Knight=1, Bishop=2, Rook=3, Queen=4, King=5)
+// This captures patterns like "after Nf3, Bg5 is often good"
+
+const contHistMax = 8000
+
+// ContHistEntry holds the context needed to update continuation history
+type ContHistEntry struct {
+	Piece int8 // 0-5 piece type
+	To    int8 // 0-63 destination square
+	Valid bool // Whether this entry has valid data
+}
+
+// ContHistEntryFromMove extracts continuation history context from a move
+func ContHistEntryFromMove(move gm.Move) ContHistEntry {
+	if move == 0 {
+		return ContHistEntry{Valid: false}
+	}
+	pieceType := int8(move.MovedPiece().Type() - 1) // Convert to 0-5
+	if pieceType < 0 || pieceType > 5 {
+		return ContHistEntry{Valid: false}
+	}
+	return ContHistEntry{
+		Piece: pieceType,
+		To:    int8(move.To()),
+		Valid: true,
+	}
+}
+
+// ContHistScore returns the continuation history score for a move
+// given the previous moves (1-ply and 2-ply back)
+func ContHistScore(side int, currMove gm.Move, prev1Ply, prev2Ply ContHistEntry) int {
+	if currMove == 0 {
+		return 0
+	}
+
+	currPiece := int(currMove.MovedPiece().Type() - 1)
+	if currPiece < 0 || currPiece > 5 {
+		return 0
+	}
+	currTo := int(currMove.To())
+
+	score := 0
+
+	// 1-ply continuation (opponent's last move -> our move)
+	if prev1Ply.Valid {
+		score += int(SearchState.contHist1Ply[side][prev1Ply.Piece][prev1Ply.To][currPiece][currTo])
+	}
+
+	// 2-ply continuation (our previous move -> our current move)
+	if prev2Ply.Valid {
+		score += int(SearchState.contHist2Ply[side][prev2Ply.Piece][prev2Ply.To][currPiece][currTo])
+	}
+
+	return score
+}
+
+// ContHistUpdateGood updates continuation history for a move that caused beta cutoff
+func ContHistUpdateGood(side int, currMove gm.Move, prev1Ply, prev2Ply ContHistEntry, depth int8) {
+	if currMove == 0 {
+		return
+	}
+
+	currPiece := int(currMove.MovedPiece().Type() - 1)
+	if currPiece < 0 || currPiece > 5 {
+		return
+	}
+	currTo := int(currMove.To())
+
+	bonus := int(depth) * int(depth)
+
+	// Update 1-ply continuation
+	if prev1Ply.Valid {
+		current := int(SearchState.contHist1Ply[side][prev1Ply.Piece][prev1Ply.To][currPiece][currTo])
+		// Gravity formula: bonus decreases as value approaches max
+		adjustedBonus := bonus - current*bonus/contHistMax
+		newVal := current + adjustedBonus
+		if newVal > contHistMax {
+			newVal = contHistMax
+		}
+		if newVal < -contHistMax {
+			newVal = -contHistMax
+		}
+		SearchState.contHist1Ply[side][prev1Ply.Piece][prev1Ply.To][currPiece][currTo] = int16(newVal)
+	}
+
+	// Update 2-ply continuation
+	if prev2Ply.Valid {
+		current := int(SearchState.contHist2Ply[side][prev2Ply.Piece][prev2Ply.To][currPiece][currTo])
+		adjustedBonus := bonus - current*bonus/contHistMax
+		newVal := current + adjustedBonus
+		if newVal > contHistMax {
+			newVal = contHistMax
+		}
+		if newVal < -contHistMax {
+			newVal = -contHistMax
+		}
+		SearchState.contHist2Ply[side][prev2Ply.Piece][prev2Ply.To][currPiece][currTo] = int16(newVal)
+	}
+}
+
+// ContHistUpdateBad updates continuation history for moves that didn't cause cutoff
+func ContHistUpdateBad(side int, currMove gm.Move, prev1Ply, prev2Ply ContHistEntry, depth int8) {
+	if currMove == 0 {
+		return
+	}
+
+	currPiece := int(currMove.MovedPiece().Type() - 1)
+	if currPiece < 0 || currPiece > 5 {
+		return
+	}
+	currTo := int(currMove.To())
+
+	malus := int(depth) * int(depth)
+
+	// Update 1-ply continuation with penalty
+	if prev1Ply.Valid {
+		current := int(SearchState.contHist1Ply[side][prev1Ply.Piece][prev1Ply.To][currPiece][currTo])
+		adjustedMalus := malus + current*malus/contHistMax
+		newVal := current - adjustedMalus
+		if newVal < -contHistMax {
+			newVal = -contHistMax
+		}
+		SearchState.contHist1Ply[side][prev1Ply.Piece][prev1Ply.To][currPiece][currTo] = int16(newVal)
+	}
+
+	// Update 2-ply continuation with penalty
+	if prev2Ply.Valid {
+		current := int(SearchState.contHist2Ply[side][prev2Ply.Piece][prev2Ply.To][currPiece][currTo])
+		adjustedMalus := malus + current*malus/contHistMax
+		newVal := current - adjustedMalus
+		if newVal < -contHistMax {
+			newVal = -contHistMax
+		}
+		SearchState.contHist2Ply[side][prev2Ply.Piece][prev2Ply.To][currPiece][currTo] = int16(newVal)
+	}
+}
+
+// ContHistClear resets all continuation history tables
+func ContHistClear() {
+	for side := 0; side < 2; side++ {
+		for p1 := 0; p1 < 6; p1++ {
+			for t1 := 0; t1 < 64; t1++ {
+				for p2 := 0; p2 < 6; p2++ {
+					for t2 := 0; t2 < 64; t2++ {
+						SearchState.contHist1Ply[side][p1][t1][p2][t2] = 0
+						SearchState.contHist2Ply[side][p1][t1][p2][t2] = 0
+					}
+				}
+			}
+		}
+	}
+}
+
+// ContHistAge halves all continuation history values
+func ContHistAge() {
+	for side := 0; side < 2; side++ {
+		for p1 := 0; p1 < 6; p1++ {
+			for t1 := 0; t1 < 64; t1++ {
+				for p2 := 0; p2 < 6; p2++ {
+					for t2 := 0; t2 < 64; t2++ {
+						SearchState.contHist1Ply[side][p1][t1][p2][t2] /= 2
+						SearchState.contHist2Ply[side][p1][t1][p2][t2] /= 2
+					}
+				}
+			}
+		}
+	}
+}
+
+// =============================================================================
 // SEARCH STATE
 // =============================================================================
 
 // searchState centralizes lifecycle operations around search state.
-// It is currently a thin wrapper around existing globals.
 type searchState struct {
 	nodesChecked     int
 	totalTimeSpent   int64
@@ -51,10 +227,40 @@ type searchState struct {
 	GlobalStop       bool
 	tt               TransTable
 	timeHandler      TimeHandler
+
+	// Move stack for continuation history lookups
+	moveStack [MaxDepth + 4]gm.Move
+
+	// Continuation history tables (1-ply and 2-ply)
+	contHist1Ply [2][6][64][6][64]int16
+	contHist2Ply [2][6][64][6][64]int16
 }
 
 // SearchState is the package-level instance used by the engine.
 var SearchState = &searchState{}
+
+// ContHistPushMove records a move on the move stack for continuation history
+func (s *searchState) ContHistPushMove(ply int8, move gm.Move) {
+	if ply >= 0 && ply < MaxDepth {
+		s.moveStack[ply+2] = move // +2 offset so we can look back safely
+	}
+}
+
+// contHistPrevMove returns the move made N plies ago (1 = opponent's last, 2 = our last)
+func (s *searchState) contHistPrevMove(ply int8, pliesBack int) gm.Move {
+	idx := int(ply) + 2 - pliesBack
+	if idx >= 0 && idx < len(s.moveStack) {
+		return s.moveStack[idx]
+	}
+	return 0
+}
+
+// ContHistContext returns the continuation history context for move scoring
+func (s *searchState) ContHistContext(ply int8) (prev1Ply, prev2Ply ContHistEntry) {
+	prev1Ply = ContHistEntryFromMove(s.contHistPrevMove(ply, 1))
+	prev2Ply = ContHistEntryFromMove(s.contHistPrevMove(ply, 2))
+	return
+}
 
 // =============================================================================
 // LIFECYCLE & STOP CONTROL
@@ -73,6 +279,10 @@ func (s *searchState) SyncPositionState(board *gm.Board) {
 // ResetForSearch performs per-search initialization.
 func (s *searchState) ResetForSearch(board *gm.Board) {
 	SearchState.ensureStateStackSynced(board)
+	// Clear move stack for new search
+	for i := range s.moveStack {
+		s.moveStack[i] = 0
+	}
 }
 
 // RequestStop signals an external stop (e.g. UCI stop command).
@@ -102,11 +312,11 @@ func (s *searchState) UpdateBetweenSearches() {
 }
 
 func UpdateBetweenSearches() {
-	AgeHistory()        // Age history
+	HistoryAge()        // Age history
+	ContHistAge()       // Age continuation history
 	ResetNodesChecked() // Reset nodes checked
 	ResetCutStats()     // Reset cut statistics
-	//ClearKillers(&SearchState.killer)
-	SearchState.tt.NewSearch() // Increment TT for aging
+	SearchState.tt.NewSearch()
 }
 
 func ResetForNewGame() {
@@ -114,7 +324,8 @@ func ResetForNewGame() {
 	SearchState.tt.NewSearch()
 	ClearPawnHash()
 	ClearKillers(&SearchState.killer)
-	ClearHistoryTable()
+	HistoryClear()
+	ContHistClear()
 	SearchState.stateStack = SearchState.stateStack[:0]
 	var nilMove gm.Move
 	for i := 0; i < 64; i++ {
@@ -122,6 +333,9 @@ func ResetForNewGame() {
 			SearchState.counterMoves[0][i][z] = nilMove
 			SearchState.counterMoves[1][i][z] = nilMove
 		}
+	}
+	for i := range SearchState.moveStack {
+		SearchState.moveStack[i] = 0
 	}
 
 	SearchState.prevSearchScore = 0
@@ -153,12 +367,6 @@ func ClearKillers(k *KillerStruct) {
 	}
 }
 
-/*
-HISTORY/COUNTER MOVES
-If a move was a cut-node (above beta), and not a capture, we keep track of two things:
-The move that countered us (previous move made) - a counter move
-A historical score of the move - since we know it was a good move to keep track of, we use this for move ordering
-*/
 func storeCounter(sideToMove bool, prevMove gm.Move, move gm.Move) {
 	if prevMove == 0 {
 		return
@@ -172,9 +380,7 @@ func storeCounter(sideToMove bool, prevMove gm.Move, move gm.Move) {
 	}
 }
 
-// Increment the history score for the given move if it caused a beta-cutoff and is quiet.
-// OPTIMIZATION: Use depth^2 bonus, common in modern engines
-func incrementHistoryScore(sideToMove bool, move gm.Move, depth int8) {
+func HistoryUpdateGood(sideToMove bool, move gm.Move, depth int8) {
 	sideIdx := 0
 	if !sideToMove {
 		sideIdx = 1
@@ -187,11 +393,11 @@ func incrementHistoryScore(sideToMove bool, move gm.Move, depth int8) {
 	SearchState.historyMoves[sideIdx][move.From()][move.To()] += bonus
 
 	if SearchState.historyMoves[sideIdx][move.From()][move.To()] >= historyMaxVal {
-		AgeHistory()
+		HistoryAge()
 	}
 }
 
-func decrementHistoryScoreBy(sideToMove bool, move gm.Move, depth int8) {
+func HistoryUpdateBad(sideToMove bool, move gm.Move, depth int8) {
 	sideIdx := 0
 	if !sideToMove {
 		sideIdx = 1
@@ -205,11 +411,11 @@ func decrementHistoryScoreBy(sideToMove bool, move gm.Move, depth int8) {
 
 	if SearchState.historyMoves[sideIdx][move.From()][move.To()] <= -historyMaxVal {
 		SearchState.historyMoves[sideIdx][move.From()][move.To()] = -historyMaxVal
-		AgeHistory()
+		HistoryAge()
 	}
 }
 
-func AgeHistory() {
+func HistoryAge() {
 	for side := 0; side < 2; side++ {
 		for from := 0; from < 64; from++ {
 			for to := 0; to < 64; to++ {
@@ -217,11 +423,9 @@ func AgeHistory() {
 			}
 		}
 	}
-	// Also age counter move history if you have it
 }
 
-// Clear the values in the history table.
-func ClearHistoryTable() {
+func HistoryClear() {
 	for sq1 := 0; sq1 < 64; sq1++ {
 		for sq2 := 0; sq2 < 64; sq2++ {
 			SearchState.historyMoves[0][sq1][sq2] = 0
@@ -231,33 +435,61 @@ func ClearHistoryTable() {
 }
 
 // =============================================================================
+// COMBINED HISTORY UPDATE (call on beta cutoff for quiet moves)
+// =============================================================================
+
+// HistoryUpdateAllGood updates all history tables when a quiet move causes beta cutoff
+func HistoryUpdateAllGood(sideToMove bool, move gm.Move, prevMove gm.Move, ply int8, depth int8) {
+	sideIdx := 0
+	if !sideToMove {
+		sideIdx = 1
+	}
+
+	// Update main history
+	HistoryUpdateGood(sideToMove, move, depth)
+
+	// Update counter move
+	storeCounter(sideToMove, prevMove, move)
+
+	// Update continuation history
+	prev1Ply, prev2Ply := SearchState.ContHistContext(ply)
+	ContHistUpdateGood(sideIdx, move, prev1Ply, prev2Ply, depth)
+}
+
+// HistoryUpdateAllBad updates all history tables for quiet moves that didn't cause cutoff
+func HistoryUpdateAllBad(sideToMove bool, move gm.Move, ply int8, depth int8) {
+	sideIdx := 0
+	if !sideToMove {
+		sideIdx = 1
+	}
+
+	// Update main history with penalty
+	HistoryUpdateBad(sideToMove, move, depth)
+
+	// Update continuation history with penalty
+	prev1Ply, prev2Ply := SearchState.ContHistContext(ply)
+	ContHistUpdateBad(sideIdx, move, prev1Ply, prev2Ply, depth)
+}
+
+// =============================================================================
 // LMR REDUCTIONS
 // =============================================================================
 
-// OPTIMIZATION: Improved LMR reduction computation
-// Uses the precomputed LMR table with dynamic adjustments
-// Consolidates all reduction heuristics in one place for maintainability
 func computeLMRReduction(depth int8, legalMoves int, moveIdx int, isPVNode bool, tactical bool,
 	historyScore int, improving bool, isKiller bool, extendMove bool) int8 {
-	// No reduction for tactical moves or very shallow depths
 	if tactical || depth < 2 {
 		return 0
 	}
 
-	// Clamp indices into LMR table bounds
 	d := Max(1, Min(int(depth), int(MaxDepth)))
 	m := Max(1, Min(legalMoves, 99))
 
-	// Get base reduction from precomputed table
 	r := LMR[d][m]
 
-	// PV nodes get less reduction
 	if isPVNode {
 		r--
 	}
 
-	// History-based adjustments
-	// Good history: reduce less (this move has been good before)
 	if historyScore > LMRHistoryBonus {
 		r--
 	}
@@ -265,39 +497,30 @@ func computeLMRReduction(depth int8, legalMoves int, moveIdx int, isPVNode bool,
 		r--
 	}
 
-	// Bad history: reduce more (this move has failed before)
 	if historyScore < LMRHistoryMalus {
 		r++
 	}
 
-	// Very late moves can be reduced more aggressively
 	if legalMoves > 10 && !isPVNode {
 		r++
 	}
 
-	// Additional heuristics from search.go consolidated here:
-
-	// PV nodes get additional reduction bonus
 	if isPVNode && r > 0 {
 		r--
 	}
 
-	// Improving positions deserve less reduction
 	if improving && r > 1 {
 		r--
 	}
 
-	// Killer moves are promising, reduce less
 	if isKiller && r > 0 {
 		r--
 	}
 
-	// If we're extending this move, reduce the reduction
 	if extendMove && r > 0 {
 		r--
 	}
 
-	// Ensure bounds
 	if r < 0 {
 		r = 0
 	}
@@ -343,7 +566,6 @@ func getPVLineString(pvLine PVLine) (theMoves string) {
 	return theMoves
 }
 
-// Taken from Blunder chess engine and slightly modified
 func getMateOrCPScore(score int) string {
 	mateValue := int(MaxScore)
 	mateThreshold := int(Checkmate)

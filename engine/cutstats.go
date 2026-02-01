@@ -13,6 +13,7 @@ type CutStatistics struct {
 	BetaCutoffs       uint64
 	QStandPatCutoffs  uint64
 	QBetaCutoffs      uint64
+	ProbCutCutoffs    uint64
 }
 
 // PrintCutStats controls whether the engine dumps the cut statistics once the
@@ -35,4 +36,5 @@ func dumpCutStats() {
 	fmt.Printf("info string   Beta cutoffs: %d\n", cutStats.BetaCutoffs)
 	fmt.Printf("info string   QStandPat cutoffs: %d\n", cutStats.QStandPatCutoffs)
 	fmt.Printf("info string   QBeta cutoffs: %d\n", cutStats.QBetaCutoffs)
+	fmt.Printf("info string   ProbCutCutoffs cutoffs: %d\n", cutStats.ProbCutCutoffs)
 }

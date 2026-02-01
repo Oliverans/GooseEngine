@@ -43,7 +43,7 @@ func TestPromotionCapturesAndQuiets(t *testing.T) {
 
 	caps := b.GenerateCaptures()
 	// Expect 4 capture promotions from a7xb8=Q/R/B/N
-	wantCap := map[string]bool{"a7b8Q": true, "a7b8R": true, "a7b8B": true, "a7b8N": true}
+	wantCap := map[string]bool{"a7b8q": true, "a7b8r": true, "a7b8b": true, "a7b8n": true}
 	var haveCap = map[string]bool{}
 	for _, m := range caps {
 		haveCap[m.String()] = true
@@ -56,7 +56,7 @@ func TestPromotionCapturesAndQuiets(t *testing.T) {
 
 	quiets := b.GenerateQuiets()
 	// Expect 4 quiet promotions from a7a8=Q/R/B/N
-	wantQuiet := map[string]bool{"a7a8Q": true, "a7a8R": true, "a7a8B": true, "a7a8N": true}
+	wantQuiet := map[string]bool{"a7a8q": true, "a7a8r": true, "a7a8b": true, "a7a8n": true}
 	var haveQuiet = map[string]bool{}
 	for _, m := range quiets {
 		haveQuiet[m.String()] = true
