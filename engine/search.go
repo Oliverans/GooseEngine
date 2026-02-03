@@ -37,15 +37,15 @@ var LMRMoveLimit = 2
 var LMRHistoryBonus = 500
 var LMRHistoryMalus = -100
 
-var NullMoveMinDepth int8 = 3
-var NMMarginBase int32 = 205
-var NMMarginDepth int32 = 17
+var NullMoveMinDepth int8 = 4
+var NMMarginBase int32 = 210
+var NMMarginDepth int32 = 16
 
 // =============================================================================
 // QSEARCH PARAMETERS
 // =============================================================================
-var ProbCutSeeMargin int = 155
-var DeltaMargin int32 = 205
+var ProbCutSeeMargin int = 140
+var DeltaMargin int32 = 210
 var QuiescenceSeeMargin int = 150
 
 func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool, moveOrderingOnly bool, printSearchInformation bool) string {

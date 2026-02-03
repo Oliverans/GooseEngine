@@ -19,6 +19,7 @@ var historyMaxVal = 8000 // Cap to prevent overflow, triggers aging
 
 // To keep track of 3-fold repetition and/or 50 move draw
 // (legacy: kept for UCI position tracking helpers)
+// TBD: Replace and fold properly into SearchStack
 type HistoryStruct struct {
 	History             []uint64
 	HalfclockRepetition int
