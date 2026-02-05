@@ -19,12 +19,12 @@ const (
 // =============================================================================
 // MARGINS
 // =============================================================================
-var FutilityBase int32 = 22
-var FutilityScale int32 = 110
+var FutilityBase int32 = 21
+var FutilityScale int32 = 114
 
-var RFPScale int32 = 105
+var RFPScale int32 = 83
 
-var RazoringScale int32 = 130
+var RazoringScale int32 = 155
 
 var LMPOffset int = 3
 var AspirationWindowSize int32 = 40
