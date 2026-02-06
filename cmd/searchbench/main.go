@@ -78,6 +78,7 @@ func main() {
 			uint8(depth),
 			timeToUseMs,
 			incMs,
+			0,
 			useCustomDepth,
 			evalOnly,
 			moveOrderingOnly,

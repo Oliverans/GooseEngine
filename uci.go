@@ -37,7 +37,7 @@ func runBench() {
 		engine.SearchState.ResetForNewGame()
 
 		// Search with fixed depth, large time, no time-based cutoff
-		engine.StartSearch(&board, uint8(benchDepth), 1000000, 0, true, false, false, false)
+		engine.StartSearch(&board, uint8(benchDepth), 1000000, 0, 0, true, false, false, false)
 
 		// Accumulate nodes
 		totalNodes += engine.GetNodeCount()
@@ -195,6 +195,7 @@ func uciLoop() {
 			var bTime = 0
 			var wInc = 0
 			var bInc = 0
+			var movesToGo = 0
 			var depthToUse = 0
 			for goScanner.Scan() {
 				nextToken := strings.ToLower(goScanner.Text())
@@ -241,6 +242,16 @@ func uciLoop() {
 						continue
 					}
 					bInc, err = strconv.Atoi(goScanner.Text())
+				case "movestogo":
+					if !goScanner.Scan() {
+						fmt.Println("info string Malformed go command option movestogo")
+						continue
+					}
+					if err != nil {
+						fmt.Println("info string Malformed go command option; could not convert movestogo")
+						continue
+					}
+					movesToGo, err = strconv.Atoi(goScanner.Text())
 				case "depth":
 					if !goScanner.Scan() {
 						fmt.Println("info string Malformed go command option depth")
@@ -279,7 +290,7 @@ func uciLoop() {
 				depthToUse = 50
 			}
 
-			bestMove := engine.StartSearch(&board, uint8(depthToUse), timeToUse, incToUse, useCustomDepth, evalOnly, moveOrderingOnly, printSearchInformation)
+			bestMove := engine.StartSearch(&board, uint8(depthToUse), timeToUse, incToUse, movesToGo, useCustomDepth, evalOnly, moveOrderingOnly, printSearchInformation)
 			fmt.Println("bestmove ", bestMove)
 
 			// Reset after search (while not incrementing time ...)

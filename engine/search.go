@@ -46,7 +46,7 @@ var ProbCutSeeMargin int = 140
 var DeltaMargin int32 = 210
 var QuiescenceSeeMargin int = 150
 
-func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useCustomDepth bool, evalOnly bool, moveOrderingOnly bool, printSearchInformation bool) string {
+func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, movesToGo int, useCustomDepth bool, evalOnly bool, moveOrderingOnly bool, printSearchInformation bool) string {
 	initVariables(board)
 
 	//Stat reset
@@ -57,7 +57,7 @@ func StartSearch(board *gm.Board, depth uint8, gameTime int, increment int, useC
 	}
 
 	SearchState.GlobalStop = false
-	SearchState.timeHandler.initTimemanagement(gameTime, increment, board.FullmoveNumber(), useCustomDepth)
+	SearchState.timeHandler.initTimemanagement(gameTime, increment, board.FullmoveNumber(), movesToGo, useCustomDepth)
 	SearchState.timeHandler.StartTime(board.FullmoveNumber())
 
 	var bestMove gm.Move

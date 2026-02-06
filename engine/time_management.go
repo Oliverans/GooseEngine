@@ -13,6 +13,7 @@ const (
 	softTimeFactor       = 0.6  // Use 60% of allocated time as soft limit
 	hardTimeFactor       = 2.5  // Hard limit is 2.5x the base allocation
 	maxTimeUsageFraction = 0.20 // Never use more than 20% of remaining time
+	movesToGoBufferDiv   = 50   // 2% buffer when movestogo is known
 
 	// Safety buffer
 	minBufferMillis = 50
@@ -29,6 +30,7 @@ type TimeHandler struct {
 	isInitialized        bool
 	usingCustomDepth     bool
 	baseAllocationMillis int64
+	movesToGo            int
 
 	// For dynamic adjustments
 	lastScore         int16
@@ -37,7 +39,7 @@ type TimeHandler struct {
 	bestMoveStability int
 }
 
-func (th *TimeHandler) initTimemanagement(remainingTime int, increment int, fullmoveNumber int, useCustomDepth bool) {
+func (th *TimeHandler) initTimemanagement(remainingTime int, increment int, fullmoveNumber int, movesToGo int, useCustomDepth bool) {
 	th.remainingTime = remainingTime
 	th.increment = increment
 	th.fullmoveNumber = fullmoveNumber
@@ -45,6 +47,7 @@ func (th *TimeHandler) initTimemanagement(remainingTime int, increment int, full
 	th.isInitialized = true
 	th.usingCustomDepth = useCustomDepth
 	th.baseAllocationMillis = 0
+	th.movesToGo = movesToGo
 	th.scoreStability = 0
 	th.bestMoveStability = 0
 }
@@ -56,6 +59,9 @@ func (th *TimeHandler) StartTime(fullmoveNumber int) {
 
 	// Estimate moves remaining based on game phase
 	movesRemaining := th.estimateMovesRemaining(fullmoveNumber)
+	if th.movesToGo > 0 {
+		movesRemaining = th.movesToGo
+	}
 
 	// Calculate base time allocation
 	baseTime := th.calculateBaseTime(movesRemaining)
@@ -70,10 +76,7 @@ func (th *TimeHandler) StartTime(fullmoveNumber int) {
 	hardMillis := int64(float64(baseTime) * hardTimeFactor)
 
 	// Hard limit can't exceed safety threshold
-	maxHard := int64(float64(th.remainingTime) * maxTimeUsageFraction)
-	if th.increment > 0 {
-		maxHard += int64(th.increment)
-	}
+	maxHard := th.maxHardLimitMillis()
 	if hardMillis > maxHard {
 		hardMillis = maxHard
 	}
@@ -127,21 +130,19 @@ func (th *TimeHandler) applySafetyLimits(baseTime int) int {
 		return baseTime
 	}
 
-	// Never use more than maxTimeUsageFraction of remaining time
-	maxAllowed := int(float64(th.remainingTime) * maxTimeUsageFraction)
-	if th.increment > 0 {
-		maxAllowed += th.increment
-	}
-
-	if baseTime > maxAllowed {
-		baseTime = maxAllowed
+	if th.movesToGo <= 0 {
+		// Never use more than maxTimeUsageFraction of remaining time
+		maxAllowed := int(float64(th.remainingTime) * maxTimeUsageFraction)
+		if th.increment > 0 {
+			maxAllowed += th.increment
+		}
+		if baseTime > maxAllowed {
+			baseTime = maxAllowed
+		}
 	}
 
 	// Keep a minimum buffer
-	buffer := th.remainingTime / 20
-	if buffer < minBufferMillis {
-		buffer = minBufferMillis
-	}
+	buffer := th.bufferMillis()
 
 	maxWithBuffer := th.remainingTime - buffer
 	if maxWithBuffer < 1 {
@@ -153,6 +154,42 @@ func (th *TimeHandler) applySafetyLimits(baseTime int) int {
 	}
 
 	return baseTime
+}
+
+func (th *TimeHandler) bufferMillis() int {
+	if th.remainingTime <= 0 {
+		return minBufferMillis
+	}
+	divisor := 20
+	if th.movesToGo > 0 {
+		divisor = movesToGoBufferDiv
+	}
+	buffer := th.remainingTime / divisor
+	if buffer < minBufferMillis {
+		buffer = minBufferMillis
+	}
+	return buffer
+}
+
+func (th *TimeHandler) maxHardLimitMillis() int64 {
+	if th.remainingTime <= 0 {
+		return 1
+	}
+	if th.movesToGo > 0 {
+		maxHard := th.remainingTime - th.bufferMillis()
+		if maxHard < 1 {
+			maxHard = 1
+		}
+		return int64(maxHard)
+	}
+	maxHard := int64(float64(th.remainingTime) * maxTimeUsageFraction)
+	if th.increment > 0 {
+		maxHard += int64(th.increment)
+	}
+	if maxHard < 1 {
+		maxHard = 1
+	}
+	return maxHard
 }
 
 // TimeStatus returns true if we should stop searching
@@ -235,7 +272,7 @@ func (th *TimeHandler) ExtendTime() {
 	th.hardTimeLimit = th.hardTimeLimit.Add(extension)
 
 	// But never exceed the safety maximum
-	maxTime := th.startTime.Add(time.Duration(float64(th.remainingTime)*maxTimeUsageFraction) * time.Millisecond)
+	maxTime := th.startTime.Add(time.Duration(th.maxHardLimitMillis()) * time.Millisecond)
 	if th.hardTimeLimit.After(maxTime) {
 		th.hardTimeLimit = maxTime
 	}
