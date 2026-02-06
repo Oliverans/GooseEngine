@@ -21,12 +21,9 @@ const (
 // =============================================================================
 var FutilityBase int32 = 21
 var FutilityScale int32 = 114
-
 var RFPScale int32 = 83
-
 var RazoringScale int32 = 155
 
-var LMPOffset int = 3
 var AspirationWindowSize int32 = 40
 
 // =============================================================================
@@ -34,8 +31,9 @@ var AspirationWindowSize int32 = 40
 // =============================================================================
 var LMRDepthLimit int8 = 2
 var LMRMoveLimit = 2
-var LMRHistoryBonus = 500
+var LMRHistoryBonus = 515
 var LMRHistoryMalus = -100
+var LMPOffset int = 3
 
 var NullMoveMinDepth int8 = 4
 var NMMarginBase int32 = 210
