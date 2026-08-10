@@ -4,16 +4,16 @@ import "fmt"
 
 // CutStatistics collects counts for each pruning/cutoff mechanism.
 type CutStatistics struct {
-	TTCutoffs         uint64
-	NullMoveCutoffs   uint64
-	StaticNullCutoffs uint64
-	RazoringCutoffs   uint64
-	FutilityPrunes    uint64
-	LateMovePrunes    uint64
-	BetaCutoffs       uint64
-	QStandPatCutoffs  uint64
-	QBetaCutoffs      uint64
-	ProbCutCutoffs    uint64
+	TTCutoffs        uint64
+	NullMoveCutoffs  uint64
+	RFPCutoffs       uint64
+	RazoringCutoffs  uint64
+	FutilityPrunes   uint64
+	LateMovePrunes   uint64
+	BetaCutoffs      uint64
+	QStandPatCutoffs uint64
+	QBetaCutoffs     uint64
+	ProbCutCutoffs   uint64
 }
 
 // PrintCutStats controls whether the engine dumps the cut statistics once the
@@ -29,7 +29,7 @@ func dumpCutStats() {
 	fmt.Println("info string Cut statistics:")
 	fmt.Printf("info string   TT cutoffs: %d\n", cutStats.TTCutoffs)
 	fmt.Printf("info string   Null-move cutoffs: %d\n", cutStats.NullMoveCutoffs)
-	fmt.Printf("info string   Static null cutoffs: %d\n", cutStats.StaticNullCutoffs)
+	fmt.Printf("info string   Static null cutoffs: %d\n", cutStats.RFPCutoffs)
 	fmt.Printf("info string   Razoring cutoffs: %d\n", cutStats.RazoringCutoffs)
 	fmt.Printf("info string   Futility prunes: %d\n", cutStats.FutilityPrunes)
 	fmt.Printf("info string   Late move prunes: %d\n", cutStats.LateMovePrunes)

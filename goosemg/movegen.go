@@ -309,10 +309,9 @@ func pextSoft(x, mask uint64) uint64 {
 	return res
 }
 
-// pextBMI2 is provided in pext_amd64.s on amd64 and uses the BMI2 PEXTQ instruction.
-//
-//go:noescape
-func pextBMI2(x, mask uint64) uint64
+// pextBMI2 is declared per-architecture: pext_amd64.go declares it (backed by the
+// BMI2 PEXTQ assembly in pext_bmi2_amd64.s) on amd64, and pext_fallback.go provides
+// a software implementation on every other architecture.
 
 // software pdep: deposit low bits of x into positions of mask. This is only used at
 // initialization time when building the slider attack tables, so a generic version
@@ -351,8 +350,10 @@ func bishopAttacksMagic(sq int, occ uint64) uint64 {
 func (b *Board) computeCheckAndPins(side Color, occ uint64) (inCheck bool, doubleCheck bool, checkMask uint64, pinLine [64]uint64) {
 	us := int(side)
 	them := 1 - us
+	usBB := b.side(Color(us))
+	themBB := b.side(Color(them))
 
-	kingBB := b.kings[us]
+	kingBB := usBB.Kings
 	if kingBB == 0 {
 		return false, false, 0, pinLine
 	}
@@ -364,21 +365,21 @@ func (b *Board) computeCheckAndPins(side Color, occ uint64) (inCheck bool, doubl
 	// Pawn attackers
 	if side == White {
 		// black pawns attack down; from white king's perspective, use White table
-		checkers |= pawnAttacks[White][ksq] & b.pawns[them]
+		checkers |= pawnAttacks[White][ksq] & themBB.Pawns
 	} else {
-		checkers |= pawnAttacks[Black][ksq] & b.pawns[them]
+		checkers |= pawnAttacks[Black][ksq] & themBB.Pawns
 	}
 
 	// Knights
-	checkers |= knightMoves[ksq] & b.knights[them]
+	checkers |= knightMoves[ksq] & themBB.Knights
 
 	// Bishops/Queens along diagonals
 	diagAtk := bishopAttacks(ksq, occ)
-	checkers |= diagAtk & (b.bishops[them] | b.queens[them])
+	checkers |= diagAtk & (themBB.Bishops | themBB.Queens)
 
 	// Rooks/Queens along ranks/files
 	orthoAtk := rookAttacks(ksq, occ)
-	checkers |= orthoAtk & (b.rooks[them] | b.queens[them])
+	checkers |= orthoAtk & (themBB.Rooks | themBB.Queens)
 
 	inCheck = checkers != 0
 	doubleCheck = inCheck && (checkers&(checkers-1)) != 0
@@ -444,7 +445,7 @@ func (b *Board) computeCheckAndPins(side Color, occ uint64) (inCheck bool, doubl
 		}
 
 		firstBB := uint64(1) << uint(first)
-		if (firstBB & b.occupancy[us]) == 0 {
+		if (firstBB & usBB.All) == 0 {
 			continue
 		}
 
@@ -485,7 +486,7 @@ func (b *Board) computeCheckAndPins(side Color, occ uint64) (inCheck bool, doubl
 		}
 
 		firstBB := uint64(1) << uint(first)
-		if (firstBB & b.occupancy[us]) == 0 {
+		if (firstBB & usBB.All) == 0 {
 			continue
 		}
 
@@ -613,14 +614,14 @@ func (b *Board) IsSquareAttacked(sq Square, by Color) bool {
 }
 
 func (b *Board) isSquareAttackedWithOcc(s int, by Color, occ uint64) bool {
-	return b.isSquareAttackedWithOccAndPawns(s, by, occ, b.pawns[int(by)])
+	return b.isSquareAttackedWithOccAndPawns(s, by, occ, b.side(by).Pawns)
 }
 
 // isSquareAttackedWithOccAndPawns mirrors isSquareAttackedWithOcc but lets callers
 // provide a custom pawn bitboard (used by en passant simulation to ignore the
 // pawn that would be captured).
 func (b *Board) isSquareAttackedWithOccAndPawns(s int, by Color, occ uint64, pawnMask uint64) bool {
-	byIdx := int(by)
+	byBB := b.side(by)
 
 	// Pawn attacks via reverse mask (fewer branches)
 	if by == White {
@@ -634,18 +635,18 @@ func (b *Board) isSquareAttackedWithOccAndPawns(s int, by Color, occ uint64, paw
 	}
 
 	// Knights
-	if knightMoves[s]&b.knights[byIdx] != 0 {
+	if knightMoves[s]&byBB.Knights != 0 {
 		return true
 	}
 
 	// Kings
-	if kingMoves[s]&b.kings[byIdx] != 0 {
+	if kingMoves[s]&byBB.Kings != 0 {
 		return true
 	}
 
 	// Slider identity checks using first blockers (unrolled, bitboard membership)
-	rq := b.rooks[byIdx] | b.queens[byIdx]
-	bq := b.bishops[byIdx] | b.queens[byIdx]
+	rq := byBB.Rooks | byBB.Queens
+	bq := byBB.Bishops | byBB.Queens
 
 	// Rooks: N (0)
 	if blockers := rookRays[s][0] & occ; blockers != 0 {
@@ -710,8 +711,7 @@ func (b *Board) isSquareAttackedWithOccAndPawns(s int, by Color, occ uint64, paw
 
 // InCheck reports whether the specified color's king is currently in check.
 func (b *Board) InCheck(color Color) bool {
-	ci := int(color)
-	kingBB := b.kings[ci]
+	kingBB := b.side(color).Kings
 	if kingBB == 0 {
 		return false
 	}
@@ -736,13 +736,15 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 	side := b.sideToMove
 	us := int(side)
 	them := 1 - us
+	usBB := b.side(Color(us))
+	themBB := b.side(Color(them))
 
-	ownOcc := b.occupancy[us]
-	oppOcc := b.occupancy[them]
+	ownOcc := usBB.All
+	oppOcc := themBB.All
 	allOcc := ownOcc | oppOcc
 
 	// Precompute our king square for local safety checks (e.g., EP simulation)
-	kingBB := b.kings[us]
+	kingBB := usBB.Kings
 	ks := -1
 	if kingBB != 0 {
 		ks = bits.TrailingZeros64(kingBB)
@@ -767,7 +769,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 	// Pawns
 	// Pawns (bulk bitboard generation)
 	if !doubleCheck {
-		pawns := b.pawns[us]
+		pawns := usBB.Pawns
 
 		if side == White {
 			// ----------------------
@@ -979,7 +981,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 								capSq := ep - 8
 								occp &^= (uint64(1) << uint(capSq))
 								occp |= epBB
-								pawnMask := b.pawns[them] &^ (uint64(1) << uint(capSq))
+								pawnMask := themBB.Pawns &^ (uint64(1) << uint(capSq))
 
 								if ks >= 0 && !b.isSquareAttackedWithOccAndPawns(ks, Color(them), occp, pawnMask) {
 									moves = append(moves, NewMove(fromSq, Square(ep), movedPiece, BlackPawn, NoPiece, FlagEnPassant))
@@ -1002,7 +1004,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 								capSq := ep - 8
 								occp &^= (uint64(1) << uint(capSq))
 								occp |= epBB
-								pawnMask := b.pawns[them] &^ (uint64(1) << uint(capSq))
+								pawnMask := themBB.Pawns &^ (uint64(1) << uint(capSq))
 
 								if ks >= 0 && !b.isSquareAttackedWithOccAndPawns(ks, Color(them), occp, pawnMask) {
 									moves = append(moves, NewMove(fromSq, Square(ep), movedPiece, BlackPawn, NoPiece, FlagEnPassant))
@@ -1219,7 +1221,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 								capSq := ep + 8
 								occp &^= (uint64(1) << uint(capSq))
 								occp |= epBB
-								pawnMask := b.pawns[them] &^ (uint64(1) << uint(capSq))
+								pawnMask := themBB.Pawns &^ (uint64(1) << uint(capSq))
 
 								if ks >= 0 && !b.isSquareAttackedWithOccAndPawns(ks, Color(them), occp, pawnMask) {
 									moves = append(moves, NewMove(fromSq, Square(ep), movedPiece, WhitePawn, NoPiece, FlagEnPassant))
@@ -1242,7 +1244,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 								capSq := ep + 8
 								occp &^= (uint64(1) << uint(capSq))
 								occp |= epBB
-								pawnMask := b.pawns[them] &^ (uint64(1) << uint(capSq))
+								pawnMask := themBB.Pawns &^ (uint64(1) << uint(capSq))
 
 								if ks >= 0 && !b.isSquareAttackedWithOccAndPawns(ks, Color(them), occp, pawnMask) {
 									moves = append(moves, NewMove(fromSq, Square(ep), movedPiece, WhitePawn, NoPiece, FlagEnPassant))
@@ -1257,7 +1259,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 
 	// Knights
 	if !doubleCheck { // only king can move in double check
-		knights := b.knights[us]
+		knights := usBB.Knights
 		for knights != 0 {
 			from := popLSB(&knights)
 			fromSq := Square(from)
@@ -1297,7 +1299,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 
 	// Bishops
 	if !doubleCheck {
-		bishops := b.bishops[us]
+		bishops := usBB.Bishops
 		for bishops != 0 {
 			from := popLSB(&bishops)
 			fromSq := Square(from)
@@ -1349,7 +1351,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 
 	// Rooks
 	if !doubleCheck {
-		rooks := b.rooks[us]
+		rooks := usBB.Rooks
 		for rooks != 0 {
 			from := popLSB(&rooks)
 			fromSq := Square(from)
@@ -1401,7 +1403,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 
 	// Queens
 	if !doubleCheck {
-		queens := b.queens[us]
+		queens := usBB.Queens
 		for queens != 0 {
 			from := popLSB(&queens)
 			fromSq := Square(from)
@@ -1465,7 +1467,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 	}
 
 	// King (normal moves)
-	kbb := b.kings[us]
+	kbb := usBB.Kings
 	if kbb != 0 {
 		from := bits.TrailingZeros64(kbb)
 		if from >= 0 {
@@ -1585,15 +1587,17 @@ func (b *Board) GenerateChecksInto(dst []Move) []Move {
 
 	us := int(b.sideToMove)
 	them := 1 - us
+	usBB := b.side(Color(us))
+	themBB := b.side(Color(them))
 	occ := b.AllOccupancy()
-	kbb := b.kings[them]
+	kbb := themBB.Kings
 	if kbb == 0 {
 		return moves[:0]
 	}
 	ks := bits.TrailingZeros64(kbb)
 	kBit := uint64(1) << uint(ks)
-	rq := b.rooks[us] | b.queens[us]
-	bq := b.bishops[us] | b.queens[us]
+	rq := usBB.Rooks | usBB.Queens
+	bq := usBB.Bishops | usBB.Queens
 
 	// In-place filter
 	out := moves[:0]
@@ -1723,15 +1727,17 @@ func (b *Board) GeneratePseudoMovesInto(dst []Move) []Move {
 	side := b.sideToMove
 	us := int(side)
 	them := 1 - us
+	usBB := b.side(Color(us))
+	themBB := b.side(Color(them))
 
-	ownOcc := b.occupancy[us]
-	oppOcc := b.occupancy[them]
+	ownOcc := usBB.All
+	oppOcc := themBB.All
 	allOcc := ownOcc | oppOcc
 
 	appendMove := func(m Move) { moves = append(moves, m) }
 
 	// Pawns
-	pawns := b.pawns[us]
+	pawns := usBB.Pawns
 	for pawns != 0 {
 		from := popLSB(&pawns)
 		fromSq := Square(from)
@@ -1821,7 +1827,7 @@ func (b *Board) GeneratePseudoMovesInto(dst []Move) []Move {
 	}
 
 	// Knights
-	knights := b.knights[us]
+	knights := usBB.Knights
 	for knights != 0 {
 		from := popLSB(&knights)
 		fromSq := Square(from)
@@ -1838,7 +1844,7 @@ func (b *Board) GeneratePseudoMovesInto(dst []Move) []Move {
 	}
 
 	// Bishops
-	bishops := b.bishops[us]
+	bishops := usBB.Bishops
 	for bishops != 0 {
 		from := popLSB(&bishops)
 		fromSq := Square(from)
@@ -1855,7 +1861,7 @@ func (b *Board) GeneratePseudoMovesInto(dst []Move) []Move {
 	}
 
 	// Rooks
-	rooks := b.rooks[us]
+	rooks := usBB.Rooks
 	for rooks != 0 {
 		from := popLSB(&rooks)
 		fromSq := Square(from)
@@ -1872,7 +1878,7 @@ func (b *Board) GeneratePseudoMovesInto(dst []Move) []Move {
 	}
 
 	// Queens
-	queens := b.queens[us]
+	queens := usBB.Queens
 	for queens != 0 {
 		from := popLSB(&queens)
 		fromSq := Square(from)
@@ -1889,7 +1895,7 @@ func (b *Board) GeneratePseudoMovesInto(dst []Move) []Move {
 	}
 
 	// King
-	kingBB := b.kings[us]
+	kingBB := usBB.Kings
 	if kingBB != 0 {
 		from := bits.TrailingZeros64(kingBB)
 		if from >= 0 {

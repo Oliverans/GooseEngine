@@ -17,35 +17,25 @@ var (
 	baseBishopPairBonusMG        int
 	baseBishopPairBonusEG        int
 	baseRookSemiOpenFileBonusMG  int
+	baseRookSemiOpenFileBonusEG  int
 	baseRookOpenFileBonusMG      int
+	baseRookOpenFileBonusEG      int
+	baseSeventhRankBonusMG       int
 	baseSeventhRankBonusEG       int
 	baseCentralizedQueenBonusEG  int
 	baseQueenInfiltrationBonusMG int
 	baseQueenInfiltrationBonusEG int
 	// Tier 2: Pawn structure
-	baseDoubledPawnPenaltyMG  int
-	baseDoubledPawnPenaltyEG  int
-	baseIsolatedPawnMG        int
-	baseIsolatedPawnEG        int
-	baseConnectedPawnsBonusMG int
-	baseConnectedPawnsBonusEG int
-	basePhalanxPawnsBonusMG   int
-	basePhalanxPawnsBonusEG   int
-	baseBlockedPawnBonusMG    int
-	baseBlockedPawnBonusEG    int
-	baseBackwardPawnMG        int
-	baseBackwardPawnEG        int
+	basePawnConnectedMG       [7]int
 	baseWeakLeverPenaltyMG    int
 	baseWeakLeverPenaltyEG    int
 	// King safety
 	baseKingSafetyTable            [100]int
-	baseKingSemiOpenFilePenalty    int
-	baseKingOpenFilePenalty        int
+	baseKingShelterMG              [4][8]int
+	baseKingStormUnblockedMG       [4][8]int
+	baseKingStormBlockedMG         [8]int
+	baseKingStormBlockedEG         [8]int
 	baseKingMinorPieceDefenseBonus int
-	baseKingPawnDefenseMG          int
-	baseSpaceBonusMG               int
-	baseSpaceBonusEG               int
-	baseWeakKingSquarePenaltyMG    int
 	baseTempoBonus                 int
 	// Tier 1/3: Extras (Outposts/StackedRooks → Tier 1, Tropism/PawnStorm → Tier 3)
 	baseKnightOutpostMG        int
@@ -70,8 +60,6 @@ var (
 	// Imbalance scalars
 	baseImbalanceKnightPerPawnMG int
 	baseImbalanceKnightPerPawnEG int
-	baseImbalanceBishopPerPawnMG int
-	baseImbalanceBishopPerPawnEG int
 )
 
 func init() {
@@ -88,33 +76,23 @@ func init() {
 	baseBishopPairBonusMG = BishopPairBonusMG
 	baseBishopPairBonusEG = BishopPairBonusEG
 	baseRookSemiOpenFileBonusMG = RookSemiOpenMG
+	baseRookSemiOpenFileBonusEG = RookSemiOpenEG
 	baseRookOpenFileBonusMG = RookOpenMG
+	baseRookOpenFileBonusEG = RookOpenEG
+	baseSeventhRankBonusMG = RookSeventhRankMG
 	baseSeventhRankBonusEG = RookSeventhRankEG
 	baseCentralizedQueenBonusEG = QueenCentralizationEG
 	// Tier 2: Pawn structure
-	baseDoubledPawnPenaltyMG = PawnDoubledMG
-	baseDoubledPawnPenaltyEG = PawnDoubledEG
-	baseIsolatedPawnMG = IsolatedPawnMG
-	baseIsolatedPawnEG = IsolatedPawnEG
-	baseConnectedPawnsBonusMG = PawnConnectedMG
-	baseConnectedPawnsBonusEG = PawnConnectedEG
-	basePhalanxPawnsBonusMG = PawnPhalanxMG
-	basePhalanxPawnsBonusEG = PawnPhalanxEG
-	baseBlockedPawnBonusMG = PawnBlockedMG
-	baseBlockedPawnBonusEG = PawnBlockedEG
-	baseBackwardPawnMG = BackwardPawnMG
-	baseBackwardPawnEG = BackwardPawnEG
+	basePawnConnectedMG = PawnConnectedMG
 	baseWeakLeverPenaltyMG = PawnWeakLeverMG
 	baseWeakLeverPenaltyEG = PawnWeakLeverEG
 	// King safety
 	baseKingSafetyTable = KingSafetyTable
-	baseKingSemiOpenFilePenalty = KingSemiOpenFileMG
-	baseKingOpenFilePenalty = KingOpenFileMG
+	baseKingShelterMG = KingShelterMG
+	baseKingStormUnblockedMG = KingStormUnblockedMG
+	baseKingStormBlockedMG = KingStormBlockedMG
+	baseKingStormBlockedEG = KingStormBlockedEG
 	baseKingMinorPieceDefenseBonus = KingMinorDefenseBonusMG
-	baseKingPawnDefenseMG = KingPawnDefenseBonusMG
-	baseSpaceBonusMG = SpaceBonusMG
-	baseSpaceBonusEG = SpaceBonusEG
-	baseWeakKingSquarePenaltyMG = WeakKingSquarePenaltyMG
 	baseTempoBonus = TempoBonus
 	// Extras
 	baseKnightOutpostMG = KnightOutpostMG
@@ -130,8 +108,6 @@ func init() {
 	basePawnStormOppositeMult = PawnStormOppositeMultiplier
 	baseImbalanceKnightPerPawnMG = ImbalanceKnightPerPawnMG
 	baseImbalanceKnightPerPawnEG = ImbalanceKnightPerPawnEG
-	baseImbalanceBishopPerPawnMG = ImbalanceBishopPerPawnMG
-	baseImbalanceBishopPerPawnEG = ImbalanceBishopPerPawnEG
 }
 
 // Accessors for baselines (evaluation.go values)
@@ -152,25 +128,41 @@ func DefaultAttackerOuter() [7]int { return baseAttackerOuter }
 func DefaultBishopPairBonusMG() int        { return baseBishopPairBonusMG }
 func DefaultBishopPairBonusEG() int        { return baseBishopPairBonusEG }
 func DefaultRookSemiOpenFileBonusMG() int  { return baseRookSemiOpenFileBonusMG }
+func DefaultRookSemiOpenFileBonusEG() int  { return baseRookSemiOpenFileBonusEG }
 func DefaultRookOpenFileBonusMG() int      { return baseRookOpenFileBonusMG }
+func DefaultRookOpenFileBonusEG() int      { return baseRookOpenFileBonusEG }
+func DefaultSeventhRankBonusMG() int       { return baseSeventhRankBonusMG }
 func DefaultSeventhRankBonusEG() int       { return baseSeventhRankBonusEG }
 func DefaultCentralizedQueenBonusEG() int  { return baseCentralizedQueenBonusEG }
 func DefaultQueenInfiltrationBonusMG() int { return baseQueenInfiltrationBonusMG }
 func DefaultQueenInfiltrationBonusEG() int { return baseQueenInfiltrationBonusEG }
 
 // Tier 2: Pawn structure defaults
-func DefaultDoubledPawnPenaltyMG() int  { return baseDoubledPawnPenaltyMG }
-func DefaultDoubledPawnPenaltyEG() int  { return baseDoubledPawnPenaltyEG }
-func DefaultIsolatedPawnMG() int        { return baseIsolatedPawnMG }
-func DefaultIsolatedPawnEG() int        { return baseIsolatedPawnEG }
-func DefaultConnectedPawnsBonusMG() int { return baseConnectedPawnsBonusMG }
-func DefaultConnectedPawnsBonusEG() int { return baseConnectedPawnsBonusEG }
-func DefaultPhalanxPawnsBonusMG() int   { return basePhalanxPawnsBonusMG }
-func DefaultPhalanxPawnsBonusEG() int   { return basePhalanxPawnsBonusEG }
-func DefaultBlockedPawnBonusMG() int    { return baseBlockedPawnBonusMG }
-func DefaultBlockedPawnBonusEG() int    { return baseBlockedPawnBonusEG }
-func DefaultBackwardPawnMG() int        { return baseBackwardPawnMG }
-func DefaultBackwardPawnEG() int        { return baseBackwardPawnEG }
+// Retired pawn scalars. Doubled and backward now split by `opposed` into two
+// constants each, and blocked became a rank-indexed pair with the opposite sign.
+// The frozen tuner still fits one number for each, so these accessors return the
+// last value the single constant held, purely so tuner/seed.go keeps compiling.
+// Nothing in the engine reads them. Delete with their tuner call sites.
+func DefaultDoubledPawnPenaltyMG() int  { return 9 }
+func DefaultDoubledPawnPenaltyEG() int  { return 20 }
+// Retired. Isolated now splits by `opposed` into two constants per phase.
+// Returns the last values the flat pair held so tuner/seed.go keeps compiling.
+func DefaultIsolatedPawnMG() int        { return 9 }
+func DefaultIsolatedPawnEG() int        { return 14 }
+func DefaultPawnConnectedMG() [7]int { return basePawnConnectedMG }
+
+// Retired. Connected and phalanx merged into the rank-indexed PawnConnectedMG,
+// where phalanx became a multiplier rather than an addend. These return the last
+// values the two flat constants held, so tuner/seed.go keeps compiling; nothing
+// in the engine reads them.
+func DefaultConnectedPawnsBonusMG() int { return 11 }
+func DefaultConnectedPawnsBonusEG() int { return 5 }
+func DefaultPhalanxPawnsBonusMG() int   { return 7 }
+func DefaultPhalanxPawnsBonusEG() int   { return 10 }
+func DefaultBlockedPawnBonusMG() int    { return 0 }
+func DefaultBlockedPawnBonusEG() int    { return 1 }
+func DefaultBackwardPawnMG() int        { return 6 }
+func DefaultBackwardPawnEG() int        { return 11 }
 func DefaultWeakLeverPenaltyMG() int    { return baseWeakLeverPenaltyMG }
 func DefaultWeakLeverPenaltyEG() int    { return baseWeakLeverPenaltyEG }
 
@@ -178,15 +170,32 @@ func DefaultWeakLeverPenaltyEG() int    { return baseWeakLeverPenaltyEG }
 func DefaultKingSafetyTable() [100]int { return baseKingSafetyTable }
 
 // King safety correlated defaults
-func DefaultKingSemiOpenFilePenalty() int    { return baseKingSemiOpenFilePenalty }
-func DefaultKingOpenFilePenalty() int        { return baseKingOpenFilePenalty }
+func DefaultKingShelterMG() [4][8]int        { return baseKingShelterMG }
+func DefaultKingStormUnblockedMG() [4][8]int { return baseKingStormUnblockedMG }
+func DefaultKingStormBlockedMG() [8]int      { return baseKingStormBlockedMG }
+func DefaultKingStormBlockedEG() [8]int      { return baseKingStormBlockedEG }
 func DefaultKingMinorPieceDefenseBonus() int { return baseKingMinorPieceDefenseBonus }
-func DefaultKingPawnDefenseMG() int          { return baseKingPawnDefenseMG }
+
+// Retired king-shelter scalars. KingSemiOpenFileMG, KingOpenFileMG and
+// KingPawnDefenseBonusMG no longer exist in the evaluation -- the per-file
+// KingShelterMG table absorbed all three. These accessors return the last
+// values those constants held, purely so the frozen tuner in tuner/seed.go
+// keeps compiling; nothing in the engine reads them. Delete them along with
+// their tuner call sites when the tuner is rewritten.
+func DefaultKingSemiOpenFilePenalty() int { return 12 }
+func DefaultKingOpenFilePenalty() int     { return 20 }
+func DefaultKingPawnDefenseMG() int       { return 2 }
 
 // Space/weak-king + tempo
-func DefaultSpaceBonusMG() int            { return baseSpaceBonusMG }
-func DefaultSpaceBonusEG() int            { return baseSpaceBonusEG }
-func DefaultWeakKingSquarePenaltyMG() int { return baseWeakKingSquarePenaltyMG }
+// Retired. Space is no longer a flat per-square bonus: it is four tier
+// constants over a corrected zone, scaled by a material weight, middlegame only.
+// These return the last values the two scalars held so tuner/seed.go keeps
+// compiling; nothing in the engine reads them.
+func DefaultSpaceBonusMG() int            { return 2 }
+func DefaultSpaceBonusEG() int            { return 1 }
+// Retired with the term itself; see the note in evaluation.go. Returns the last
+// value it held so tuner/seed.go keeps compiling.
+func DefaultWeakKingSquarePenaltyMG() int { return 4 }
 func DefaultTempoBonus() int              { return baseTempoBonus }
 
 // Tier 1/3: Extras defaults (Outposts/StackedRooks → Tier 1, Tropism/Storm → Tier 3)
@@ -216,5 +225,10 @@ func DefaultPawnStormOppositeMult() int  { return basePawnStormOppositeMult }
 // Imbalance defaults
 func DefaultImbalanceKnightPerPawnMG() int { return baseImbalanceKnightPerPawnMG }
 func DefaultImbalanceKnightPerPawnEG() int { return baseImbalanceKnightPerPawnEG }
-func DefaultImbalanceBishopPerPawnMG() int { return baseImbalanceBishopPerPawnMG }
-func DefaultImbalanceBishopPerPawnEG() int { return baseImbalanceBishopPerPawnEG }
+
+// The per-bishop tilt is retired from the evaluation; Kaufman adjusts the bishop
+// PAIR, not the single bishop, and mobility/BadBishop/centre-openness already
+// carry it. These return the last values the two scalars held so tuner/seed.go
+// keeps compiling; nothing in the engine reads them.
+func DefaultImbalanceBishopPerPawnMG() int { return -6 }
+func DefaultImbalanceBishopPerPawnEG() int { return -2 }

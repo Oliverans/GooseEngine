@@ -121,18 +121,6 @@ type Bitboards struct {
 
 // Board represents the chess board state, including piece placement and game state.
 type Board struct {
-	// Piece bitboards for each piece type and color (index 0 = white, 1 = black)
-	pawns   [2]uint64
-	knights [2]uint64
-	bishops [2]uint64
-	rooks   [2]uint64
-	queens  [2]uint64
-	kings   [2]uint64
-
-	// Occupancy bitboards for each side
-	occupancy [2]uint64 // occupancy[White], occupancy[Black]
-	// (overall occupancy can be derived as occupancy[White] | occupancy[Black])
-
 	// Piece placement array for each square (0 = NoPiece, otherwise a Piece constant)
 	pieces [64]Piece
 
@@ -154,10 +142,21 @@ type Board struct {
 	// Zobrist hash key for the current position (for move repetition and hashing)
 	zobristKey uint64
 
-	// Aggregated bitboards and turn flag for consumers.
+	// Per-side piece bitboards. These are the authoritative storage: there is
+	// no separate internal representation to keep in sync. Index them by color
+	// with side(); the evaluation reads them directly as White.Pawns etc.
 	White   Bitboards
 	Black   Bitboards
 	Wtomove bool
+}
+
+// side returns the bitboards for the given color. It inlines, but callers in
+// hot loops should still hoist it into a local rather than repeating it.
+func (b *Board) side(c Color) *Bitboards {
+	if c == White {
+		return &b.White
+	}
+	return &b.Black
 }
 
 // HasLegalMoves reports whether the side to move has any legal moves.
@@ -191,6 +190,9 @@ func (b *Board) FullmoveNumber() int { return b.fullmoveNumber }
 // EnPassantSquare returns the current en-passant target square or NoSquare.
 func (b *Board) EnPassantSquare() Square { return b.enPassantSquare }
 
+// CastlingRights returns the current castling-rights bitmask.
+func (b *Board) CastlingRights() CastlingRights { return b.castlingRights }
+
 // SideToMove reports which side is to play.
 func (b *Board) SideToMove() Color { return b.sideToMove }
 
@@ -207,18 +209,7 @@ func (b *Board) SetSideToMove(c Color) {
 func (b *Board) Hash() uint64 { return b.zobristKey }
 
 // Bitboards returns the per-piece bitboards for the requested side.
-func (b *Board) Bitboards(color Color) Bitboards {
-	idx := int(color)
-	return Bitboards{
-		Pawns:   b.pawns[idx],
-		Knights: b.knights[idx],
-		Bishops: b.bishops[idx],
-		Rooks:   b.rooks[idx],
-		Queens:  b.queens[idx],
-		Kings:   b.kings[idx],
-		All:     b.occupancy[idx],
-	}
-}
+func (b *Board) Bitboards(color Color) Bitboards { return *b.side(color) }
 
 // WhiteBitboards returns White's bitboards (copy).
 func (b *Board) WhiteBitboards() Bitboards { return b.Bitboards(White) }
@@ -308,34 +299,17 @@ func popLSB(mask *uint64) int {
 // ==========================
 
 // AllOccupancy returns a bitboard of all occupied squares.
-func (b *Board) AllOccupancy() uint64 { return b.occupancy[0] | b.occupancy[1] }
+func (b *Board) AllOccupancy() uint64 { return b.White.All | b.Black.All }
 
 // ColorOccupancy returns the occupancy bitboard for the given color.
-func (b *Board) ColorOccupancy(c Color) uint64 { return b.occupancy[int(c)] }
+func (b *Board) ColorOccupancy(c Color) uint64 { return b.side(c).All }
 
 // PieceAt returns the piece on a square.
 func (b *Board) PieceAt(sq Square) Piece { return b.pieces[int(sq)] }
 
-// refreshBitboards synchronizes the exported Bitboards and Wtomove view with internal arrays.
-func (b *Board) refreshBitboards() {
-	b.White = Bitboards{
-		Pawns:   b.pawns[White],
-		Knights: b.knights[White],
-		Bishops: b.bishops[White],
-		Rooks:   b.rooks[White],
-		Queens:  b.queens[White],
-		Kings:   b.kings[White],
-		All:     b.occupancy[White],
-	}
-	b.Black = Bitboards{
-		Pawns:   b.pawns[Black],
-		Knights: b.knights[Black],
-		Bishops: b.bishops[Black],
-		Rooks:   b.rooks[Black],
-		Queens:  b.queens[Black],
-		Kings:   b.kings[Black],
-		All:     b.occupancy[Black],
-	}
+// syncTurnFlag updates the exported Wtomove view after sideToMove changes.
+// The piece bitboards need no synchronization: White/Black are the storage.
+func (b *Board) syncTurnFlag() {
 	b.Wtomove = b.sideToMove == White
 }
 
@@ -357,22 +331,21 @@ func (b *Board) addPiece(sq Square, p Piece) {
 	}
 	idx := int(sq)
 	b.pieces[idx] = p
-	c := colorOf(p)
-	ci := int(c)
-	b.occupancy[ci] |= bb(sq)
+	s := b.side(colorOf(p))
+	s.All |= bb(sq)
 	switch typeOf(p) {
 	case 1:
-		b.pawns[ci] |= bb(sq)
+		s.Pawns |= bb(sq)
 	case 2:
-		b.knights[ci] |= bb(sq)
+		s.Knights |= bb(sq)
 	case 3:
-		b.bishops[ci] |= bb(sq)
+		s.Bishops |= bb(sq)
 	case 4:
-		b.rooks[ci] |= bb(sq)
+		s.Rooks |= bb(sq)
 	case 5:
-		b.queens[ci] |= bb(sq)
+		s.Queens |= bb(sq)
 	case 6:
-		b.kings[ci] |= bb(sq)
+		s.Kings |= bb(sq)
 	}
 	// Zobrist: XOR in piece on square
 	b.zobristKey ^= zobristPiece[p][idx]
@@ -385,24 +358,23 @@ func (b *Board) removePiece(sq Square) Piece {
 	if p == NoPiece {
 		return NoPiece
 	}
-	c := colorOf(p)
-	ci := int(c)
 	mask := ^bb(sq)
 	b.pieces[idx] = NoPiece
-	b.occupancy[ci] &= mask
+	s := b.side(colorOf(p))
+	s.All &= mask
 	switch typeOf(p) {
 	case 1:
-		b.pawns[ci] &= mask
+		s.Pawns &= mask
 	case 2:
-		b.knights[ci] &= mask
+		s.Knights &= mask
 	case 3:
-		b.bishops[ci] &= mask
+		s.Bishops &= mask
 	case 4:
-		b.rooks[ci] &= mask
+		s.Rooks &= mask
 	case 5:
-		b.queens[ci] &= mask
+		s.Queens &= mask
 	case 6:
-		b.kings[ci] &= mask
+		s.Kings &= mask
 	}
 	// Zobrist: XOR out piece on square
 	b.zobristKey ^= zobristPiece[p][idx]
@@ -455,11 +427,14 @@ func (b *Board) Validate() bool {
 			kings[ci] |= bit
 		}
 	}
-	if occ != b.occupancy {
-		return false
-	}
-	if pawns != b.pawns || knights != b.knights || bishops != b.bishops || rooks != b.rooks || queens != b.queens || kings != b.kings {
-		return false
+	for _, c := range [2]Color{White, Black} {
+		ci := int(c)
+		s := b.side(c)
+		if occ[ci] != s.All ||
+			pawns[ci] != s.Pawns || knights[ci] != s.Knights || bishops[ci] != s.Bishops ||
+			rooks[ci] != s.Rooks || queens[ci] != s.Queens || kings[ci] != s.Kings {
+			return false
+		}
 	}
 	// Cross-check Zobrist
 	if b.zobristKey != b.ComputeZobrist() {

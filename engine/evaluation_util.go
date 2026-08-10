@@ -36,8 +36,6 @@ const (
 	bitboardFileH uint64 = 0x8080808080808080
 )
 
-var ClearRank [8]uint64 // (not used in evaluation.go but may be set elsewhere)
-var MaskRank [8]uint64
 var ranksAbove = [8]uint64{
 	0xffffffffffffffff, 0xffffffffffffff00, 0xffffffffffff0000, 0xffffffffff000000,
 	0xffffffff00000000, 0xffffff0000000000, 0xffff000000000000, 0xff00000000000000,
@@ -109,28 +107,15 @@ func getKingSafetyTable(b *gm.Board, inner bool, wPawnAttackBB, bPawnAttackBB ui
 
 // Compute outpost candidate squares for knights/bishops for each side
 func getOutpostsBB(b *gm.Board, wPawnAttackBB, bPawnAttackBB uint64) (outposts [2]uint64) {
-	// White potential outposts: squares attacked by a white pawn and not occupied by a white pawn
+	// A candidate is a square a friendly pawn covers, inside the outpost zone,
+	// not already occupied by a friendly pawn. It survives if no enemy pawn can
+	// ever advance to attack it -- see outpostBlockersWhite/Black, which hold
+	// that per-square constant so it is not rebuilt on every node.
 	wCandidates := (wPawnAttackBB & wAllowedOutpostMask) &^ b.White.Pawns
 	var wOutpostBB uint64
 	for x := wCandidates; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		file := sq % 8
-		rank := sq / 8
-		// Check adjacent files for enemy pawns in front of this square
-		var adjFilesMask uint64
-		if file > 0 {
-			adjFilesMask |= onlyFile[file-1]
-		}
-		if file < 7 {
-			adjFilesMask |= onlyFile[file+1]
-		}
-		if rank < 7 {
-			// no enemy pawn on adjacent files in any rank above
-			if b.Black.Pawns&adjFilesMask&ranksAbove[rank+1] == 0 {
-				wOutpostBB |= PositionBB[sq]
-			}
-		} else {
-			// rank 7 pawn automatically an outpost (no rank above)
+		if b.Black.Pawns&outpostBlockersWhite[sq] == 0 {
 			wOutpostBB |= PositionBB[sq]
 		}
 	}
@@ -139,26 +124,19 @@ func getOutpostsBB(b *gm.Board, wPawnAttackBB, bPawnAttackBB uint64) (outposts [
 	var bOutpostBB uint64
 	for x := bCandidates; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		file := sq % 8
-		rank := sq / 8
-		var adjFilesMask uint64
-		if file > 0 {
-			adjFilesMask |= onlyFile[file-1]
-		}
-		if file < 7 {
-			adjFilesMask |= onlyFile[file+1]
-		}
-		if rank > 0 {
-			if b.White.Pawns&adjFilesMask&ranksBelow[rank-1] == 0 {
-				bOutpostBB |= PositionBB[sq]
-			}
-		} else {
+		if b.White.Pawns&outpostBlockersBlack[sq] == 0 {
 			bOutpostBB |= PositionBB[sq]
 		}
 	}
 	outposts[0] = wOutpostBB
 	outposts[1] = bOutpostBB
 	return
+}
+
+// OutpostsBB exposes engine outpost-square calculation for consumers that need
+// the exact same definition as evaluation.
+func OutpostsBB(b *gm.Board, wPawnAttackBB, bPawnAttackBB uint64) [2]uint64 {
+	return getOutpostsBB(b, wPawnAttackBB, bPawnAttackBB)
 }
 
 // =============================================================================
@@ -169,9 +147,24 @@ const PawnHashSize = 1 << 16 // 65536 entries (~8MB)
 
 // PawnHashEntry stores cached pawn structure analysis
 type PawnHashEntry struct {
-	// Key for verifying collisions (pawn bitboards)
+	// Key for verifying collisions (pawn bitboards).
+	//
+	// Valid belongs with the key, not at the end of the struct. ProbePawnHash
+	// tests it before either bitboard, so when it lived after PawnScoreEG every
+	// probe -- including every miss, the expensive path -- pulled in the last
+	// cache line for one bool and then the first line for the key. Two lines to
+	// answer a question that needs 17 bytes. Here all three share line 0.
+	//
+	// This costs nothing: the struct was already padding the trailing bool out
+	// to 8 bytes, so the seven bytes now sitting beside Valid are the same seven
+	// bytes, just moved. Total size is unchanged at 208.
+	//
+	// It cannot simply be dropped in favour of a zero check. A zeroed slot would
+	// then read as a valid pawnless position, but the true entry for one has
+	// OpenFiles = ^0, not 0.
 	WhitePawns uint64
 	BlackPawns uint64
+	Valid      bool
 
 	// Pawn attack maps
 	WPawnAttackBB uint64
@@ -183,28 +176,33 @@ type PawnHashEntry struct {
 	BSemiOpenFiles uint64
 
 	// Pawn structure bitboards
-	WPassedBB      uint64
-	BPassedBB      uint64
-	WIsolatedBB    uint64
-	BIsolatedBB    uint64
-	WBackwardBB    uint64
-	BBackwardBB    uint64
-	WBlockedBB     uint64
-	BBlockedBB     uint64
-	WLeverBB       uint64
-	BLeverBB       uint64
-	WLeverPushedBB uint64
-	BLeverPushedBB uint64
-	WWeakLeverBB   uint64
-	BWeakLeverBB   uint64
-	WCandidateBB   uint64
-	BCandidateBB   uint64
+	WPassedBB    uint64
+	BPassedBB    uint64
+	WIsolatedBB  uint64
+	BIsolatedBB  uint64
+	WBackwardBB  uint64
+	BBackwardBB  uint64
+	WBlockedBB   uint64
+	BBlockedBB   uint64
+	// Pawns with an enemy pawn somewhere ahead on the same file. Weaker than
+	// "blocked", which is the immediate case, and weaker than having stoppers,
+	// which also counts the adjacent files. Depends only on pawns, so it caches.
+	WOpposedBB uint64
+	BOpposedBB uint64
+	WLeverBB     uint64
+	BLeverBB     uint64
+	WWeakLeverBB uint64
+	BWeakLeverBB uint64
+
+	// Space bonus per side before the material weight is applied. Depends only
+	// on pawns and file state, so it caches here; spaceEvaluation supplies the
+	// piece-count scaling per node.
+	WSpaceBonus int
+	BSpaceBonus int
 
 	// Precomputed pawn scores
 	PawnScoreMG int
 	PawnScoreEG int
-
-	Valid bool // flag to mark valid entries
 }
 
 var PawnHashTable [PawnHashSize]PawnHashEntry
@@ -272,44 +270,72 @@ func ComputePawnEntry(b *gm.Board, debug bool) PawnHashEntry {
 
 	// 3. Pawn structure bitboards
 	entry.WIsolatedBB, entry.BIsolatedBB = getIsolatedPawnsBitboards(b)
-	entry.WPassedBB, entry.BPassedBB = getPassedPawnsBitboards(b, entry.WPawnAttackBB, entry.BPawnAttackBB)
+	entry.WPassedBB, entry.BPassedBB = getPassedPawnsBitboards(b)
 	entry.WBlockedBB, entry.BBlockedBB = getBlockedPawnsBitboards(b)
+	// The fills already exclude the origin square, so no extra shift is needed
+	// to make this "strictly ahead".
+	entry.WOpposedBB = b.White.Pawns & calculatePawnSouthFill(b.Black.Pawns)
+	entry.BOpposedBB = b.Black.Pawns & calculatePawnNorthFill(b.White.Pawns)
+
+	entry.WSpaceBonus = spaceBonusFor(b.White.Pawns, entry.BPawnAttackBB, wSpaceZoneMask,
+		entry.WSemiOpenFiles, entry.OpenFiles, true)
+	entry.BSpaceBonus = spaceBonusFor(b.Black.Pawns, entry.WPawnAttackBB, bSpaceZoneMask,
+		entry.BSemiOpenFiles, entry.OpenFiles, false)
 	entry.WBackwardBB, entry.BBackwardBB = getBackwardPawnsBitboards(b, entry.WPawnAttackBB, entry.BPawnAttackBB, entry.WIsolatedBB, entry.BIsolatedBB, entry.WPassedBB, entry.BPassedBB)
-	wLever, bLever, wLeverPush, bLeverPush, wWeakLever, bWeakLever := getPawnLeverBitboards(b, entry.WPawnAttackBB, entry.BPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W)
+	// Lever-PUSH bitboards depend on full-board occupancy (empty push square)
+	// and are therefore never cached here; see LeverPushBitboards.
+	wLever, bLever, _, _, wWeakLever, bWeakLever := getPawnLeverBitboards(b, entry.WPawnAttackBB, entry.BPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W)
 	entry.WLeverBB = wLever
-	entry.WLeverPushedBB = wLeverPush
 	entry.BLeverBB = bLever
-	entry.BLeverPushedBB = bLeverPush
 	entry.WWeakLeverBB = wWeakLever
 	entry.BWeakLeverBB = bWeakLever
 
 	// 4. Pawn score components
 	pawnPsqtMG, pawnPsqtEG := countPieceTables(&b.White.Pawns, &b.Black.Pawns, &PSQT_MG[gm.PieceTypePawn], &PSQT_EG[gm.PieceTypePawn])
-	isoMG, isoEG := isolatedPawnPenalty(entry.WIsolatedBB, entry.BIsolatedBB)
-	doubledMG, doubledEG := pawnDoublingPenalties(b)
-	connMG, connEG, phalMG, phalEG := connectedOrPhalanxPawnBonus(b, entry.WPawnAttackBB, entry.BPawnAttackBB)
+	isoMG, isoEG := isolatedPawnPenalty(&entry)
+	doubledMG, doubledEG := pawnDoublingPenalties(b, &entry)
+	connMG, connEG := connectedPawnBonus(b, &entry)
 	passedMG, passedEG := passedPawnBonus(entry.WPassedBB, entry.BPassedBB)
-	candidateMG, candidateEG, wCandidate, bCandidate := candidatePassedBonus(b, entry.WPassedBB, entry.BPassedBB, entry.WLeverBB, entry.BLeverBB, entry.WLeverPushedBB, entry.BLeverPushedBB)
-	entry.WCandidateBB = wCandidate
-	entry.BCandidateBB = bCandidate
-	blockedMG, blockedEG := blockedPawnBonus(entry.WBlockedBB, entry.BBlockedBB)
-	backMG, backEG := backwardPawnPenalty(entry.WBackwardBB, entry.BBackwardBB)
+	// NOTE: the candidate-passed term depends on FULL-BOARD occupancy (piece
+	// on the lever-push square), so it must not be cached in this pawn-keyed
+	// entry. It is computed per evaluation, like the pawn storm.
+	blockedMG, blockedEG := blockedPawnPenalty(entry.WBlockedBB, entry.BBlockedBB)
+	backMG, backEG := backwardPawnPenalty(&entry)
 	weakLeverMG, weakLeverEG := pawnWeakLeverPenalty(entry.WWeakLeverBB, entry.BWeakLeverBB)
 
 	// Sum all pawn contributions
-	entry.PawnScoreMG = pawnPsqtMG + isoMG + doubledMG + connMG + phalMG + passedMG + candidateMG + blockedMG + backMG + weakLeverMG
-	entry.PawnScoreEG = pawnPsqtEG + isoEG + doubledEG + connEG + phalEG + passedEG + candidateEG + blockedEG + backEG + weakLeverEG
+	entry.PawnScoreMG = pawnPsqtMG + isoMG + doubledMG + connMG + passedMG + blockedMG + backMG + weakLeverMG
+	entry.PawnScoreEG = pawnPsqtEG + isoEG + doubledEG + connEG + passedEG + blockedEG + backEG + weakLeverEG
 
-	if debug {
-		println("################### PAWN PARAMETERS ###################")
-		println("Pawn MG:\t", "PSQT: ", pawnPsqtMG, "\tIsolated: ", isoMG, "\tDoubled: ", doubledMG,
-			"\tConnected: ", connMG, "\tPhalanx: ", phalMG, "\tPassed: ", passedMG, "\tCandidate: ", candidateMG,
-			"\tBlocked: ", blockedMG, "\tBackward: ", backMG, "\tWeakLever: ", weakLeverMG)
-		println("Pawn EG:\t", "PSQT: ", pawnPsqtEG, "\tIsolated: ", isoEG, "\tDoubled: ", doubledEG,
-			"\tConnected: ", connEG, "\tPhalanx: ", phalEG, "\tPassed: ", passedEG, "\tCandidate: ", candidateEG,
-			"\tBlocked: ", blockedEG, "\tBackward: ", backEG, "\tWeakLever: ", weakLeverEG)
-	}
 	return entry
+}
+
+// LeverPushBitboards computes the lever-push pawns for the current full
+// board. Occupancy-dependent (push square must be empty of ANY piece),
+// hence never cached in the pawn hash.
+func LeverPushBitboards(b *gm.Board) (wLeverPush, bLeverPush uint64) {
+	empty := ^(b.White.All | b.Black.All)
+
+	wOne := (b.White.Pawns << 8) & empty
+	wOneAttE, wOneAttW := PawnCaptureBitboards(wOne, true)
+	wHitAfterPush := (wOneAttE | wOneAttW) & b.Black.Pawns
+	wPushedLeverSources := ((wHitAfterPush &^ bitboardFileH) >> 7) | ((wHitAfterPush &^ bitboardFileA) >> 9)
+	wLeverPush = (wPushedLeverSources & wOne) >> 8
+
+	bOne := (b.Black.Pawns >> 8) & empty
+	bOneAttE, bOneAttW := PawnCaptureBitboards(bOne, false)
+	bHitAfterPush := (bOneAttE | bOneAttW) & b.White.Pawns
+	bPushedLeverSources := ((bHitAfterPush &^ bitboardFileA) << 7) | ((bHitAfterPush &^ bitboardFileH) << 9)
+	bLeverPush = (bPushedLeverSources & bOne) << 8
+	return
+}
+
+// CandidatePassedTerm computes the candidate-passed-pawn term for the current
+// full board. Occupancy-dependent, hence never cached in the pawn hash.
+func CandidatePassedTerm(b *gm.Board, entry *PawnHashEntry) (mg, eg int, wCand, bCand uint64) {
+	wLeverPush, bLeverPush := LeverPushBitboards(b)
+	return candidatePassedBonus(b, entry.WPassedBB, entry.BPassedBB,
+		entry.WLeverBB, entry.BLeverBB, wLeverPush, bLeverPush)
 }
 
 // GetPawnEntry returns a pointer to the pawn hash entry for the current position, computing it if needed.
@@ -318,10 +344,16 @@ func GetPawnEntry(b *gm.Board, debug bool) *PawnHashEntry {
 	if hit {
 		return entry
 	}
-	newEntry := ComputePawnEntry(b, debug)
-	StorePawnHash(b, &newEntry)
-	idx := pawnHashIndex(b.White.Pawns, b.Black.Pawns)
-	return &PawnHashTable[idx]
+	// ProbePawnHash already returns the slot this position maps to, so write
+	// through that pointer. Going via StorePawnHash recomputed pawnHashIndex a
+	// second time and copied the 208-byte entry into the table on top of the
+	// copy out of ComputePawnEntry, and the old tail recomputed the index a
+	// third time to build the return value.
+	*entry = ComputePawnEntry(b, debug)
+	entry.WhitePawns = b.White.Pawns
+	entry.BlackPawns = b.Black.Pawns
+	entry.Valid = true
+	return entry
 }
 
 func getIsolatedPawnsBitboards(b *gm.Board) (wIsolated uint64, bIsolated uint64) {
@@ -345,7 +377,7 @@ func getIsolatedPawnsBitboards(b *gm.Board) (wIsolated uint64, bIsolated uint64)
 	return wIsolated, bIsolated
 }
 
-func getPassedPawnsBitboards(b *gm.Board, _ uint64, _ uint64) (wPassed uint64, bPassed uint64) {
+func getPassedPawnsBitboards(b *gm.Board) (wPassed uint64, bPassed uint64) {
 	for x := b.White.Pawns; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
 		file := sq & 7
@@ -448,14 +480,13 @@ func getPawnLeverBitboards(
 	wLeverPush uint64, bLeverPush uint64,
 	wWeakLever uint64, bWeakLever uint64,
 ) {
-	occ := b.White.All | b.Black.All
-	empty := ^occ
-
 	wHitTargets := wPawnAttackBB & b.Black.Pawns
-	wLever = ((wHitTargets &^ bitboardFileH) >> 7) | ((wHitTargets &^ bitboardFileA) >> 9) //&b.White.Pawns
+	wLever = (((wHitTargets &^ bitboardFileH) >> 7) |
+		((wHitTargets &^ bitboardFileA) >> 9)) & b.White.Pawns
 
 	bHitTargets := bPawnAttackBB & b.White.Pawns
-	bLever = ((bHitTargets &^ bitboardFileA) << 7) | ((bHitTargets &^ bitboardFileH) << 9) //&b.Black.Pawns
+	bLever = (((bHitTargets &^ bitboardFileA) << 7) |
+		((bHitTargets &^ bitboardFileH) << 9)) & b.Black.Pawns
 
 	wDoubleAtt := wPawnAttackBB_E & wPawnAttackBB_W // squares attacked by two white pawns
 	bDoubleAtt := bPawnAttackBB_E & bPawnAttackBB_W // squares attacked by two black pawns
@@ -463,42 +494,11 @@ func getPawnLeverBitboards(
 	wWeakLever = wLever & bDoubleAtt &^ wPawnAttackBB
 	bWeakLever = bLever & wDoubleAtt &^ bPawnAttackBB
 
-	// White push levers
-	wOne := (b.White.Pawns << 8) & empty
-	wOneAtt_E, wOneAttW := PawnCaptureBitboards(wOne, true)
-	wOneAtt := wOneAtt_E | wOneAttW
-
-	wHitAfterPush := wOneAtt & b.Black.Pawns
-	wPushedLeverSources := ((wHitAfterPush &^ bitboardFileH) >> 7) | ((wHitAfterPush &^ bitboardFileA) >> 9)
-	wPushedLevers := wPushedLeverSources & wOne
-	wLeverPush = wPushedLevers >> 8
-
-	// Black push levers
-	bOne := (b.Black.Pawns >> 8) & empty
-	bOneAtt_E, bOneAtt_W := PawnCaptureBitboards(bOne, false)
-	bOneAtt := bOneAtt_E | bOneAtt_W
-
-	bHitAfterPush := bOneAtt & b.White.Pawns
-	bPushedLeverSources := ((bHitAfterPush &^ bitboardFileA) << 7) | ((bHitAfterPush &^ bitboardFileH) << 9)
-	bPushedLevers := bPushedLeverSources & bOne
-	bLeverPush = bPushedLevers << 8
+	// Push levers are occupancy-dependent; delegated so per-eval callers can
+	// recompute them without the pawn-keyed cache.
+	wLeverPush, bLeverPush = LeverPushBitboards(b)
 
 	return
-}
-
-func getPawnStormBitboards(b *gm.Board, wWing uint64, bWing uint64) (wStorm uint64, bStorm uint64) {
-	// White storm on black king wing, advanced (rank 4+)
-	wStorm = b.White.Pawns & bWing & ranksAbove[3]
-	// Black storm on white king wing, advanced (rank <= 5 from white perspective)
-	bStorm = b.Black.Pawns & wWing & ranksBelow[4]
-	return wStorm, bStorm
-}
-
-func getEnemyPawnProximityBitboards(b *gm.Board, wWing uint64, bWing uint64) (wProx uint64, bProx uint64) {
-	// Enemy near our king wing
-	wProx = b.Black.Pawns & wWing & ranksAbove[3]
-	bProx = b.White.Pawns & bWing & ranksBelow[4]
-	return wProx, bProx
 }
 
 // getCenterState evaluates the center structure and returns whether the core center is locked
@@ -555,38 +555,44 @@ func getCenterState(
 	return
 }
 
-// getCenterMobilityScales returns integer percentage scales for
-// knight mobility, bishop mobility, and bishop-pair bonus based on
-// center state (lockedCenter) and openness index (0..1).
-func getCenterMobilityScales(lockedCenter bool, openIdx float64) (knMobScale int, biMobScale int, bpScaleMG int) {
-	// Defaults: no scaling
-	knMobScale = 100
-	biMobScale = 100
-	bpScaleMG = 100
+// centerScales holds integer percentage scales derived from the centre state.
+// Both phases are scaled: the endgame halves used to be left alone, so the
+// engine's whole read of the centre decayed to nothing as the phase moved --
+// exactly where a locked structure decides knight-versus-bishop endings.
+type centerScales struct {
+	knightMobilityMG, knightMobilityEG int
+	bishopMobilityMG, bishopMobilityEG int
+	bishopPairMG, bishopPairEG         int
+}
+
+// getCenterMobilityScales converts the centre state into percentage scales for
+// knight mobility, bishop mobility and the bishop-pair bonus. The scaling is
+// linear in openness rather than bucketed, so a single semi-open file can no
+// longer flip a 25-point swing at a threshold.
+func getCenterMobilityScales(lockedCenter bool, openIdx float64) centerScales {
+	// openIdx is (open + 0.5*semiOpen)/4 over the c-f files, so it is always a
+	// multiple of 0.125 and openIdx*8 is a whole number in 0..8. Working in
+	// eighths keeps this in integer arithmetic: openness runs -4..+4, in quarters
+	// of the full swing. Go truncates integer division toward zero, which is
+	// symmetric about zero, so the two colours cannot round apart.
+	openness := int(openIdx*8+0.5) - 4
 
 	if lockedCenter {
-		// Fully locked center favors knights, penalizes bishops and bishop pair
-		knMobScale += 20
-		biMobScale -= 10
-		bpScaleMG -= 10
-		return
+		// A locked centre is maximally closed by definition. The file count can
+		// still read up to openIdx 0.25 when c or f is semi-open, so pin it here
+		// rather than let the count speak. Fires in 1.4% of positions.
+		openness = -4
 	}
 
-	if openIdx >= 0.75 {
-		// Very open center favors bishops
-		knMobScale -= 10
-		biMobScale += 15
-		bpScaleMG += 20
-		return
+	// Knights prefer a closed centre; bishops and the pair prefer an open one.
+	return centerScales{
+		knightMobilityMG: 100 - openness*CenterKnightMobilityMG/4,
+		knightMobilityEG: 100 - openness*CenterKnightMobilityEG/4,
+		bishopMobilityMG: 100 + openness*CenterBishopMobilityMG/4,
+		bishopMobilityEG: 100 + openness*CenterBishopMobilityEG/4,
+		bishopPairMG:     100 + openness*CenterBishopPairMG/4,
+		bishopPairEG:     100 + openness*CenterBishopPairEG/4,
 	}
-
-	if openIdx <= 0.25 {
-		// Quite closed center mildly favors knights
-		knMobScale += 10
-		biMobScale -= 5
-		bpScaleMG -= 5
-	}
-	return
 }
 
 func chebyshevDistance(sq1, sq2 int) int {
@@ -647,37 +653,9 @@ func getRookConnectedFiles(b *gm.Board) (wFiles uint64, bFiles uint64) {
 	return wFiles, bFiles
 }
 
-func getKingWingMasks(b *gm.Board) (wWing uint64, bWing uint64) {
-	wSq := bits.TrailingZeros64(b.White.Kings)
-	bSq := bits.TrailingZeros64(b.Black.Kings)
-	wFile := wSq % 8
-	bFile := bSq % 8
-	qSide := onlyFile[0] | onlyFile[1] | onlyFile[2]
-	kSide := onlyFile[5] | onlyFile[6] | onlyFile[7]
-	// d/e choose nearest wing
-	if wFile <= 2 {
-		wWing = qSide
-	} else if wFile >= 5 {
-		wWing = kSide
-	} else if wFile == 3 { // d-file
-		wWing = qSide
-	} else { // e-file
-		wWing = kSide
-	}
-	if bFile <= 2 {
-		bWing = qSide
-	} else if bFile >= 5 {
-		bWing = kSide
-	} else if bFile == 3 {
-		bWing = qSide
-	} else {
-		bWing = kSide
-	}
-	return wWing, bWing
-}
-
 func calculatePawnNorthFill(pawnBitboard uint64) uint64 {
 	pawnBitboard = (pawnBitboard << 8)
+	pawnBitboard |= (pawnBitboard << 8)
 	pawnBitboard |= (pawnBitboard << 16)
 	pawnBitboard |= (pawnBitboard << 32)
 	return pawnBitboard
@@ -685,6 +663,7 @@ func calculatePawnNorthFill(pawnBitboard uint64) uint64 {
 
 func calculatePawnSouthFill(pawnBitboard uint64) uint64 {
 	pawnBitboard = (pawnBitboard >> 8)
+	pawnBitboard |= (pawnBitboard >> 8)
 	pawnBitboard |= (pawnBitboard >> 16)
 	pawnBitboard |= (pawnBitboard >> 32)
 	return pawnBitboard
@@ -704,13 +683,10 @@ func isTheoreticalDraw(board *gm.Board, debug bool) bool {
 	bQueens := bits.OnesCount64(board.Black.Queens)
 
 	allPieces := bits.OnesCount64((board.White.All | board.Black.All) & ^(board.White.Kings | board.Black.Kings))
-	if debug {
-		println("All: ", allPieces, "\twQueen: ", wQueens, "\twRooks: ", wRooks, "\twKnights: ", wKnights, "\twBishops: ", wBishops)
-		println("All: ", allPieces, "\tbQueen: ", bQueens, "\tbRooks: ", bRooks, "\tbKnights: ", bKnights, "\tbBishops: ", bBishops)
-	}
-
 	/*
 		GENERAL DRAWS:
+			NO PIECES:
+				- bare kings				✓
 			ONE PIECE:
 				- One knight				✓
 				- One bishop				✓
@@ -724,7 +700,9 @@ func isTheoreticalDraw(board *gm.Board, debug bool) bool {
 
 	*/
 	if pawnCount == 0 {
-		if allPieces == 1 { // single piece draw
+		if allPieces == 0 { // bare kings
+			return true
+		} else if allPieces == 1 { // single piece draw
 			if wKnights == 1 || wBishops == 1 || bKnights == 1 || bBishops == 1 {
 				return true
 			}

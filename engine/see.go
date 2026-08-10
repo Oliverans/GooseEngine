@@ -22,16 +22,30 @@ const (
 	colorBlack
 )
 
+// see is a static exchange evaluation on the move's target square.
+//
+// Conventions worth knowing before changing anything here:
+//
+//   - Legality is ignored. A pinned defender still "recaptures", and a recapture
+//     that would expose its own king is still counted. Modelling that would need
+//     make/unmake per exchange step, which defeats the purpose of SEE. Stockfish
+//     makes the same trade.
+//   - The king is handled by giving it a 5000 sentinel value rather than by an
+//     explicit rule: if it captures into a defended square the following
+//     "recapture" is worth 5000, so the fold makes the king decline.
+//   - Promotions are credited. The initial move promotes to whatever the move
+//     encodes; a pawn recapturing onto the back rank is assumed to take a queen.
+//     SEE cannot see check, so underpromotion tactics are search's problem, and
+//     assuming a queen errs on the conservative side for the original capture.
 func see(b *gm.Board, move gm.Move, debug bool) int {
 	const maxDepth = 32
 
 	var gain [maxDepth]int
 
-	fromSquare := move.From()
-	toSquare := move.To()
+	from := uint8(move.From())
+	to := uint8(move.To())
 
-	sideToMove := b.Wtomove
-	us := colorIndex(sideToMove)
+	us := colorIndex(b.Wtomove)
 	them := us ^ 1
 
 	var pieces [2]gm.Bitboards
@@ -39,9 +53,6 @@ func see(b *gm.Board, move gm.Move, debug bool) int {
 	pieces[colorBlack] = b.Black
 
 	occupied := pieces[colorWhite].All | pieces[colorBlack].All
-
-	from := uint8(fromSquare)
-	to := uint8(toSquare)
 
 	movingPiece := pieceAtSquare(from, &pieces[us])
 	if movingPiece == gm.PieceTypeNone {
@@ -52,10 +63,10 @@ func see(b *gm.Board, move gm.Move, debug bool) int {
 	captureSquare := to
 
 	if capturedPiece == gm.PieceTypeNone {
-		if move.Flags()&gm.FlagEnPassant == 0 {
+		if move.Flags() != gm.FlagEnPassant {
 			return 0
 		}
-		if sideToMove {
+		if b.Wtomove {
 			if to < 8 {
 				return 0
 			}
@@ -72,64 +83,83 @@ func see(b *gm.Board, move gm.Move, debug bool) int {
 		capturedPiece = gm.PieceTypePawn
 	}
 
-	removePiece(&pieces[them], capturedPiece, captureSquare)
-	occupied &^= PositionBB[int(captureSquare)]
-
-	removePiece(&pieces[us], movingPiece, from)
-	occupied &^= PositionBB[int(from)]
-
-	movingPieceAfter := movingPiece
-	if promo := move.PromotionPieceType(); promo != gm.PieceTypeNone {
-		movingPieceAfter = promo
-	}
-
-	addPiece(&pieces[us], movingPieceAfter, to)
+	// Occupancy as it stands after the initial capture. The piece bitboards are
+	// deliberately left stale from here on: anything that has been used is
+	// already cleared from occupied, and the attacker set is masked by occupied
+	// on every iteration, so stale entries can never be picked twice.
+	occupied &^= PositionBB[int(from)] | PositionBB[int(captureSquare)]
 	occupied |= PositionBB[int(to)]
 
+	// onSquare is whatever now stands on the target and is therefore what the
+	// next capture wins.
+	onSquare := movingPiece
 	gain[0] = SeePieceValue[capturedPiece]
+	if promo := move.PromotionPieceType(); promo != gm.PieceTypeNone {
+		gain[0] += SeePieceValue[promo] - SeePieceValue[gm.PieceTypePawn]
+		onSquare = promo
+	}
 
-	capturedPieceType := movingPieceAfter
+	diagSliders := pieces[colorWhite].Bishops | pieces[colorWhite].Queens |
+		pieces[colorBlack].Bishops | pieces[colorBlack].Queens
+	orthoSliders := pieces[colorWhite].Rooks | pieces[colorWhite].Queens |
+		pieces[colorBlack].Rooks | pieces[colorBlack].Queens
+
+	attackers := allAttackersTo(to, occupied, &pieces)
+
 	side := them
 	depth := 0
 
 	for {
-		attackers := attackersToSquare(to, occupied, pieces[side], side == colorWhite)
-		attackers &^= PositionBB[int(to)]
-		if attackers == 0 {
+		attackers &= occupied
+		sideAttackers := attackers & pieces[side].All
+		if sideAttackers == 0 {
 			break
 		}
 
-		attackerBB, attackerPiece := minAttacker(attackers, pieces[side])
+		attackerBB, attackerPiece := minAttacker(sideAttackers, pieces[side])
 		if attackerBB == 0 {
 			break
 		}
 
-		attackSquare := uint8(bits.TrailingZeros64(attackerBB))
+		promotedTo := attackerPiece
+		promoBonus := 0
+		if attackerPiece == gm.PieceTypePawn && (to < 8 || to > 55) {
+			promotedTo = gm.PieceTypeQueen
+			promoBonus = SeePieceValue[gm.PieceTypeQueen] - SeePieceValue[gm.PieceTypePawn]
+		}
 
 		depth++
 		if depth >= maxDepth {
 			depth = maxDepth - 1
 		}
-		gain[depth] = SeePieceValue[capturedPieceType] - gain[depth-1]
+		gain[depth] = SeePieceValue[onSquare] + promoBonus - gain[depth-1]
 
-		// Refined early-exit: if recapturing cannot improve over stopping,
-		// the side to move would stop. No need to explore deeper.
+		// If capturing cannot beat simply stopping, the side to move stops. The
+		// fold below can only lower gain[depth] further, so this is safe.
 		if gain[depth] <= -gain[depth-1] {
 			break
 		}
 
-		removePiece(&pieces[side], attackerPiece, attackSquare)
-		occupied &^= PositionBB[int(attackSquare)]
+		occupied &^= attackerBB
 
-		opponent := side ^ 1
-		removePiece(&pieces[opponent], capturedPieceType, to)
-		occupied &^= PositionBB[int(to)]
+		// Only a slider standing behind the vacated square can appear, and the
+		// attacker's own type tells us which ray it was standing on: a pawn or
+		// bishop attacking the target must be on a diagonal, a rook on a rank or
+		// file, and a knight on neither. Only a queen or king is ambiguous.
+		switch attackerPiece {
+		case gm.PieceTypeKnight:
+			// A knight never stands on a ray from the target.
+		case gm.PieceTypePawn, gm.PieceTypeBishop:
+			attackers |= gm.CalculateBishopMoveBitboard(to, occupied) & diagSliders
+		case gm.PieceTypeRook:
+			attackers |= gm.CalculateRookMoveBitboard(to, occupied) & orthoSliders
+		default:
+			attackers |= gm.CalculateBishopMoveBitboard(to, occupied) & diagSliders
+			attackers |= gm.CalculateRookMoveBitboard(to, occupied) & orthoSliders
+		}
 
-		addPiece(&pieces[side], attackerPiece, to)
-		occupied |= PositionBB[int(to)]
-
-		capturedPieceType = attackerPiece
-		side = opponent
+		onSquare = promotedTo
+		side ^= 1
 	}
 
 	for depth > 0 {
@@ -140,18 +170,21 @@ func see(b *gm.Board, move gm.Move, debug bool) int {
 	return gain[0]
 }
 
-func attackersToSquare(target uint8, occupied uint64, pieces gm.Bitboards, white bool) uint64 {
+// allAttackersTo builds the attacker set for both colours in a single pass.
+func allAttackersTo(target uint8, occupied uint64, pieces *[2]gm.Bitboards) uint64 {
 	targetBB := PositionBB[int(target)]
 
-	attackers := pawnAttackers(targetBB, pieces.Pawns, white)
-	attackers |= KnightMasks[int(target)] & pieces.Knights
-	attackers |= KingMoves[int(target)] & pieces.Kings
+	attackers := pawnAttackers(targetBB, pieces[colorWhite].Pawns, true)
+	attackers |= pawnAttackers(targetBB, pieces[colorBlack].Pawns, false)
+	attackers |= KnightMasks[int(target)] & (pieces[colorWhite].Knights | pieces[colorBlack].Knights)
+	attackers |= KingMoves[int(target)] & (pieces[colorWhite].Kings | pieces[colorBlack].Kings)
 
-	bishopAttacks := gm.CalculateBishopMoveBitboard(target, occupied)
-	rookAttacks := gm.CalculateRookMoveBitboard(target, occupied)
-
-	attackers |= bishopAttacks & (pieces.Bishops | pieces.Queens)
-	attackers |= rookAttacks & (pieces.Rooks | pieces.Queens)
+	attackers |= gm.CalculateBishopMoveBitboard(target, occupied) &
+		(pieces[colorWhite].Bishops | pieces[colorWhite].Queens |
+			pieces[colorBlack].Bishops | pieces[colorBlack].Queens)
+	attackers |= gm.CalculateRookMoveBitboard(target, occupied) &
+		(pieces[colorWhite].Rooks | pieces[colorWhite].Queens |
+			pieces[colorBlack].Rooks | pieces[colorBlack].Queens)
 
 	return attackers
 }
@@ -180,47 +213,6 @@ func pieceAtSquare(square uint8, bitboards *gm.Bitboards) gm.PieceType {
 		return gm.PieceTypeKing
 	default:
 		return gm.PieceTypeNone
-	}
-}
-
-func addPiece(bitboards *gm.Bitboards, piece gm.PieceType, square uint8) {
-	mask := PositionBB[int(square)]
-	bitboards.All |= mask
-	switch piece {
-	case gm.PieceTypePawn:
-		bitboards.Pawns |= mask
-	case gm.PieceTypeKnight:
-		bitboards.Knights |= mask
-	case gm.PieceTypeBishop:
-		bitboards.Bishops |= mask
-	case gm.PieceTypeRook:
-		bitboards.Rooks |= mask
-	case gm.PieceTypeQueen:
-		bitboards.Queens |= mask
-	case gm.PieceTypeKing:
-		bitboards.Kings |= mask
-	}
-}
-
-func removePiece(bitboards *gm.Bitboards, piece gm.PieceType, square uint8) {
-	if piece == gm.PieceTypeNone {
-		return
-	}
-	mask := ^PositionBB[int(square)]
-	bitboards.All &= mask
-	switch piece {
-	case gm.PieceTypePawn:
-		bitboards.Pawns &= mask
-	case gm.PieceTypeKnight:
-		bitboards.Knights &= mask
-	case gm.PieceTypeBishop:
-		bitboards.Bishops &= mask
-	case gm.PieceTypeRook:
-		bitboards.Rooks &= mask
-	case gm.PieceTypeQueen:
-		bitboards.Queens &= mask
-	case gm.PieceTypeKing:
-		bitboards.Kings &= mask
 	}
 }
 

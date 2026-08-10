@@ -126,15 +126,27 @@ func PawnStructDiffs(b *gm.Board) (mg [8]int, eg [8]int) {
 	// Backward pawns via engine helper
 	// Need isolated and passed bitboards to determine backwardness
 	wIsoBB, bIsoBB := getIsolatedPawnsBitboards(b)
-	wPassedBB, bPassedBB := getPassedPawnsBitboards(b, wPawnAttackBB, bPawnAttackBB)
+	wPassedBB, bPassedBB := getPassedPawnsBitboards(b)
 	wBackBB, bBackBB := getBackwardPawnsBitboards(b, wPawnAttackBB, bPawnAttackBB, wIsoBB, bIsoBB, wPassedBB, bPassedBB)
 	backDiff := bits.OnesCount64(bBackBB) - bits.OnesCount64(wBackBB)
 	mg[7], eg[7] = backDiff, backDiff
 	return mg, eg
 }
 
+// legacyImbalanceRefPawnCount is the PER-SIDE reference the imbalance term used
+// before it moved to a shared total-pawn delta.
+//
+// ImbalanceDiffs NO LONGER mirrors the engine's imbalance evaluation. The engine
+// has no per-bishop tilt at all now, and its knight tilt reads the total pawn
+// count rather than each side's own. Both differences survive here only because
+// the frozen tuner's Stage 8 expects four features in this exact shape; see
+// tuner/toggles.go. Repointing it at the real term means dropping to two
+// features and re-deriving the stage layout, which is a tuner change.
+// Rewrite this together with the tuner.
+const legacyImbalanceRefPawnCount = 5
+
 // ImbalanceDiffs exposes the unit contributions (before applying engine/tuner scalars)
-// for the Kaufman-style material imbalance terms used in evaluation.go. Index mapping:
+// for the Kaufman-style material imbalance terms. Index mapping:
 //
 //	0: KnightPerPawn
 //	1: BishopPerPawn
@@ -150,8 +162,8 @@ func ImbalanceDiffs(b *gm.Board) (mg [2]int, eg [2]int) {
 	bn := pieceCount[Black][gm.PieceTypeKnight]
 	bb := pieceCount[Black][gm.PieceTypeBishop]
 
-	wPawnDelta := wp - ImbalanceRefPawnCount
-	bPawnDelta := bp - ImbalanceRefPawnCount
+	wPawnDelta := wp - legacyImbalanceRefPawnCount
+	bPawnDelta := bp - legacyImbalanceRefPawnCount
 
 	// Knight/Bishop per pawn
 	mg[0] = (wPawnDelta * wn) - (bPawnDelta * bn)
@@ -165,6 +177,20 @@ func ImbalanceDiffs(b *gm.Board) (mg [2]int, eg [2]int) {
 // - mobility counts per piece type for MG/EG (white minus black)
 // - attacker counts on opponent king inner/outer zones per piece type (white minus black)
 // Returns four [7]int arrays keyed by gm.PieceType.
+// attackerInner and attackerOuter are retired from the evaluation: king danger
+// is now accumulated per attacking piece in kingDanger, and the outer ring no
+// longer exists. They survive only because the frozen tuner bridge below still
+// reports features shaped around them. Delete both, and the bridge functions
+// that read them, when the tuner is rewritten.
+var attackerInner = [7]int{
+	gm.PieceTypePawn: 1, gm.PieceTypeKnight: 2, gm.PieceTypeBishop: 2,
+	gm.PieceTypeRook: 4, gm.PieceTypeQueen: 6, gm.PieceTypeKing: 0,
+}
+var attackerOuter = [7]int{
+	gm.PieceTypePawn: 0, gm.PieceTypeKnight: 1, gm.PieceTypeBishop: 1,
+	gm.PieceTypeRook: 2, gm.PieceTypeQueen: 2, gm.PieceTypeKing: 0,
+}
+
 func MobAtkDiffs(b *gm.Board) (mobMG [7]int, mobEG [7]int, attInner [7]int, attOuter [7]int) {
 	// Pawn attack maps
 	wp, bp := b.White.Pawns, b.Black.Pawns
@@ -565,7 +591,30 @@ func EndgameKingTerms(b *gm.Board) (centralizationEG int, mopUpEG int) {
 	return
 }
 
-// SpaceAndWeakKingDiffs mirrors the engine's spaceEvaluation and weakKingSquaresPenalty helpers.
+// Frozen copies of the space zone the evaluation used before spaceEvaluation was
+// rewritten. The engine's masks moved two ranks down to c2-f4 / c5-f7, which is
+// what the term always meant; these keep their old values because
+// SpaceAndWeakKingDiffs below no longer mirrors the evaluation and must not
+// change behaviour for its two callers. See the note on that function.
+const (
+	legacyWSpaceZoneMask uint64 = 0x00003c3c3c000000
+	legacyBSpaceZoneMask uint64 = 0x0000003c3c3c0000
+)
+
+// SpaceAndWeakKingDiffs NO LONGER mirrors the engine's space evaluation.
+//
+// spaceEvaluation was rewritten to score safe squares in a side's OWN half,
+// tiered by pawn cover and file state and weighted by material, with no piece
+// mobility input at all. This function still computes the retired formula --
+// minor-piece control of the enemy half, over the retired zone -- because both
+// its callers are calibrated to that scale: the frozen tuner fits a single
+// SpaceBonus against these unit counts, and review/strategic/space_control.go
+// thresholds a delta of these counts at spaceDeltaThreshold = 2.
+//
+// Repointing it at the new term changes reviewer detections and wants its
+// thresholds recalibrated, which is a reviewer decision rather than an
+// evaluation one. Left deliberately divergent until then.
+//
 // spaceDiff    = (# safe white space squares) - (# safe black space squares)
 // weakKingDiff = (# black weak king-ring squares) - (# white weak king-ring squares)
 func SpaceAndWeakKingDiffs(b *gm.Board) (spaceDiff int, weakKingDiff int) {
@@ -596,8 +645,8 @@ func SpaceAndWeakKingDiffs(b *gm.Board) (spaceDiff int, weakKingDiff int) {
 
 	// Space evaluation is gated by piecePhase (skip in early opening)
 	if GetPiecePhase(b) >= 6 {
-		wSpaceZone := wSpaceZoneMask &^ b.Black.Pawns
-		bSpaceZone := bSpaceZoneMask &^ b.White.Pawns
+		wSpaceZone := legacyWSpaceZoneMask &^ b.Black.Pawns
+		bSpaceZone := legacyBSpaceZoneMask &^ b.White.Pawns
 
 		wControl := wPawnAttackBB | knightMovementBB[0] | bishopMovementBB[0]
 		bControl := bPawnAttackBB | knightMovementBB[1] | bishopMovementBB[1]
@@ -628,7 +677,11 @@ func KnightTropismDiffs(b *gm.Board) (mg int, eg int) {
 // matching engine logic and MG scaling:
 //   - Award only if one side has >=2 bishops and the opponent has <2.
 //   - MG is scaled by the bishop-pair center scale (percent from getCenterMobilityScales).
-//   - EG is unscaled (±1 units).
+//   - EG is unscaled (±1 units). The ENGINE now scales the endgame pair bonus by
+//     centre openness too, so this diverges. It is deliberate: tuner/linear_eval.go
+//     divides the MG feature by 100 and the EG feature not at all, so returning a
+//     percentage here would inflate the endgame term ~100x. Repoint both together
+//     when the tuner is rewritten.
 func BishopPairDiffsScaled(b *gm.Board) (mg int, eg int) {
 	wB := bits.OnesCount64(b.White.Bishops)
 	bB := bits.OnesCount64(b.Black.Bishops)
@@ -653,7 +706,7 @@ func BishopPairDiffsScaled(b *gm.Board) (mg int, eg int) {
 	wLever, bLever, _, _, _, _ := getPawnLeverBitboards(b, wPawnAttackBB, bPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W)
 
 	lockedCenter, openIdx := getCenterState(b, openFiles, wSemiOpen, bSemiOpen, wLever, bLever)
-	_, _, bpScaleMG := getCenterMobilityScales(lockedCenter, openIdx)
+	bpScaleMG := getCenterMobilityScales(lockedCenter, openIdx).bishopPairMG
 
 	if wB >= 2 && bB < 2 {
 		mg += bpScaleMG
@@ -721,26 +774,6 @@ func BadBishopUnitDiff(b *gm.Board) int {
 func KingPasserProximityTerm(b *gm.Board) int {
 	entry := GetPawnEntry(b, false)
 	return kingPasserProximity(b, entry)
-}
-
-// PawnStormProxLeverDiffs exposes MG-only unit diffs for pawn storm/proximity/lever-storm terms.
-func PawnStormProxLeverDiffs(b *gm.Board) (stormDiff int, proxDiff int, leverStormDiff int) {
-	// King wings
-	wWing, bWing := getKingWingMasks(b)
-	// Storm/proximity bitboards (MG-only masks inside helpers)
-	wStorm, bStorm := getPawnStormBitboards(b, wWing, bWing)
-	wProx, bProx := getEnemyPawnProximityBitboards(b, wWing, bWing)
-	// Lever bitboards
-	wPawnAttackBB, bPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W := pawnAttackBitboards(b)
-	wLever, bLever, _, _, _, _ := getPawnLeverBitboards(b, wPawnAttackBB, bPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W)
-	// Advanced lever in storm zone
-	wLeverStorm := bits.OnesCount64((wLever & bWing) & ranksAbove[3])
-	bLeverStorm := bits.OnesCount64((bLever & wWing) & ranksBelow[4])
-	// Diffs (match engine signs)
-	stormDiff = bits.OnesCount64(wStorm) - bits.OnesCount64(bStorm)
-	proxDiff = bits.OnesCount64(bProx) - bits.OnesCount64(wProx)
-	leverStormDiff = bLeverStorm - wLeverStorm
-	return
 }
 
 // PawnStormCategoryDiffs returns unit counts for each pawn storm category.
@@ -858,7 +891,8 @@ func CenterMobilityScales(b *gm.Board) (knDelta int, biDelta int) {
 	wPawnAttackBB, bPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W := pawnAttackBitboards(b)
 	wLever, bLever, _, _, _, _ := getPawnLeverBitboards(b, wPawnAttackBB, bPawnAttackBB, wPawnAttackBB_E, wPawnAttackBB_W, bPawnAttackBB_E, bPawnAttackBB_W)
 	lockedCenter, openIdx := getCenterState(b, openFiles, wSemi, bSemi, wLever, bLever)
-	kn, bi, _ := getCenterMobilityScales(lockedCenter, openIdx)
+	scales := getCenterMobilityScales(lockedCenter, openIdx)
+	kn, bi := scales.knightMobilityMG, scales.bishopMobilityMG
 	return kn - 100, bi - 100
 }
 

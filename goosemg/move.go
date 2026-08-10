@@ -88,8 +88,10 @@ func (m Move) String() string {
 func (b *Board) GivesCheck(m Move) bool {
 	us := int(b.sideToMove)
 	them := 1 - us
+	usBB := b.side(Color(us))
+	themBB := b.side(Color(them))
 
-	kingBB := b.kings[them]
+	kingBB := themBB.Kings
 	if kingBB == 0 {
 		return false
 	}
@@ -106,15 +108,15 @@ func (b *Board) GivesCheck(m Move) bool {
 	toBB := uint64(1) << uint(to)
 
 	// Local copies of our piece bitboards and occupancy.
-	pawnsUs := b.pawns[us]
-	knightsUs := b.knights[us]
-	bishopsUs := b.bishops[us]
-	rooksUs := b.rooks[us]
-	queensUs := b.queens[us]
-	kingsUs := b.kings[us]
+	pawnsUs := usBB.Pawns
+	knightsUs := usBB.Knights
+	bishopsUs := usBB.Bishops
+	rooksUs := usBB.Rooks
+	queensUs := usBB.Queens
+	kingsUs := usBB.Kings
 
-	occUs := b.occupancy[us]
-	occThem := b.occupancy[them]
+	occUs := usBB.All
+	occThem := themBB.All
 
 	// Handle capture (including en passant) on opponent occupancy.
 	if flag == FlagEnPassant {

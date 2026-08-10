@@ -44,6 +44,13 @@ func InitPassedPawnMasks() {
 				PassedMaskBlack[sq] |= PositionBB[r*8+file+1]
 			}
 		}
+
+		// The outpost blockers are the passed-pawn masks minus the square's own
+		// file: adjacent files only, every rank ahead. On the far rank the mask
+		// is empty, which is what makes the "no rank above" case fall out of the
+		// same test instead of needing a branch.
+		outpostBlockersWhite[sq] = PassedMaskWhite[sq] &^ onlyFile[file]
+		outpostBlockersBlack[sq] = PassedMaskBlack[sq] &^ onlyFile[file]
 	}
 }
 
@@ -79,15 +86,18 @@ func InitLMRTable() {
 			if depth >= 2 && moveCnt >= 2 {
 				base = 0.8 + math.Log(float64(depth))*math.Log(float64(moveCnt))/2.5
 			}
-			r := int(base + 0.5) // round
+			// Hundredths of a ply with the round-to-nearest offset folded in, so
+			// that dividing an unadjusted entry by 100 reproduces the old
+			// int(base + 0.5). No depth cap here on purpose: capping the table at
+			// depth-1 would eat headroom that the adjustments in
+			// computeLMRReduction need, and the reduction is clamped to depth-2
+			// there anyway, which is the tighter bound.
+			r := int((base + 0.5) * 100)
 
 			if r < 0 {
 				r = 0
 			}
-			if r > depth-1 {
-				r = depth - 1
-			}
-			LMR[depth][moveCnt] = int8(r)
+			LMR[depth][moveCnt] = int16(r)
 		}
 	}
 }

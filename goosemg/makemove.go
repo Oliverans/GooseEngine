@@ -58,8 +58,8 @@ func (b *Board) MakeMove(m Move) (ok bool, st MoveState) {
 	b.enPassantSquare = NoSquare
 
 	// Fast-path updates (avoid generic add/remove where possible)
-	us := int(b.sideToMove)
-	them := 1 - us
+	us := b.side(b.sideToMove)
+	them := b.side(b.sideToMove ^ 1)
 	fromBB := uint64(1) << uint(from)
 	toBB := uint64(1) << uint(to)
 
@@ -79,27 +79,27 @@ func (b *Board) MakeMove(m Move) (ok bool, st MoveState) {
 		capBB := uint64(1) << uint(capSq)
 		// Remove captured pawn
 		b.pieces[int(capSq)] = NoPiece
-		b.occupancy[them] &^= capBB
-		b.pawns[them] &^= capBB
+		them.All &^= capBB
+		them.Pawns &^= capBB
 		b.zobristKey ^= zobristPiece[capPiece][int(capSq)]
 	} else if captured != NoPiece {
 		// Remove captured piece at 'to'
 		st.captured = captured
 		b.pieces[int(to)] = NoPiece
-		b.occupancy[them] &^= toBB
+		them.All &^= toBB
 		switch typeOf(captured) {
 		case 1:
-			b.pawns[them] &^= toBB
+			them.Pawns &^= toBB
 		case 2:
-			b.knights[them] &^= toBB
+			them.Knights &^= toBB
 		case 3:
-			b.bishops[them] &^= toBB
+			them.Bishops &^= toBB
 		case 4:
-			b.rooks[them] &^= toBB
+			them.Rooks &^= toBB
 		case 5:
-			b.queens[them] &^= toBB
+			them.Queens &^= toBB
 		case 6:
-			b.kings[them] &^= toBB
+			them.Kings &^= toBB
 		}
 		b.zobristKey ^= zobristPiece[captured][int(to)]
 	}
@@ -108,43 +108,43 @@ func (b *Board) MakeMove(m Move) (ok bool, st MoveState) {
 	if promo != NoPiece {
 		// Remove pawn at from
 		b.pieces[int(from)] = NoPiece
-		b.occupancy[us] &^= fromBB
-		b.pawns[us] &^= fromBB
+		us.All &^= fromBB
+		us.Pawns &^= fromBB
 		b.zobristKey ^= zobristPiece[moved][int(from)]
 		// Add promoted piece at to
 		b.pieces[int(to)] = promo
-		b.occupancy[us] |= toBB
+		us.All |= toBB
 		switch typeOf(promo) {
 		case 2:
-			b.knights[us] |= toBB
+			us.Knights |= toBB
 		case 3:
-			b.bishops[us] |= toBB
+			us.Bishops |= toBB
 		case 4:
-			b.rooks[us] |= toBB
+			us.Rooks |= toBB
 		case 5:
-			b.queens[us] |= toBB
+			us.Queens |= toBB
 		case 6:
-			b.kings[us] |= toBB
+			us.Kings |= toBB
 		}
 		b.zobristKey ^= zobristPiece[promo][int(to)]
 	} else {
 		// Quiet move of the piece from -> to
 		b.pieces[int(from)] = NoPiece
 		b.pieces[int(to)] = moved
-		b.occupancy[us] ^= (fromBB | toBB)
+		us.All ^= (fromBB | toBB)
 		switch typeOf(moved) {
 		case 1:
-			b.pawns[us] ^= (fromBB | toBB)
+			us.Pawns ^= (fromBB | toBB)
 		case 2:
-			b.knights[us] ^= (fromBB | toBB)
+			us.Knights ^= (fromBB | toBB)
 		case 3:
-			b.bishops[us] ^= (fromBB | toBB)
+			us.Bishops ^= (fromBB | toBB)
 		case 4:
-			b.rooks[us] ^= (fromBB | toBB)
+			us.Rooks ^= (fromBB | toBB)
 		case 5:
-			b.queens[us] ^= (fromBB | toBB)
+			us.Queens ^= (fromBB | toBB)
 		case 6:
-			b.kings[us] ^= (fromBB | toBB)
+			us.Kings ^= (fromBB | toBB)
 		}
 		// Zobrist piece move
 		b.zobristKey ^= zobristPiece[moved][int(from)]
@@ -160,8 +160,8 @@ func (b *Board) MakeMove(m Move) (ok bool, st MoveState) {
 				b.pieces[5] = WhiteRook
 				rb := uint64(1) << 7
 				nb := uint64(1) << 5
-				b.occupancy[us] ^= (rb | nb)
-				b.rooks[us] ^= (rb | nb)
+				us.All ^= (rb | nb)
+				us.Rooks ^= (rb | nb)
 				b.zobristKey ^= zobristPiece[WhiteRook][7]
 				b.zobristKey ^= zobristPiece[WhiteRook][5]
 				st.rookFrom, st.rookTo = 7, 5
@@ -170,8 +170,8 @@ func (b *Board) MakeMove(m Move) (ok bool, st MoveState) {
 				b.pieces[3] = WhiteRook
 				rb := uint64(1) << 0
 				nb := uint64(1) << 3
-				b.occupancy[us] ^= (rb | nb)
-				b.rooks[us] ^= (rb | nb)
+				us.All ^= (rb | nb)
+				us.Rooks ^= (rb | nb)
 				b.zobristKey ^= zobristPiece[WhiteRook][0]
 				b.zobristKey ^= zobristPiece[WhiteRook][3]
 				st.rookFrom, st.rookTo = 0, 3
@@ -182,8 +182,8 @@ func (b *Board) MakeMove(m Move) (ok bool, st MoveState) {
 				b.pieces[61] = BlackRook
 				rb := uint64(1) << 63
 				nb := uint64(1) << 61
-				b.occupancy[us] ^= (rb | nb)
-				b.rooks[us] ^= (rb | nb)
+				us.All ^= (rb | nb)
+				us.Rooks ^= (rb | nb)
 				b.zobristKey ^= zobristPiece[BlackRook][63]
 				b.zobristKey ^= zobristPiece[BlackRook][61]
 				st.rookFrom, st.rookTo = 63, 61
@@ -192,8 +192,8 @@ func (b *Board) MakeMove(m Move) (ok bool, st MoveState) {
 				b.pieces[59] = BlackRook
 				rb := uint64(1) << 56
 				nb := uint64(1) << 59
-				b.occupancy[us] ^= (rb | nb)
-				b.rooks[us] ^= (rb | nb)
+				us.All ^= (rb | nb)
+				us.Rooks ^= (rb | nb)
 				b.zobristKey ^= zobristPiece[BlackRook][56]
 				b.zobristKey ^= zobristPiece[BlackRook][59]
 				st.rookFrom, st.rookTo = 56, 59
@@ -266,8 +266,8 @@ func (b *Board) MakeMove(m Move) (ok bool, st MoveState) {
 	// Reject illegal move that leaves mover in check (direct attack query, avoid wrapper overhead)
 	moverColor := 1 - b.sideToMove
 	// Compute current occupancy and king square for mover
-	occ := b.occupancy[0] | b.occupancy[1]
-	kingBB := b.kings[int(moverColor)]
+	occ := b.White.All | b.Black.All
+	kingBB := b.side(moverColor).Kings
 	if kingBB != 0 {
 		ks := bits.TrailingZeros64(kingBB)
 		// Gate the king-safety check: required for king moves, en passant, or when the moved piece
@@ -301,7 +301,7 @@ func (b *Board) MakeMove(m Move) (ok bool, st MoveState) {
 		b.fullmoveNumber++
 	}
 
-	b.refreshBitboards()
+	b.syncTurnFlag()
 	return true, st
 }
 
@@ -324,8 +324,8 @@ func (b *Board) UnmakeMove(m Move, st MoveState) {
 	flag := m.Flags()
 
 	// Undo castling rook movement if any (inline)
-	us := int(b.sideToMove)
-	them := 1 - us
+	us := b.side(b.sideToMove)
+	them := b.side(b.sideToMove ^ 1)
 	if flag == FlagCastle && st.rookFrom != NoSquare && st.rookTo != NoSquare {
 		// move rook back st.rookTo -> st.rookFrom
 		fromR := int(st.rookFrom)
@@ -338,8 +338,8 @@ func (b *Board) UnmakeMove(m Move, st MoveState) {
 		}
 		b.pieces[toR] = NoPiece
 		b.pieces[fromR] = rook
-		b.occupancy[us] ^= (rbFrom | rbTo)
-		b.rooks[us] ^= (rbFrom | rbTo)
+		us.All ^= (rbFrom | rbTo)
+		us.Rooks ^= (rbFrom | rbTo)
 		// Zobrist adjusted at end by prevZobrist
 	}
 
@@ -355,38 +355,38 @@ func (b *Board) UnmakeMove(m Move, st MoveState) {
 			pawn = BlackPawn
 		}
 		b.pieces[int(from)] = pawn
-		b.occupancy[us] ^= (fromBB | toBB)
+		us.All ^= (fromBB | toBB)
 		// remove promo from to, add pawn at from
 		switch typeOf(promo) {
 		case 2:
-			b.knights[us] &^= toBB
+			us.Knights &^= toBB
 		case 3:
-			b.bishops[us] &^= toBB
+			us.Bishops &^= toBB
 		case 4:
-			b.rooks[us] &^= toBB
+			us.Rooks &^= toBB
 		case 5:
-			b.queens[us] &^= toBB
+			us.Queens &^= toBB
 		case 6:
-			b.kings[us] &^= toBB
+			us.Kings &^= toBB
 		}
-		b.pawns[us] |= fromBB
+		us.Pawns |= fromBB
 	} else {
 		// Move piece back to from
 		b.pieces[int(from)] = moved
-		b.occupancy[us] ^= (fromBB | toBB)
+		us.All ^= (fromBB | toBB)
 		switch typeOf(moved) {
 		case 1:
-			b.pawns[us] ^= (fromBB | toBB)
+			us.Pawns ^= (fromBB | toBB)
 		case 2:
-			b.knights[us] ^= (fromBB | toBB)
+			us.Knights ^= (fromBB | toBB)
 		case 3:
-			b.bishops[us] ^= (fromBB | toBB)
+			us.Bishops ^= (fromBB | toBB)
 		case 4:
-			b.rooks[us] ^= (fromBB | toBB)
+			us.Rooks ^= (fromBB | toBB)
 		case 5:
-			b.queens[us] ^= (fromBB | toBB)
+			us.Queens ^= (fromBB | toBB)
 		case 6:
-			b.kings[us] ^= (fromBB | toBB)
+			us.Kings ^= (fromBB | toBB)
 		}
 	}
 
@@ -402,26 +402,26 @@ func (b *Board) UnmakeMove(m Move, st MoveState) {
 			capIdx := int(capSq)
 			capBB := uint64(1) << uint(capSq)
 			b.pieces[capIdx] = st.captured
-			b.occupancy[them] |= capBB
+			them.All |= capBB
 			// Only pawns can be captured by EP
-			b.pawns[them] |= capBB
+			them.Pawns |= capBB
 		} else {
 			// Normal capture: restore at 'to'
 			b.pieces[int(to)] = st.captured
-			b.occupancy[them] |= toBB
+			them.All |= toBB
 			switch typeOf(st.captured) {
 			case 1:
-				b.pawns[them] |= toBB
+				them.Pawns |= toBB
 			case 2:
-				b.knights[them] |= toBB
+				them.Knights |= toBB
 			case 3:
-				b.bishops[them] |= toBB
+				them.Bishops |= toBB
 			case 4:
-				b.rooks[them] |= toBB
+				them.Rooks |= toBB
 			case 5:
-				b.queens[them] |= toBB
+				them.Queens |= toBB
 			case 6:
-				b.kings[them] |= toBB
+				them.Kings |= toBB
 			}
 		}
 	}
@@ -442,7 +442,7 @@ func (b *Board) UnmakeMove(m Move, st MoveState) {
 
 	// Ensure exact Zobrist restoration
 	b.zobristKey = st.prevZobrist
-	b.refreshBitboards()
+	b.syncTurnFlag()
 }
 
 // MakeNullMove performs a null move: it switches the side to move without moving any piece.
@@ -473,7 +473,7 @@ func (b *Board) MakeNullMove() (st NullState) {
 	if st.prevSide == Black {
 		b.fullmoveNumber++
 	}
-	b.refreshBitboards()
+	b.syncTurnFlag()
 	return st
 }
 

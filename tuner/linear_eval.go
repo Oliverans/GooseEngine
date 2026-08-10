@@ -1086,17 +1086,18 @@ func candidatePasserBonus(pos *Position, entry *eng.PawnHashEntry, wPassed, bPas
 	if entry == nil {
 		return 0, 0
 	}
+	wLeverPush, bLeverPush := eng.LeverPushBitboards((*gm.Board)(pos))
 	occ := pos.White.All | pos.Black.All
 	pctMG := candPctMG / 100.0
 	pctEG := candPctEG / 100.0
 
-	for x := (entry.WLeverBB | entry.WLeverPushedBB) &^ wPassed; x != 0; x &= x - 1 {
+	for x := (entry.WLeverBB | wLeverPush) &^ wPassed; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
 		pawnBB := eng.PositionBB[sq]
 		bestMG, bestEG := 0.0, 0.0
 
 		captureOrigins := pawnBB & entry.WLeverBB
-		if pawnBB&entry.WLeverPushedBB != 0 && sq < 56 {
+		if pawnBB&wLeverPush != 0 && sq < 56 {
 			if front := eng.PositionBB[sq+8]; front&occ == 0 {
 				captureOrigins |= front
 			}
@@ -1127,13 +1128,13 @@ func candidatePasserBonus(pos *Position, entry *eng.PawnHashEntry, wPassed, bPas
 		}
 	}
 
-	for x := (entry.BLeverBB | entry.BLeverPushedBB) &^ bPassed; x != 0; x &= x - 1 {
+	for x := (entry.BLeverBB | bLeverPush) &^ bPassed; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
 		pawnBB := eng.PositionBB[sq]
 		bestMG, bestEG := 0.0, 0.0
 
 		captureOrigins := pawnBB & entry.BLeverBB
-		if pawnBB&entry.BLeverPushedBB != 0 && sq >= 8 {
+		if pawnBB&bLeverPush != 0 && sq >= 8 {
 			if front := eng.PositionBB[sq-8]; front&occ == 0 {
 				captureOrigins |= front
 			}
@@ -1172,11 +1173,12 @@ func candidatePasserGrad(pos *Position, entry *eng.PawnHashEntry, wPassed, bPass
 	if entry == nil {
 		return
 	}
+	wLeverPush, bLeverPush := eng.LeverPushBitboards((*gm.Board)(pos))
 	occ := pos.White.All | pos.Black.All
 	pctMG := candPctMG / 100.0
 	pctEG := candPctEG / 100.0
 
-	for x := (entry.WLeverBB | entry.WLeverPushedBB) &^ wPassed; x != 0; x &= x - 1 {
+	for x := (entry.WLeverBB | wLeverPush) &^ wPassed; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
 		pawnBB := eng.PositionBB[sq]
 		bestMGVal, bestEGVal := 0.0, 0.0
@@ -1184,7 +1186,7 @@ func candidatePasserGrad(pos *Position, entry *eng.PawnHashEntry, wPassed, bPass
 		bestMGsq, bestEGsq := -1, -1
 
 		captureOrigins := pawnBB & entry.WLeverBB
-		if pawnBB&entry.WLeverPushedBB != 0 && sq < 56 {
+		if pawnBB&wLeverPush != 0 && sq < 56 {
 			if front := eng.PositionBB[sq+8]; front&occ == 0 {
 				captureOrigins |= front
 			}
@@ -1223,7 +1225,7 @@ func candidatePasserGrad(pos *Position, entry *eng.PawnHashEntry, wPassed, bPass
 		}
 	}
 
-	for x := (entry.BLeverBB | entry.BLeverPushedBB) &^ bPassed; x != 0; x &= x - 1 {
+	for x := (entry.BLeverBB | bLeverPush) &^ bPassed; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
 		pawnBB := eng.PositionBB[sq]
 		bestMGVal, bestEGVal := 0.0, 0.0
@@ -1231,7 +1233,7 @@ func candidatePasserGrad(pos *Position, entry *eng.PawnHashEntry, wPassed, bPass
 		bestMGsq, bestEGsq := -1, -1
 
 		captureOrigins := pawnBB & entry.BLeverBB
-		if pawnBB&entry.BLeverPushedBB != 0 && sq >= 8 {
+		if pawnBB&bLeverPush != 0 && sq >= 8 {
 			if front := eng.PositionBB[sq-8]; front&occ == 0 {
 				captureOrigins |= front
 			}

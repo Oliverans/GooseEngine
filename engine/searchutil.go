@@ -14,7 +14,11 @@ import (
 // Precomputed reductions
 const MaxDepth int8 = 100
 
-var LMR = [MaxDepth + 1][100]int8{}
+// LMR holds base late-move reductions in hundredths of a ply, with the
+// round-to-nearest offset already folded in. Adjustments in computeLMRReduction
+// are applied in the same units and truncated once at the end, so a single
+// signal can shade a reduction instead of cancelling it outright.
+var LMR = [MaxDepth + 1][100]int16{}
 var historyMaxVal = 8000 // Cap to prevent overflow, triggers aging
 
 // To keep track of 3-fold repetition and/or 50 move draw
@@ -235,6 +239,10 @@ type searchState struct {
 	// Continuation history tables (1-ply and 2-ply)
 	contHist1Ply [2][6][64][6][64]int16
 	contHist2Ply [2][6][64][6][64]int16
+
+	// Root moves to skip in the current search pass (multi-PV).
+	// Only consulted at the root node (ply == 0).
+	rootExcludedMoves []gm.Move
 }
 
 // SearchState is the package-level instance used by the engine.
@@ -284,6 +292,7 @@ func (s *searchState) ResetForSearch(board *gm.Board) {
 	for i := range s.moveStack {
 		s.moveStack[i] = 0
 	}
+	s.rootExcludedMoves = s.rootExcludedMoves[:0]
 }
 
 // RequestStop signals an external stop (e.g. UCI stop command).
@@ -485,51 +494,62 @@ func computeLMRReduction(depth int8, legalMoves int, moveIdx int, isPVNode bool,
 	d := Max(1, Min(int(depth), int(MaxDepth)))
 	m := Max(1, Min(legalMoves, 99))
 
-	r := LMR[d][m]
+	// Everything below is in hundredths of a ply. Structural signals move a full
+	// ply; the soft per-move signals move half a ply, so any one of them shades
+	// the reduction rather than erasing it. Subtracting a whole ply per signal
+	// cancelled the reduction outright wherever the table asked for one ply,
+	// which is most of the tree.
+	r := int(LMR[d][m])
 
 	if isPVNode {
-		r--
+		r -= 100
 	}
 
 	if historyScore > LMRHistoryBonus {
-		r--
+		r -= 50
 	}
 	if historyScore > LMRHistoryBonus*2 {
-		r--
+		r -= 50
 	}
 
 	if historyScore < LMRHistoryMalus {
-		r++
+		r += 100
 	}
 
 	if legalMoves > 10 && !isPVNode {
-		r++
+		r += 100
 	}
 
-	if isPVNode && r > 0 {
-		r--
+	// Unclear results, needs additional analysis later
+	//if isPVNode && r > 0 {
+	//	r -= 100
+	//}
+
+	// This threshold is a real condition, not underflow protection: only shade
+	// the reduction for improving when we are already reducing by two or more.
+	// 200 hundredths is the old "r > 1".
+	if improving && r >= 200 {
+		r -= 50
 	}
 
-	if improving && r > 1 {
-		r--
+	if isKiller {
+		r -= 50
 	}
 
-	if isKiller && r > 0 {
-		r--
-	}
-
-	if extendMove && r > 0 {
-		r--
+	if extendMove {
+		r -= 50
 	}
 
 	if r < 0 {
 		r = 0
 	}
-	if r > depth-2 {
-		r = depth - 2
+
+	reduction := int8(r / 100)
+	if reduction > depth-2 {
+		reduction = depth - 2
 	}
 
-	return r
+	return reduction
 }
 
 // =============================================================================

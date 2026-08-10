@@ -1,6 +1,8 @@
 package engine
 
 import (
+	"math/bits"
+
 	gm "chess-engine/goosemg"
 )
 
@@ -41,7 +43,8 @@ type TTBucket struct {
 type TransTable struct {
 	isInitialized bool
 	buckets       []TTBucket
-	size          uint64 // Number of buckets
+	size          uint64 // Number of buckets; always a power of two
+	mask          uint64 // size - 1; indexing is a mask, never a divide
 	generation    uint8  // Current search generation (incremented each new search)
 }
 
@@ -64,10 +67,19 @@ func (TT *TransTable) NewSearch() {
 
 // init initializes the transposition table with the configured size
 func (TT *TransTable) init() {
-	// Calculate number of buckets based on memory size
-	// Each bucket is BucketSize * 16 bytes = 32 bytes for BucketSize=2
+	// Calculate number of buckets based on memory size.
+	// Each bucket is BucketSize * 16 bytes = 64 bytes, i.e. one cache line.
 	bucketBytes := uint64(BucketSize * 16)
-	TT.size = (uint64(TTSize) * 1024 * 1024) / bucketBytes
+	buckets := (uint64(TTSize) * 1024 * 1024) / bucketBytes
+	if buckets < 1 {
+		buckets = 1
+	}
+	// Round the bucket count down to a power of two so the index is a mask
+	// rather than a 64-bit divide on the hottest path in the search. Powers of
+	// two (the usual Hash settings) lose nothing; other sizes give up the
+	// remainder above the next lower power of two.
+	TT.size = uint64(1) << (bits.Len64(buckets) - 1)
+	TT.mask = TT.size - 1
 	TT.buckets = make([]TTBucket, TT.size)
 	TT.generation = 0
 	TT.isInitialized = true
@@ -83,7 +95,7 @@ func (TT *TransTable) ProbeEntry(hash uint64) (entry *TTEntry, found bool) {
 		return &emptyEntry, false
 	}
 
-	bucketIdx := hash % TT.size
+	bucketIdx := hash & TT.mask
 	bucket := &TT.buckets[bucketIdx]
 	hashHigh := uint32(hash >> 32)
 
@@ -137,12 +149,12 @@ func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha 
 		case ExactFlag:
 			usable = true
 		case AlphaFlag:
-			if ttEntry.Score <= alpha {
+			if score <= alpha {
 				score = alpha
 				usable = true
 			}
 		case BetaFlag:
-			if ttEntry.Score >= beta {
+			if score >= beta {
 				score = beta
 				usable = true
 			}
@@ -159,7 +171,7 @@ func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move
 		return
 	}
 
-	bucketIdx := hash % TT.size
+	bucketIdx := hash & TT.mask
 	bucket := &TT.buckets[bucketIdx]
 	hashHigh := uint32(hash >> 32)
 
@@ -260,7 +272,7 @@ func (TT *TransTable) scoreEntryForReplacement(entry *TTEntry, newDepth int8) in
 // helps the compiler/runtime with memory access patterns
 func (TT *TransTable) Prefetch(hash uint64) {
 	if TT.isInitialized {
-		_ = TT.buckets[hash%TT.size]
+		_ = TT.buckets[hash&TT.mask]
 	}
 }
 
@@ -298,7 +310,7 @@ func (TT *TransTable) GetTTMove(hash uint64) gm.Move {
 		return 0
 	}
 
-	bucketIdx := hash % TT.size
+	bucketIdx := hash & TT.mask
 	bucket := &TT.buckets[bucketIdx]
 	hashHigh := uint32(hash >> 32)
 

@@ -119,22 +119,22 @@ func ParseFEN(fen string) (*Board, error) {
 				} else {
 					color = White
 				}
-				idx := int(color)
-				board.occupancy[idx] |= uint64(1) << sq
+				sd := board.side(color)
+				sd.All |= uint64(1) << sq
 				ptype := piece & 7 // piece type (1-6)
 				switch ptype {
 				case 1:
-					board.pawns[idx] |= uint64(1) << sq
+					sd.Pawns |= uint64(1) << sq
 				case 2:
-					board.knights[idx] |= uint64(1) << sq
+					sd.Knights |= uint64(1) << sq
 				case 3:
-					board.bishops[idx] |= uint64(1) << sq
+					sd.Bishops |= uint64(1) << sq
 				case 4:
-					board.rooks[idx] |= uint64(1) << sq
+					sd.Rooks |= uint64(1) << sq
 				case 5:
-					board.queens[idx] |= uint64(1) << sq
+					sd.Queens |= uint64(1) << sq
 				case 6:
-					board.kings[idx] |= uint64(1) << sq
+					sd.Kings |= uint64(1) << sq
 				}
 				file++
 			}
@@ -208,7 +208,7 @@ func ParseFEN(fen string) (*Board, error) {
 		board.fullmoveNumber = fullmove
 	}
 
-	board.refreshBitboards()
+	board.syncTurnFlag()
 
 	// Compute initial Zobrist hash for this position
 	board.zobristKey = board.ComputeZobrist()

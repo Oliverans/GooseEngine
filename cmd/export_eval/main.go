@@ -227,6 +227,11 @@ func main() {
 	var passMG, passEG [64]int
 	// Phase 1
 	var bpMG, bpEG, rsMG, roMG, srEG, qcEG int
+	// The tuner has no entries for these yet: the rook file bonuses only had a
+	// middlegame half and the seventh-rank bonus only an endgame half until the
+	// missing phases were added. Seed them with the engine defaults so a
+	// regenerated block stays complete, and let a future tuning run overwrite them.
+	rsEG, roEG, srMG := 7, 12, 7
 	// Phase 2
 	var dMG, dEG, iMG, iEG, cMG, cEG, phMG, phEG, bMG, bEG, wlMG, wlEG, bwMG, bwEG int
 	// Mobility tables
@@ -240,7 +245,7 @@ func main() {
 	var qMobEG [22]int
 	// King safety table + correlates
 	var ks [100]int
-	var kSemi, kOpen, kMinor, kPawn int
+	var kMinor int
 	// Fixed-feature scalars
 	candPctMG, candPctEG := 50, 65
 	badBishopMG, badBishopEG := -4, -7
@@ -382,10 +387,10 @@ func main() {
 		}
 		// King correlates (4)
 		if idx+4 <= len(th) {
-			kSemi = rd(th[idx+0])
-			kOpen = rd(th[idx+1])
+			// Slots 0, 1 and 3 fed KingSemiOpenFileMG, KingOpenFileMG and
+			// KingPawnDefenseBonusMG, which the per-file KingShelterMG table
+			// replaced. The stride stays 4 so the rest of the layout is unmoved.
 			kMinor = rd(th[idx+2])
-			kPawn = rd(th[idx+3])
 		}
 		idx += 4
 		// King endgame (2) - EG-only weights (currently unused in engine export)
@@ -668,20 +673,22 @@ func main() {
 
 	// Pawn structure (Tier 2)
 	if tier2 {
-		out.WriteString(fmt.Sprintf("\tBackwardPawnMG  = %d\n", bwMG))
-		out.WriteString(fmt.Sprintf("\tBackwardPawnEG  = %d\n", bwEG))
-		out.WriteString(fmt.Sprintf("\tIsolatedPawnMG  = %d\n", iMG))
-		out.WriteString(fmt.Sprintf("\tIsolatedPawnEG  = %d\n", iEG))
-		out.WriteString(fmt.Sprintf("\tPawnDoubledMG   = %d\n", dMG))
-		out.WriteString(fmt.Sprintf("\tPawnDoubledEG   = %d\n", dEG))
-		out.WriteString(fmt.Sprintf("\tPawnConnectedMG = %d\n", cMG))
-		out.WriteString(fmt.Sprintf("\tPawnConnectedEG = %d\n", cEG))
-		out.WriteString(fmt.Sprintf("\tPawnPhalanxMG   = %d\n", phMG))
-		out.WriteString(fmt.Sprintf("\tPawnPhalanxEG   = %d\n", phEG))
+		// BackwardPawn*, PawnDoubled* and PawnBlocked* are no longer single
+		// scalars in the evaluation: backward and doubled each split into an
+		// opposed and an unopposed constant, and blocked became a [2]int keyed
+		// by rank. The tuner still fits one number per term, so emitting it
+		// would either collapse the split or write uncompilable Go. Dropped
+		// until the tuner learns the new shape; the values are still parsed so
+		// existing tuner output stays readable.
+		_, _, _, _, _, _ = bwMG, bwEG, dMG, dEG, bMG, bEG
+		// IsolatedPawn* split by `opposed` like backward and doubled above.
+		_, _ = iMG, iEG
+		// PawnConnected* and PawnPhalanx* merged into the rank-indexed
+		// PawnConnectedMG [7]int, so a single scalar each no longer maps onto
+		// anything the engine reads. Dropped with the others above.
+		_, _, _, _ = cMG, cEG, phMG, phEG
 		out.WriteString(fmt.Sprintf("\tPawnWeakLeverMG = %d\n", wlMG))
 		out.WriteString(fmt.Sprintf("\tPawnWeakLeverEG = %d\n", wlEG))
-		out.WriteString(fmt.Sprintf("\tPawnBlockedMG   = %d\n", bMG))
-		out.WriteString(fmt.Sprintf("\tPawnBlockedEG   = %d\n", bEG))
 		out.WriteString(fmt.Sprintf("\tCandidatePassedPctMG = %d\n", candPctMG))
 		out.WriteString(fmt.Sprintf("\tCandidatePassedPctEG = %d\n", candPctEG))
 		out.WriteString("\n")
@@ -717,9 +724,12 @@ func main() {
 	// Rook (Tier 1)
 	if tier1 {
 		out.WriteString(fmt.Sprintf("\tRookStackedMG     = %d\n", ex_stackMG))
+		out.WriteString(fmt.Sprintf("\tRookSeventhRankMG = %d\n", srMG))
 		out.WriteString(fmt.Sprintf("\tRookSeventhRankEG = %d\n", srEG))
 		out.WriteString(fmt.Sprintf("\tRookSemiOpenMG    = %d\n", rsMG))
+		out.WriteString(fmt.Sprintf("\tRookSemiOpenEG    = %d\n", rsEG))
 		out.WriteString(fmt.Sprintf("\tRookOpenMG        = %d\n", roMG))
+		out.WriteString(fmt.Sprintf("\tRookOpenEG        = %d\n", roEG))
 		out.WriteString("\n")
 	}
 
@@ -731,10 +741,7 @@ func main() {
 
 	// King file/defense scalars (Tier 3)
 	if tier3 {
-		out.WriteString(fmt.Sprintf("\tKingOpenFileMG          = %d\n", kOpen))
-		out.WriteString(fmt.Sprintf("\tKingSemiOpenFileMG      = %d\n", kSemi))
 		out.WriteString(fmt.Sprintf("\tKingMinorDefenseBonusMG = %d\n", kMinor))
-		out.WriteString(fmt.Sprintf("\tKingPawnDefenseBonusMG  = %d\n", kPawn))
 		out.WriteString(fmt.Sprintf("\tKingPasserProximityEG   = %d\n", kingPasserProxEG))
 		out.WriteString(fmt.Sprintf("\tKingPasserProximityDiv  = %d\n", kingPasserProxDiv))
 		out.WriteString(fmt.Sprintf("\tKingPasserEnemyWeight   = %d\n", kingPasserEnemyW))
@@ -744,11 +751,14 @@ func main() {
 
 	// Space/weak-king (Tier 4 for space, Tier 3 for weak king)
 	if tier4 {
-		out.WriteString(fmt.Sprintf("\tSpaceBonusMG            = %d\n", spaceMG))
-		out.WriteString(fmt.Sprintf("\tSpaceBonusEG            = %d\n", spaceEG))
+		// SpaceBonusMG/EG no longer exist: space became four tier constants over
+		// a corrected zone with a material weight, and is middlegame only.
+		// Dropped until the tuner learns the new shape.
+		_, _ = spaceMG, spaceEG
 	}
 	if tier3 {
-		out.WriteString(fmt.Sprintf("\tWeakKingSquarePenaltyMG = %d\n", weakKingMG))
+		// WeakKingSquarePenaltyMG is retired from the evaluation entirely.
+		_ = weakKingMG
 	}
 	if tier3 || tier4 {
 		out.WriteString("\n")
@@ -783,13 +793,19 @@ func main() {
 	}
 
 	// Material imbalance (Tier 4)
-	var imbPwnCnt int = 5
+	//
+	// The reference is now a TOTAL pawn count, not a per-side one, so it is 10
+	// rather than 5. ImbalanceBishopPerPawnMG/EG no longer exist: Kaufman adjusts
+	// the bishop pair, not the single bishop, and the term was retired. The tuner
+	// still trains four slots here (tuner/toggles.go Stage 8) and the bridge still
+	// reports them, so they are parsed above and dropped rather than emitted --
+	// writing them would declare two package-level vars nothing reads.
+	var imbPwnCnt int = 10
 	if tier4 {
 		out.WriteString(fmt.Sprintf("var ImbalanceRefPawnCount = %d\n", imbPwnCnt))
 		out.WriteString(fmt.Sprintf("var ImbalanceKnightPerPawnMG = %d\n", imbKnPawnMG))
 		out.WriteString(fmt.Sprintf("var ImbalanceKnightPerPawnEG = %d\n", imbKnPawnEG))
-		out.WriteString(fmt.Sprintf("var ImbalanceBishopPerPawnMG = %d\n", imbBiPawnMG))
-		out.WriteString(fmt.Sprintf("var ImbalanceBishopPerPawnEG = %d\n", imbBiPawnEG))
+		_, _ = imbBiPawnMG, imbBiPawnEG
 	}
 
 	if err := os.MkdirAll(filepath.Dir(*outPath), 0o755); err != nil {
