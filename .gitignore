@@ -86,7 +86,8 @@ __pycache__/
 .agents
 .codex
 AGENTS.md
-.hermes
+.hermes/
+.hermes-tmp/
 
 # -------------------------
 # Custom files / dirs
