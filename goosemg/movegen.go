@@ -38,8 +38,6 @@ const (
 	FileHMask uint64 = 0x8080808080808080
 )
 
-var useBMI2 bool
-
 func init() {
 	initAttackTables()
 	initRays()

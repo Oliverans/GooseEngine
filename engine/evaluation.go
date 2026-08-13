@@ -26,22 +26,10 @@ var PassedMaskWhite [64]uint64
 var PassedMaskBlack [64]uint64
 
 // Squares from which an enemy pawn could ever advance to attack this square:
-// the two adjacent files, on every rank ahead. "Can this knight be kicked?"
-// depends only on the square, never on the position, so getOutpostsBB used to
-// rebuild a constant per candidate per node. Filled by InitPassedPawnMasks;
-// 1 KB for both colours, which stays resident in L1.
 var outpostBlockersWhite [64]uint64
 var outpostBlockersBlack [64]uint64
 
 // Outpost and rank masks
-var wPhalanxOrConnectedEndgameInvalidSquares uint64 = 0x000000000000ffff // ranks 1-2
-var bPhalanxOrConnectedEndgameInvalidSquares uint64 = 0xffff000000000000 // ranks 7-8
-// Squares where knights/bishops can be outposts: ranks 4-7 for white, ranks 2-5
-// for black (exact mirrors), files b-g. Rank 8 is excluded because a supported
-// minor on the back rank is not an outpost; rank 3 and below are excluded because
-// a square in our own half is not one either. The previous masks covered ranks
-// 1-5 / 4-8, which paid the outpost bonus to ordinary developing squares like a
-// knight on c3 while ignoring genuine outposts on the 6th and 7th.
 var wAllowedOutpostMask uint64 = 0x007e7e7e7e000000
 var bAllowedOutpostMask uint64 = 0x0000007e7e7e7e00
 var secondRankMask uint64 = 0x000000000000ff00
@@ -218,52 +206,14 @@ var PassedPawnPSQT_EG = [64]int{
 }
 
 var (
-	// Backward pawns split by whether an enemy pawn stands ahead on the same
-	// file. Stockfish charges Backward S(9,24) plus WeakUnopposed S(13,27) when
-	// unopposed, making an unopposed backward pawn roughly 2.4x worse in the
-	// middlegame and 2.1x worse in the endgame. The reason is the file rather
-	// than the pawn: with nothing ahead of it, it can never be traded off by
-	// advancing past an opposing pawn, and the half-open file in front of it is
-	// the lane enemy rooks come down.
-	//
-	// Seeded to reproduce the old flat 6/11 when averaged over the measured
-	// 66.7% opposed / 33.3% unopposed split in Goose's own games, so this
-	// redistributes weight rather than adding any.
-	BackwardOpposedMG   = 4
-	BackwardOpposedEG   = 8
-	BackwardUnopposedMG = 10
-	BackwardUnopposedEG = 17
-
-	// Isolated pawns split by the same `opposed` test as backward and doubled.
-	// Every engine keeps isolated flat across ranks -- Stockfish S(5,15),
-	// Ethereal and Weiss likewise -- so rank is not the dimension to add here;
-	// opposed is. Stockfish charges Isolated plus WeakUnopposed S(13,27) when
-	// nothing faces it, making an unopposed isolated pawn ~3.6x worse in the
-	// middlegame and ~2.8x in the endgame. The reason is the file rather than
-	// the pawn: with no enemy pawn ahead it can never be traded off by
-	// advancing, and the half-open file in front of it is where their rooks go.
-	//
-	// This is the steepest of the three opposed splits, and isolated pawns are
-	// the most evenly divided population: 54.0% opposed to 46.0% unopposed.
-	// Seeded to hold the old flat 9/14 across that split, then damped once
-	// against the corpus: a split stops the two sides' isolated pawns cancelling
-	// when they fall in different classes, so the ratio-implied seeds came in 8%
-	// heavy on realised mass. These land within 2% of the retired term with its
-	// p90 and p99 unchanged.
-	IsolatedOpposedMG   = 4
-	IsolatedOpposedEG   = 8
-	IsolatedUnopposedMG = 14
-	IsolatedUnopposedEG = 20
-
-	// Doubled pawns split by the same test. An unopposed stack sits on a
-	// half-open file, so its front pawn can still advance and a rook behind it
-	// has a clear line -- compensation an opposed stack does not get.
-	//
-	// Unlike the backward split this has no external reference. Stockfish does
-	// not split doubled by opposed at all, and Ethereal does but its values are
-	// not something to reproduce from memory. The 1.3x ratio is a guess and the
-	// direction is what a match tests; this is the least-founded number in the
-	// pawn group. Seeded mass-neutral against the measured 63.1% / 36.9% split.
+	BackwardOpposedMG      = 4
+	BackwardOpposedEG      = 8
+	BackwardUnopposedMG    = 10
+	BackwardUnopposedEG    = 17
+	IsolatedOpposedMG      = 4
+	IsolatedOpposedEG      = 8
+	IsolatedUnopposedMG    = 14
+	IsolatedUnopposedEG    = 20
 	PawnDoubledOpposedMG   = 10
 	PawnDoubledOpposedEG   = 22
 	PawnDoubledUnopposedMG = 8
@@ -287,22 +237,6 @@ var (
 	BishopPairBonusMG = 25
 	BishopPairBonusEG = 50
 
-	// Centre-openness scaling, as a percentage swing applied at a fully open or
-	// fully closed centre and interpolated linearly between. Knights are scaled
-	// the other way from bishops and the pair.
-	//
-	// These replace four hard buckets that left 45.7% of positions with no centre
-	// knowledge at all -- the old thresholds at openIdx 0.25 and 0.75 straddled a
-	// dead band holding the three most common index values. Coverage rises to
-	// 82.9%; only an exactly balanced centre now scales nothing.
-	//
-	// The MG values are fitted to hold the old mechanism's mass (0.802 total).
-	// The EG values are deliberately about a third of MG in PERCENTAGE terms
-	// because endgame mobility is roughly three times the middlegame figure
-	// (knight 16.8 vs 5.5, bishop 28.1 vs 9.3 mean absolute): matching MG's
-	// percentages would have made the endgame half dominate a mechanism that was
-	// middlegame-only before. At a third they contribute about as much as MG does,
-	// which is what stops the centre read evaporating the moment queens come off.
 	CenterKnightMobilityMG = 12
 	CenterKnightMobilityEG = 4
 	CenterBishopMobilityMG = 10
@@ -312,11 +246,6 @@ var (
 
 	RookStackedMG = 20
 
-	// The file bonuses used to be middlegame-only and the seventh-rank bonus
-	// endgame-only. An open file keeps its value into the endgame (Stockfish
-	// S(49,26), Weiss S(28,31)) and rooks on the seventh already matter before
-	// the endgame proper. The added halves are deliberate placeholders at
-	// slightly under half the existing phase, to be tuned rather than trusted.
 	RookSeventhRankMG = 7
 	RookSeventhRankEG = 15
 	RookSemiOpenMG    = 15
@@ -324,22 +253,6 @@ var (
 	RookOpenMG        = 25
 	RookOpenEG        = 12
 
-	// Rook file-COUNT bonus, paid per rook per usable file whether or not that
-	// rook stands on one. RookOpen/RookSemiOpen above answer "is this rook well
-	// placed now", which the search resolves for itself within a ply or two.
-	// These answer the different question the search cannot reach: given that we
-	// own rooks, is this a structure worth having? They are what makes the engine
-	// want to trade and push toward files its rooks can eventually use.
-	//
-	// Berserk's HCE carries the same idea as a global open-file count. Measured
-	// against the corpus the two questions really are distinct -- correlation
-	// with the per-rook terms above is only r = +0.32 (semi) and +0.36 (open).
-	//
-	// Open files are shared by both sides, so that half cancels unless the rook
-	// COUNTS differ, and it is silent in 89.2% of positions. The semi-open half
-	// is per-side and fires in 43.3%; it is the half that supplies the nudge.
-	// Ratio 5:3 mirrors the 25:15 above. Deliberately small: together these carry
-	// 39% of the mass of the per-rook terms.
 	RookFileCountOpenMG = 5
 	RookFileCountOpenEG = 3
 	RookFileCountSemiMG = 3
@@ -347,18 +260,6 @@ var (
 
 	QueenCentralizationEG = 9
 
-	// King danger, accumulated per attacking side and then made non-linear once.
-	// A piece contributes its weight only if it bears on the enemy king ring at
-	// all, so the summed weight grows with the NUMBER of attacking pieces and
-	// squaring it below makes danger quadratic in that count. That is the
-	// property the old flat attack-unit count lacked: one piece sweeping many
-	// ring squares used to read the same as a genuine multi-piece attack.
-	//
-	// Values follow Ethereal's Safety* constants, whose middlegame piece values
-	// are close to Goose's, with four deliberate departures measured against
-	// Goose's own games: the divisor, the queenless floor, the dead-band offset
-	// and the middlegame check weights. Each is explained where it is set. They
-	// are otherwise untuned here and want a tuning pass.
 	SafetyKnightWeightMG = 48
 	SafetyKnightWeightEG = 41
 	SafetyBishopWeightMG = 24
@@ -371,35 +272,11 @@ var (
 	SafetyAttackValueMG = 45
 	SafetyAttackValueEG = 34
 
-	// Ethereal's value is -237/-259, large enough to zero the accumulator on its
-	// own. Measured against Goose's own games that floored 86.2% of queenless
-	// sides at exactly zero, against 6.5% under the tuned attack-unit table it
-	// replaced, so the engine simply stopped seeing queenless attacks. This is
-	// the level that keeps "trade queens and the attack mostly dies" without
-	// making it an absolute.
+	// Grabbed from Ethereal; it values were -237/-259 as a reference
+	// Lower value means larger bridge to gap to get a non-zero bonus attack without a queen involved
 	SafetyNoEnemyQueensMG = -60
 	SafetyNoEnemyQueensEG = -65
 
-	// A check is "safe" when the checking square is not covered by an enemy
-	// pawn, knight, bishop or rook. King and queen cover does not make a square
-	// unsafe: neither can recapture there without inheriting the same problem,
-	// which is exactly how Stockfish and Ethereal define it.
-	//
-	// The middlegame weights are Ethereal's scaled to 70%. At full weight checks
-	// supplied 62% of the raw accumulator across the top 1% of king-danger
-	// positions, against 328 points of actual ring pressure — so the term was
-	// mostly counting checks, and the engine read "attack" wherever a few safe
-	// checks existed. That is the worst thing for static evaluation to bet on:
-	// checks are generated first, extended, and never pruned, so search already
-	// prices them accurately, and the majority of the attacks it was valuing at
-	// +3 fell flat. At 70% checks are 48% of raw in that same top 1%, roughly at
-	// parity with positional pressure rather than dominating it.
-	//
-	// The endgame weights are deliberately left at full Ethereal. That output is
-	// linear, so three safe checks there add three times one check rather than
-	// nine times; the compounding that produced the middlegame spikes cannot
-	// happen, and the queenless floor above already covers the phase where
-	// checks stop meaning much.
 	SafetySafeKnightCheckMG = 78
 	SafetySafeKnightCheckEG = 117
 	SafetySafeBishopCheckMG = 41
@@ -409,31 +286,16 @@ var (
 	SafetySafeQueenCheckMG  = 65
 	SafetySafeQueenCheckEG  = 83
 
-	// Checks that exist but land on a defended square. Ethereal does not score
-	// these at all and Weiss has no separate category; Stockfish weights them at
-	// roughly a fifth of a safe check, which is what these approximate. Unsafe
-	// squares are counted once across all piece types, not once per type.
 	SafetyUnsafeCheckMG = 11
 	SafetyUnsafeCheckEG = 15
 
-	// Ethereal runs a standing -74/-26 offset which, with the clamp at zero in
-	// kingDangerRaw, acts as a dead band. On Goose's nine-square ring that band
-	// swallowed the term: 48.0% of queen-present sides scored nothing, because
-	// clearing the offset took 101 accumulator points before the first centipawn
-	// appeared. Removed rather than reduced -- the ring is small enough that the
-	// squaring alone already suppresses token attacks.
+	// Safety limiter; without this you don't get an attack bonus at all
+	// Also taken from Ethereal, which uses a -74/-26 offset
 	SafetyAdjustmentMG = 0
 	SafetyAdjustmentEG = 0
 
-	// The middlegame half is squared and the endgame half stays linear, so king
-	// danger ramps sharply while queens are on and decays gently once they are
-	// not. Dividing rather than multiplying keeps the accumulator in integers.
-	//
-	// 2200 rather than Ethereal's 720 because Goose feeds a nine-square ring
-	// where Ethereal feeds a larger king area, so the same divisor produced a
-	// distribution four times too fat in the tail. Fitted so the percentiles up
-	// to p99 land on those of the tuned attack-unit table this replaced.
-	SafetyMGDivisor = 2200
+	// Scale raw king danger to centipawns
+	SafetyMGDivisor = 47
 	SafetyEGDivisor = 20
 
 	KingMinorDefenseBonusMG = 3
@@ -442,105 +304,19 @@ var (
 	KingPasserEnemyWeight   = 5
 	KingPasserOwnWeight     = 2
 
-	// Space is manoeuvring room in our OWN half: safe squares on the centre
-	// files behind our own front line. Each safe square pays SpaceSafe, and
-	// three adjustments say how durable it is.
-	//
-	// SpaceBehindPawn is the dynamic half. Squares are "behind" a pawn of ours
-	// after filling downward from it, so advancing a pawn pays for the ground it
-	// leaves behind -- and a doubled pawn standing in that ground takes the
-	// payment straight back. On one file: a pawn on e4 alone scores two safe
-	// squares both behind it; e2 alone scores two safe squares behind nothing;
-	// e2 and e4 together score one of each. Doubling forfeits exactly the gain
-	// from having advanced.
-	//
-	// SpaceSemiOpen and SpaceOpen discount squares we cannot hold structurally.
-	// Stockfish instead requires the square to be attacked by no enemy piece,
-	// but that is a fact search re-derives every node, and measured here it only
-	// separates 16.7% of the behind-pawn population. File state is durable and
-	// separates 56.0% of all safe squares, so it is both the stronger signal and
-	// the one static evaluation is better placed to carry.
 	SpaceSafeMG       = 3
 	SpaceBehindPawnMG = 3
 	SpaceSemiOpenMG   = -1
 	SpaceOpenMG       = -2
 
-	// Space is worth nothing without pieces to put in it, so the summed bonus is
-	// scaled by a weight that grows with material and with how blocked the
-	// position is, then squared -- Stockfish's shape. The divisor is fitted
-	// against Goose's own games rather than copied.
 	SpaceWeightOffset = 3
 	SpaceBlockedCap   = 9
 	SpaceWeightDiv    = 268
-
-	// WeakKingSquarePenaltyMG is retired. It charged for king-ring squares no
-	// friendly pawn covered, with no requirement that anything was attacking
-	// them -- 30.5% of the squares it counted had no enemy piece on the ring at
-	// all. What survived that condition was already carried twice over: the
-	// danger accumulator counts attacked ring squares WITH multiplicity, which
-	// is the stronger signal, and KingShelterMG now prices missing pawns per
-	// file around the king. Measured, the only information left was the
-	// pawn-defence filter, and it was inert in 63.6% of attacked king-sides.
-	//
-	// Stockfish's equivalent is worth 183 per square, but its predicate is
-	// stronger -- attacked by them, not doubly defended by us, and defended by
-	// nothing better than our king or queen. That needs a double-attack map
-	// Goose does not build, and building one is a king-safety project rather
-	// than a repair to this term.
-
-	// Retired from the evaluation: the storm is now scored per file alongside
-	// the shelter, by KingStormUnblockedMG and KingStormBlockedMG/EG. These
-	// survive only because the frozen tuner seeds and exports them. Delete with
-	// their tuner call sites.
-	PawnStormBaseMG             = [8]int{0, 0, 0, 5, 12, 8, 3, 0}
-	PawnStormFreePct            = [8]int{0, 0, 0, 100, 100, 100, 100, 0}
-	PawnStormLeverPct           = [8]int{0, 0, 0, 80, 85, 85, 90, 0}
-	PawnStormWeakLeverPct       = [8]int{0, 0, 0, 50, 55, 60, 65, 0}
-	PawnStormBlockedPct         = [8]int{0, 0, 0, 30, 33, 40, 45, 0}
-	PawnStormOppositeMultiplier = 151
 
 	TempoBonus        = 11
 	DrawDivider int32 = 8
 )
 
-// KingSafetyTable is retired from the evaluation: king danger is now the
-// squared kingDanger accumulator. The data survives only because the frozen
-// tuner seeds and scales it. Delete with its tuner call sites.
-var KingSafetyTable = [100]int{
-	0, 0, 1, 2, 3, 5, 7, 9, 12, 15,
-	18, 22, 26, 30, 35, 39, 44, 50, 56, 62,
-	68, 75, 82, 85, 89, 97, 105, 113, 122, 131,
-	140, 150, 169, 180, 191, 202, 213, 225, 237, 248,
-	260, 272, 283, 295, 307, 319, 330, 342, 354, 366,
-	377, 389, 401, 412, 424, 436, 448, 459, 471, 483,
-	494, 500, 500, 500, 500, 500, 500, 500, 500, 500,
-	500, 500, 500, 500, 500, 500, 500, 500, 500, 500,
-	500, 500, 500, 500, 500, 500, 500, 500, 500, 500,
-	500, 500, 500, 500, 500, 500, 500, 500, 500, 500,
-}
-
-// KingShelterMG scores the pawn cover in front of a king, one file at a time.
-//
-//	first index  = the file's distance from the board edge: 0 = a/h, 1 = b/g,
-//	               2 = c/f, 3 = d/e
-//	second index = the sheltering pawn's rank relative to its own side, so 1 is
-//	               that side's second rank. Index 0 means "no sheltering pawn on
-//	               this file at all"; index 7 is unreachable (a pawn there would
-//	               have promoted) and exists only so an illegal position cannot
-//	               index out of range.
-//
-// This replaces two terms that between them could not tell a pawn on g2 from
-// one on g3: kingPawnDefense paid a flat 2 cp per pawn inside the king ring
-// regardless of rank, and kingFilesPenalty charged a flat 12/20 cp for a
-// semi-open/open file beside the king. Index 0 of each row now carries that
-// missing-pawn penalty, and the rest of the row carries the rank information
-// that did not exist before.
-//
-// The shape is Stockfish's ShelterStrength scaled by roughly 0.4 for Goose's
-// smaller piece values. Treat the absolute level of each row as a placeholder:
-// it overlaps with the king PSQT, which already prices king placement, so the
-// rows want tuning rather than trust. The profile across ranks is the part the
-// measurements actually motivated.
 var KingShelterMG = [4][8]int{
 	{-1, 34, 38, 21, 16, 9, 10},
 	{-22, 26, 13, -22, -12, -4, -24},
@@ -548,34 +324,6 @@ var KingShelterMG = [4][8]int{
 	{-16, -4, -11, -23, -17, -26, -65},
 }
 
-// KingStormUnblockedMG penalises an enemy pawn bearing down on the king with no
-// pawn of ours directly in its path. Indexing matches KingShelterMG: the first
-// index is the file's distance from the edge, the second is the enemy pawn's
-// rank measured from OUR back rank, so 2 means it has reached our third rank.
-// Index 0 means the file holds no enemy pawn at all.
-//
-// The value is subtracted from the side being stormed, so a negative entry is a
-// bonus: a distant enemy pawn on a file we have covered is one fewer pawn
-// defending its own king.
-//
-// The shape is Stockfish's UnblockedStorm at ~0.32: the 0.4 used for
-// KingShelterMG, then 0.8 again after the first version made the engine
-// trigger-happy about pushing pawns at a king. There is one further deliberate
-// departure from the shape. Stockfish's ranks 1 and 2 are
-// negative on most rows and hugely negative on the a/h row (-289 and -166
-// unscaled), which pays the defender a bonus for an enemy pawn sitting on its
-// own second or third rank. The reading is that such a pawn is usually
-// unsupported and simply lost — but that is a tactical fact search resolves in a
-// ply or two, and Goose does not model whether the storm pawn is defended. Left
-// as-is those two columns invert the sign of the whole term on the commonest
-// attacking motif the engine sees: a black pawn on h3 beside a white king on g1
-// scored +100 for white, the side under attack.
-//
-// So ranks 1 and 2 are both set to that row's rank-2 magnitude. This claims only
-// that a storm pawn that deep is at least as bad as one on our third rank and is
-// never a bonus; it deliberately does not claim which of the two is worse,
-// because the positions are rare enough that Goose has no evidence either way.
-// Ranks 3 to 6 are Stockfish's, scaled, and are well behaved.
 var KingStormUnblockedMG = [4][8]int{
 	{27, 53, 53, 31, 16, 14, 16},
 	{14, 39, 39, 14, 12, -3, 6},
@@ -583,103 +331,14 @@ var KingStormUnblockedMG = [4][8]int{
 	{-5, 32, 32, 2, 3, -5, -10},
 }
 
-// KingStormBlockedMG and KingStormBlockedEG replace the unblocked table when one
-// of our own pawns stands directly in front of the enemy storm pawn. There is no
-// file index here: once the pair is locked, how near the edge the file sits stops
-// mattering and only the depth of the wedge does.
-//
-// Only rank 2 is a real penalty. An enemy pawn on our third rank with our pawn
-// on our second is the wedge that takes squares away from the king permanently.
-// Deeper on the board a blocked storm pawn is mildly good for us: it is frozen,
-// it cannot open a file, and it fixes the enemy structure.
-//
-// This is the only storm term with an endgame component, and at rank 2 it is
-// almost as large as the middlegame one. That is deliberate — see the note on
-// kingShelterStormFor. Both rows carry the same 0.8 rescale as the unblocked
-// table, so the two stay in proportion.
 var KingStormBlockedMG = [8]int{0, 0, 24, -3, -2, -2, 0, 0}
 var KingStormBlockedEG = [8]int{0, 0, 25, 5, 3, 2, 1, 0}
 
-// PawnConnected scores a pawn that is defended by one of our own pawns, stands
-// beside one, or both. It is indexed by the pawn's own rank relative to its back
-// rank, so index 1 is that side's second rank and index 6 its seventh.
-//
-// This merges what were two independent flat terms, connected (11/5 per defended
-// pawn) and phalanx (7/10 per side-by-side pawn), following Stockfish:
-//
-//	v = PawnConnected[r] * (2 + phalanx - opposed)
-//	middlegame += v,  endgame += v * (r-2) / 4
-//
-// Two things the old pair could not express. Phalanx is a MULTIPLIER on the
-// connected value rather than a separate addend, so being both is worth more
-// than the sum of being either. And an enemy pawn ahead on the same file
-// subtracts from that multiplier, because most of a connected duo's value is
-// that it can advance as a unit and manufacture a passer -- once the file is
-// contested, that advance ends in a lock or a trade and only the structure is
-// left. Measured on Goose's own games, `opposed` covers 84.4% of the qualifying
-// population and the multiplier lands roughly 33% at 1x, 57% at 2x, 10% at 3x.
-//
-// Stockfish also adds 21*popcount(support), distinguishing a pawn defended twice
-// from one defended once. That is dropped here: only 4.0% of qualifying pawns
-// are defended twice, so it buys almost nothing for an extra popcount.
-//
-// Index 1 is deliberately zero rather than Stockfish's 7. 47.5% of the
-// qualifying population sits on its own second rank, all of it phalanx without
-// support -- the d2+e2 starting shape. The retired term excluded those with a
-// hard rank mask on the reasoning that rewarding them discourages the pawns from
-// advancing; keeping the exclusion as a zeroed table entry preserves that
-// judgement while leaving it a number the tuner can lift later.
-//
-// The rest is Stockfish's seed {7, 8, 12, 29, 48, 86} scaled to hold the old
-// pair's middlegame mass on the corpus.
 var PawnConnectedMG = [7]int{0, 0, 4, 5, 13, 22, 40}
 
-// PawnBlockedMG and PawnBlockedEG penalise one of our own pawns that an enemy
-// pawn stands directly in front of. Index 0 is our fifth rank, index 1 our
-// sixth; those are the only two ranks scored, matching Stockfish's r >= RANK_5.
-//
-// This replaces a bonus. The old term paid for the same pawns over the same two
-// ranks on the reasoning that an advanced pawn takes space and cramps the
-// opponent. Stockfish scores the identical feature over the identical window as
-// a penalty, and its argument is narrower than the space one: "blocked" here
-// means head-to-head against an enemy PAWN, and pawns facing each other can
-// neither capture nor pass one another. Such a pawn has stopped taking new
-// space and become fixed on a square the opponent has permanently mapped, where
-// it can be neither advanced nor traded. Taking space is real, but it is what
-// the pawn PSQT and the space term already pay for.
-//
-// The crossover is Stockfish's and worth keeping: the middlegame cost shrinks as
-// the pawn advances while the endgame cost grows. On the fifth rank it is a
-// committed pawn giving their pieces a hook; on the sixth it is a fixed weakness
-// far from our king and near theirs.
-//
-// Values are Stockfish's S(-13,-4) and S(-5,-13) at Goose's ~0.4 scale. They are
-// among the smallest pawn constants in either engine.
 var PawnBlockedMG = [2]int{-5, -2}
 var PawnBlockedEG = [2]int{-2, -5}
 
-// Kaufman's pawn-count tilt: a knight gains value while pawns stay on and loses
-// it as they come off. The input is the TOTAL pawn count, not one side's own --
-// how open the game is, is a property of the position, not of a colour. Reading
-// each side's own count made the term re-price pawn material: with the knights
-// equal and white a pawn up it still emitted +16 MG, which the pawn's own value
-// already says.
-//
-// Because the delta is now shared by both colours the whole term collapses to
-// delta * knightDiff * weight, and is exactly zero whenever the knights are
-// equal. Reference 10 is Kaufman's five per side; the corpus mean total is 10.39
-// and the term's mass is flat between 10 and 11, so which of the two is a tuner
-// question rather than a design one.
-//
-// No clamp. The input is bounded by construction (0-16 pawns), the old one bound
-// in under 2% of positions, and the extreme it guarded against now points the
-// right way: a pawnless two-knight surplus scores -60 MG, and two knights cannot
-// mate.
-//
-// The matching per-BISHOP tilt is gone. Kaufman adjusts the knight, the rook and
-// the bishop PAIR -- never the single bishop. Mobility, BadBishop and the centre
-// openness scales already answer that question from the actual structure instead
-// of from a count.
 var ImbalanceRefPawnCount = 10
 var ImbalanceKnightPerPawnMG = 3
 var ImbalanceKnightPerPawnEG = 2
@@ -705,11 +364,6 @@ var centerManhattanDistance = [64]int{
 }
 
 var (
-	// Centre files over each side's own second, third and fourth ranks. The
-	// previous constants sat two ranks higher, on ranks 4-6, which made the term
-	// enemy-half control rather than own-half manoeuvring room; the comment
-	// beside them described these squares. review/strategic/space_control.go has
-	// carried the correct masks all along.
 	wSpaceZoneMask uint64 = 0x000000003c3c3c00 // c2-f2, c3-f3, c4-f4
 	bSpaceZoneMask uint64 = 0x003c3c3c00000000 // c7-f7, c6-f6, c5-f5
 )
@@ -852,13 +506,6 @@ func materialImbalance(b *gm.Board) (imbMG int, imbEG int) {
 	return units * ImbalanceKnightPerPawnMG, units * ImbalanceKnightPerPawnEG
 }
 
-// spaceBonusFor sums one side's raw space bonus over its own zone. Everything it
-// reads is pawn structure, which is why the result is cached in the pawn hash
-// entry rather than recomputed per node.
-//
-// Only enemy PAWN attacks make a square unsafe. A piece bearing on it does not:
-// a piece attack is contestable and search resolves it in a ply or two, whereas
-// a pawn denies the square to any piece permanently, whatever else defends it.
 func spaceBonusFor(ownPawns, enemyPawnAttacks, zone, ownSemiOpenFiles, openFiles uint64, white bool) int {
 	safe := zone &^ ownPawns &^ enemyPawnAttacks
 	if safe == 0 {
@@ -883,10 +530,6 @@ func spaceBonusFor(ownPawns, enemyPawnAttacks, zone, ownSemiOpenFiles, openFiles
 		bits.OnesCount64(safe&openFiles)*SpaceOpenMG
 }
 
-// spaceEvaluation scales each side's cached bonus by how much material it has to
-// use the room, and returns the difference. The weight replaces the old hard
-// phase gate: it falls away on its own as pieces come off, without a step in the
-// evaluation at a fixed phase.
 func spaceEvaluation(b *gm.Board, entry *PawnHashEntry) (spaceMG int) {
 	blocked := bits.OnesCount64(entry.WBlockedBB) + bits.OnesCount64(entry.BBlockedBB)
 	if blocked > SpaceBlockedCap {
@@ -1013,12 +656,8 @@ func candidatePassedBonus(
 	return
 }
 
-// blockedPawnPenalty scores each side's pawns that an enemy pawn faces directly,
-// on that side's own fifth and sixth ranks. Only the side that advanced further
-// is ever counted: in a head-to-head lock its pawn sits on relative rank 5 or 6
-// while the blocker sits on relative rank 2 or 3, outside the window.
 func blockedPawnPenalty(wBlocked uint64, bBlocked uint64) (blockedMG int, blockedEG int) {
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		// Relative rank 5 then 6: absolute ranks 5 and 6 for white, 4 and 3 for black.
 		diff := bits.OnesCount64(wBlocked&onlyRank[4+i]) - bits.OnesCount64(bBlocked&onlyRank[3-i])
 		blockedMG += diff * PawnBlockedMG[i]
@@ -1046,25 +685,16 @@ func pawnWeakLeverPenalty(wWeak uint64, bWeak uint64) (mg int, eg int) {
 	return diffMG, diffEG
 }
 
-// phalanxPawns returns the pawns of one side that have another of their own
-// beside them on the same rank. The mask goes on the shifted result, so the
-// wrap from the h-file to the a-file of the next rank is discarded.
 func phalanxPawns(own uint64) uint64 {
 	return own & (((own << 1) &^ bitboardFileA) | ((own >> 1) &^ bitboardFileH))
 }
 
-// connectedPawnBonus scores both sides' defended and side-by-side pawns and
-// returns the difference, white minus black. See PawnConnectedMG for the shape.
 func connectedPawnBonus(b *gm.Board, entry *PawnHashEntry) (mg, eg int) {
 	wMG, wEG := connectedPawnsFor(b.White.Pawns, entry.WPawnAttackBB, entry.WOpposedBB, true)
 	bMG, bEG := connectedPawnsFor(b.Black.Pawns, entry.BPawnAttackBB, entry.BOpposedBB, false)
 	return wMG - bMG, wEG - bEG
 }
 
-// connectedPawnsFor walks the six ranks a pawn can occupy and can stay entirely
-// in popcounts: the multiplier 2 + phalanx - opposed decomposes into a base
-// count, plus the phalanx subset, minus the opposed subset. Phalanx is a subset
-// of the qualifying set by construction, so the three counts nest cleanly.
 func connectedPawnsFor(own, ownAttacks, opposed uint64, white bool) (mg, eg int) {
 	phalanx := phalanxPawns(own)
 	qualifying := phalanx | (own & ownAttacks)
@@ -1091,13 +721,6 @@ func connectedPawnsFor(own, ownAttacks, opposed uint64, white bool) (mg, eg int)
 	return mg, eg
 }
 
-// doubledPawnBitboards returns each side's pawns that have another pawn of the
-// same colour strictly behind them on the same file -- the front pawn of every
-// stack. The popcount of that set equals the old per-file "pawns on this file
-// minus one" sum, so the population is identical and only its split is new.
-//
-// The fills exclude their origin square, so no shift is needed: a pawn is in its
-// own side's fill exactly when another of its pawns lies behind it.
 func doubledPawnBitboards(b *gm.Board) (wDoubled, bDoubled uint64) {
 	wDoubled = b.White.Pawns & calculatePawnNorthFill(b.White.Pawns)
 	bDoubled = b.Black.Pawns & calculatePawnSouthFill(b.Black.Pawns)
@@ -1212,12 +835,6 @@ func rookFilesBonus(b *gm.Board, openFiles uint64, wSemiOpenFiles uint64, bSemiO
 	return semiOpenMG, semiOpenEG, openMG, openEG
 }
 
-// rookFileCountBonus pays each side for owning rooks in a structure its rooks
-// can use, independently of where those rooks currently stand. See the constants
-// for why this is not a duplicate of rookFilesBonus.
-//
-// The file masks set every square on a file, so the counts divide by 8 -- the
-// same idiom rookStackBonusMG uses below.
 func rookFileCountBonus(b *gm.Board, openFiles, wSemiOpenFiles, bSemiOpenFiles uint64) (mg, eg int) {
 	openCount := bits.OnesCount64(openFiles) / 8
 	wSemiCount := bits.OnesCount64(wSemiOpenFiles) / 8
@@ -1226,8 +843,6 @@ func rookFileCountBonus(b *gm.Board, openFiles, wSemiOpenFiles, bSemiOpenFiles u
 	wRooks := bits.OnesCount64(b.White.Rooks)
 	bRooks := bits.OnesCount64(b.Black.Rooks)
 
-	// Open files are common to both sides, so this difference collapses to
-	// openCount * (wRooks - bRooks) and only speaks when the rook counts differ.
 	openDiff := openCount * (wRooks - bRooks)
 	semiDiff := wRooks*wSemiCount - bRooks*bSemiCount
 
@@ -1296,44 +911,12 @@ func getKingMopUpBonus(b *gm.Board, whiteWithAdvantage, hasQueen, hasRook bool) 
 	return bonus
 }
 
-// kingShelterStorm scores both kings' pawn cover and the enemy pawns storming
-// them, and returns the differences, white minus black. Shelter and storm are
-// kept apart in the return so the traces can show them separately; the
-// evaluation just adds them.
 func kingShelterStorm(b *gm.Board, wPawnAttackBB, bPawnAttackBB uint64) (shelterMG, stormMG, stormEG int) {
 	wShelter, wStormMG, wStormEG := kingShelterStormFor(b, true, bPawnAttackBB)
 	bShelter, bStormMG, bStormEG := kingShelterStormFor(b, false, wPawnAttackBB)
 	return wShelter - bShelter, wStormMG - bStormMG, wStormEG - bStormEG
 }
 
-// kingShelterStormFor walks the king's own file and its two neighbours once,
-// scoring our cover and their storm on each. The centre file is clamped to b..g,
-// so a king on a1 is scored over a/b/c: it shelters behind the b-file pawn too,
-// and without the clamp an edge king would only ever be scored over two files.
-//
-// Both terms are written from the defender's point of view: shelter is a bonus
-// to this side, storm is subtracted from it. The offensive half of the storm
-// falls out for free, because the caller returns white minus black — a black
-// pawn wave against the white king is the same number as a white bonus.
-//
-// This replaces the old evaluatePawnStorm, which only ran when the kings had
-// castled to opposite wings. That gate zeroed the term in 62.3% of real
-// positions, including every same-side minority attack and every h-pawn push
-// against an uncastled king. Sharing the file walk with the shelter also removes
-// the base × percentage encoding, which could not express "advanced but harmless"
-// separately from "close but locked".
-//
-// Two pawns of ours are excluded from counting as cover, both following
-// Stockfish: pawns behind the king cannot shelter it, and a pawn that an enemy
-// pawn attacks is already under challenge. A pawn excluded that way also stops
-// counting as a blocker, which is the intent — it cannot hold the wedge either.
-// Their pawns get only the behind-the-king filter.
-//
-// Storm is middlegame-only except when blocked. An unblocked storm pawn is a
-// threat of tempo: it is coming, and what makes it dangerous is that pieces
-// arrive behind it, so once the queens are gone it is just a pawn. A blocked one
-// is a structural fact instead — the pair is frozen, the squares it takes away
-// stay taken, and the endgame cares about that at nearly full strength.
 func kingShelterStormFor(b *gm.Board, white bool, enemyPawnAttackBB uint64) (shelterMG, stormMG, stormEG int) {
 	var kings, ourPawns, theirPawns uint64
 	if white {
@@ -1372,14 +955,6 @@ func kingShelterStormFor(b *gm.Board, white bool, enemyPawnAttackBB uint64) (she
 	return shelterMG, stormMG, stormEG
 }
 
-// frontmostRelRank returns the rank, measured from the given side's own back
-// rank, of the pawn in bb standing closest to that back rank. For our own pawns
-// that picks the one actually doing the sheltering — a pawn further up the file
-// has already left the king behind. For enemy pawns the same rule picks the most
-// advanced one, which is the one storming us.
-//
-// Zero means bb is empty. No pawn can legally stand on its own side's back rank,
-// nor on the far side's, so zero is never ambiguous for either colour.
 func frontmostRelRank(bb uint64, white bool) int {
 	if bb == 0 {
 		return 0
@@ -1390,9 +965,6 @@ func frontmostRelRank(bb uint64, white bool) int {
 	return 7 - (63-bits.LeadingZeros64(bb))/8
 }
 
-// safetyWeight returns the king-danger weight of one attacking piece type. Only
-// the four piece types that can build an attack have one: pawns are not counted
-// as king attackers, matching Stockfish, Ethereal and Weiss alike.
 func safetyWeight(pt gm.PieceType) (mg, eg int) {
 	switch pt {
 	case gm.PieceTypeKnight:
@@ -1407,9 +979,6 @@ func safetyWeight(pt gm.PieceType) (mg, eg int) {
 	return 0, 0
 }
 
-// kingDanger accumulates the raw danger each side generates against the enemy
-// king. Index 0 is what WHITE generates against the black king, matching the
-// convention the old attackUnitCounts array used.
 type kingDanger struct {
 	attackers [2]int // distinct attacking pieces; diagnostic only
 	weightMG  [2]int // summed weights of those pieces
@@ -1421,9 +990,6 @@ type kingDanger struct {
 	unsafeChk [2]int
 }
 
-// addAttacker folds one attacking piece into the accumulator. A piece that does
-// not touch the ring contributes nothing, so the summed weight counts pieces
-// rather than squares.
 func (k *kingDanger) addAttacker(side int, ringHits, weightMG, weightEG int) {
 	if ringHits == 0 {
 		return
@@ -1434,10 +1000,6 @@ func (k *kingDanger) addAttacker(side int, ringHits, weightMG, weightEG int) {
 	k.squares[side] += ringHits
 }
 
-// kingDangerFor turns one side's accumulated danger into centipawns. Ethereal
-// scales its square count by 9/|kingArea| because its area varies in size;
-// Goose's ring is always exactly nine squares, so the scaling is the identity
-// and is omitted.
 func kingDangerRaw(k *kingDanger, side int, attackerHasQueen bool) (mg, eg int) {
 	mg = k.weightMG[side] + SafetyAttackValueMG*k.squares[side] + k.checkMG[side] + SafetyAdjustmentMG
 	eg = k.weightEG[side] + SafetyAttackValueEG*k.squares[side] + k.checkEG[side] + SafetyAdjustmentEG
@@ -1445,8 +1007,8 @@ func kingDangerRaw(k *kingDanger, side int, attackerHasQueen bool) (mg, eg int) 
 		mg += SafetyNoEnemyQueensMG
 		eg += SafetyNoEnemyQueensEG
 	}
-	// Clamping here is what turns SafetyAdjustment into a dead band: anything
-	// that does not clear the standing offset scores exactly nothing.
+
+	// Safety Adjustment is used here to have a minimum requirement to get any bonus; currently set at 0 pre-tuning
 	if mg < 0 {
 		mg = 0
 	}
@@ -1458,13 +1020,9 @@ func kingDangerRaw(k *kingDanger, side int, attackerHasQueen bool) (mg, eg int) 
 
 func kingDangerFor(k *kingDanger, side int, attackerHasQueen bool) (mg, eg int) {
 	rawMG, rawEG := kingDangerRaw(k, side, attackerHasQueen)
-	return (rawMG * rawMG) / SafetyMGDivisor, rawEG / SafetyEGDivisor
+	return (rawMG * rawMG) / (SafetyMGDivisor * SafetyMGDivisor), rawEG / SafetyEGDivisor
 }
 
-// rookAttackOccupancy is the occupancy evaluateRooks uses for pressure: friendly
-// rooks and both queens are transparent, so a rook behind them still bears on
-// the same line. Anything reporting king-attack accounting must use this and
-// not true occupancy, or the position trace and the evaluation disagree.
 func rookAttackOccupancy(b *gm.Board, white bool) uint64 {
 	ownRooks := b.White.Rooks
 	if !white {
@@ -1473,18 +1031,6 @@ func rookAttackOccupancy(b *gm.Board, white bool) uint64 {
 	return (b.White.All | b.Black.All) &^ (b.White.Queens | b.Black.Queens) &^ ownRooks
 }
 
-// kingCheckThreats folds checking squares into the danger accumulator.
-//
-// The squares from which a piece type checks a king are exactly that type's
-// moves FROM the king square, because attack relations are symmetric. So four
-// lookups per king serve every attacker, and checks are found at any distance
-// rather than only inside the ring -- 57% of real checking squares lie outside
-// it, so a ring-anchored test would miss most of them.
-//
-// knightAttacks/bishopAttacks/queenAttacks are per-side unions of true attack
-// sets. Rooks are recomputed here against true occupancy on purpose: the x-ray
-// set above is right for pressure but would invent checks from squares a rook
-// cannot actually reach through a queen.
 func kingCheckThreats(b *gm.Board, danger *kingDanger, allPieces uint64,
 	wPawnAttackBB, bPawnAttackBB uint64,
 	knightAttacks, bishopAttacks, queenAttacks [2]uint64) {
@@ -1542,10 +1088,6 @@ func kingCheckThreats(b *gm.Board, danger *kingDanger, allPieces uint64,
 	}
 }
 
-// kingDangerScore returns the danger difference from white's point of view:
-// danger charged to the black king minus danger charged to the white king. The
-// non-linearity is applied per king before subtracting, so two mirrored attacks
-// still cancel but a lopsided one does not.
 func kingDangerScore(k *kingDanger, b *gm.Board) (mg, eg int) {
 	toBlackMG, toBlackEG := kingDangerFor(k, 0, b.White.Queens != 0)
 	toWhiteMG, toWhiteEG := kingDangerFor(k, 1, b.Black.Queens != 0)
@@ -1747,10 +1289,6 @@ func evaluateRooks(
 
 	var rookMobilityMG, rookMobilityEG int
 
-	// Friendly rooks and both queens are transparent to a rook: a rook behind a
-	// friendly rook, or looking through a queen, still bears on the same file or
-	// rank. Stockfish computes rook attacks over the same reduced occupancy.
-	// This costs nothing — it replaces the occupancy the lookup already used.
 	for x := b.White.Rooks; x != 0; x &= x - 1 {
 		square := bits.TrailingZeros64(x)
 		occupied := rookAttackOccupancy(b, true)
@@ -1910,10 +1448,6 @@ func Evaluation(b *gm.Board, debug bool) (score int32) {
 
 	// King safety setup
 	var danger kingDanger
-	// The nine squares around each king, unfiltered. The zero arguments say "no
-	// own-pawn filter": squares a friendly pawn covers are still part of the
-	// ring. The second, outer ring is gone -- no other engine has one, and it
-	// let a king that merely sat near enemy pieces read as under attack.
 	kingRing := getKingSafetyTable(b, true, 0, 0)
 
 	wPieceCount := bits.OnesCount64(b.White.Bishops | b.White.Knights | b.White.Rooks | b.White.Queens)
@@ -1984,18 +1518,12 @@ func Evaluation(b *gm.Board, debug bool) (score int32) {
 	kingCheckThreats(b, &danger, allPieces, wPawnAttackBB, bPawnAttackBB,
 		knightMovementBB, bishopMovementBB, queenMovementBB)
 
-	// KING (uses the danger accumulator and kingAttackMobilityBB filled by helpers)
 	kingPsqtMG, kingPsqtEG = countPieceTables(&b.White.Kings, &b.Black.Kings, &PSQT_MG[gm.PieceTypeKing], &PSQT_EG[gm.PieceTypeKing])
 
 	kingAttackPenaltyMG, kingAttackPenaltyEG := kingDangerScore(&danger, b)
 	kingShelterMG, kingStormMG, kingStormEG := kingShelterStorm(b, wPawnAttackBB, bPawnAttackBB)
 	KingMinorPieceDefenseBonusMG := kingMinorPieceDefences(kingRing, knightMovementBB, bishopMovementBB)
 	kingPasserProximityEG := kingPasserProximity(b, pawnEntry)
-
-	// A king-mobility term once lived here. It was never read, and the
-	// measurement says leave it that way: 3.65 safe king moves per side on
-	// average, and only 0.3% of king-sides have none, so the feature would be
-	// near-flat across real positions.
 
 	kingCentralManhattanPenalty := 0
 	kingMopUpBonus := 0

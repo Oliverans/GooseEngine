@@ -677,10 +677,11 @@ func bishopMobilityTrace(b *gm.Board, allPieces, wPawnAttackBB, bPawnAttackBB ui
 }
 
 func rookMobilityTrace(b *gm.Board, allPieces, wPawnAttackBB, bPawnAttackBB uint64) (mg, eg int, counts []int) {
+	_ = allPieces // kept in the signature alongside the other sliding-piece trace helpers
 	counts = make([]int, len(RookMobilityMG))
 	for x := b.White.Rooks; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		attacks := gm.CalculateRookMoveBitboard(uint8(sq), allPieces&^PositionBB[sq])
+		attacks := gm.CalculateRookMoveBitboard(uint8(sq), rookAttackOccupancy(b, true))
 		idx := mobilityIndex(bits.OnesCount64(attacks&^bPawnAttackBB&^b.White.All), len(RookMobilityMG)-1)
 		counts[idx]++
 		mg += RookMobilityMG[idx]
@@ -688,7 +689,7 @@ func rookMobilityTrace(b *gm.Board, allPieces, wPawnAttackBB, bPawnAttackBB uint
 	}
 	for x := b.Black.Rooks; x != 0; x &= x - 1 {
 		sq := bits.TrailingZeros64(x)
-		attacks := gm.CalculateRookMoveBitboard(uint8(sq), allPieces&^PositionBB[sq])
+		attacks := gm.CalculateRookMoveBitboard(uint8(sq), rookAttackOccupancy(b, false))
 		idx := mobilityIndex(bits.OnesCount64(attacks&^wPawnAttackBB&^b.Black.All), len(RookMobilityMG)-1)
 		counts[idx]--
 		mg -= RookMobilityMG[idx]

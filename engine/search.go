@@ -25,7 +25,7 @@ var FutilityScale int32 = 114
 var RFPScale int32 = 83
 var RazoringScale int32 = 155
 
-var AspirationWindowSize int32 = 40
+var AspirationWindowSize int32 = 20
 
 // AspirationMaxFails caps how many times a root search widens its aspiration
 // window before giving up and searching full width. Window sizes go
@@ -206,6 +206,13 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool, printSearchInform
 				// A full-width search cannot fail, so it is always accepted.
 				if !fullWidth && (score <= alpha || score >= beta) {
 					failures++
+					// Counted here rather than at the widening below, so the
+					// mate-score and max-failures escapes are still tallied.
+					if score <= alpha {
+						SearchState.cutStats.AspirationFailLow++
+					} else {
+						SearchState.cutStats.AspirationFailHigh++
+					}
 					// Mate scores gain nothing from a narrow window, and after a
 					// few failures the guess is not worth refining any further.
 					if abs32(score) >= Checkmate || failures > AspirationMaxFails {
@@ -368,6 +375,14 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	ttEntry, ttHit := SearchState.tt.ProbeEntry(posHash)
 	usable, ttScore := SearchState.tt.useEntry(ttEntry, posHash, depth, alpha, beta, ply, excludedMove)
 
+	SearchState.cutStats.TTProbes++
+	if ttHit {
+		SearchState.cutStats.TTHits++
+		if usable {
+			SearchState.cutStats.TTUsable++
+		}
+	}
+
 	if usable && !isRoot && !isPVNode {
 		SearchState.cutStats.TTCutoffs++
 		return ttScore
@@ -382,6 +397,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	// roughly a third of all nodes. Everything below this point does need one,
 	// so mate/stalemate is still resolved before any pruning can fire.
 	allMoves := b.GenerateLegalMoves()
+	SearchState.cutStats.MovesGenerated += uint64(len(allMoves))
 	if len(allMoves) == 0 {
 		if inCheck {
 			return -MaxScore + int32(ply) // Checkmate
@@ -425,6 +441,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	var wCount, bCount = hasMinorOrMajorPiece(b)
 	var sideHasPieces = (b.Wtomove && wCount > 0) || (!b.Wtomove && bCount > 0)
 	if !inCheck && !isPVNode && depth <= 7 && depth >= 1 && abs32(beta) < Checkmate && !isRoot {
+		SearchState.cutStats.RFPEligible++
 		rfpMargin := RFPScale * int32(depth)
 		if improving {
 			rfpMargin -= 50 // More lenient when improving
@@ -443,6 +460,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	*/
 	var margin int32 = Max32(0, NMMarginBase-NMMarginDepth*int32(depth)) // Margin to only look at positions already risking being beta nodes
 	if !inCheck && !isPVNode && !didNull && sideHasPieces && depth >= NullMoveMinDepth && !isRoot && staticScore >= beta-margin {
+		SearchState.cutStats.NullMoveAttempts++
 		nullState := b.MakeNullMove()
 		SearchState.pushState(b)
 
@@ -468,6 +486,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	if depth <= 3 && !isPVNode && !inCheck && !isRoot {
 		razorMargin := RazoringScale * int32(depth)
 		if staticScore+razorMargin < alpha {
+			SearchState.cutStats.RazoringAttempts++
 			score := quiescence(b, alpha, beta, &childPVLine, 30, ply, rootIndex)
 			if score < alpha {
 				SearchState.cutStats.RazoringCutoffs++
@@ -485,6 +504,9 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	if !isPVNode && !isRoot && !inCheck && !didNull && !isExtended && depth >= 8 && ttMove != 0 && ttEntry.Flag != AlphaFlag && ttEntry.Depth >= depth-3 {
 		ttValue := ttEntry.Score
 		if ttValue < Checkmate && ttValue > -Checkmate {
+			// Counted here, not at the outer guard: only this branch runs the
+			// verification search that the extension is paying for.
+			SearchState.cutStats.SingularAttempts++
 			margin := int32(50 + 10*depth)
 			scoreToBeat := ttValue - margin
 			R := int8(3) + depth/4
@@ -494,6 +516,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			var verificationPV PVLine
 			scoreSingular := alphabeta(b, scoreToBeat-1, scoreToBeat, depth-1-R, ply, &verificationPV, prevMove, didNull, true, ttMove, rootIndex)
 			if scoreSingular < scoreToBeat {
+				SearchState.cutStats.SingularHits++
 				singularExtension = true
 			}
 		}
@@ -511,6 +534,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		captures := b.GenerateCaptures()
 		scoredCaptures, hasCaptures := scoreMovesListCaptures(captures, ply)
 		if hasCaptures {
+			SearchState.cutStats.ProbCutAttempts++
 			maxProbCutCaptures := Min(10, len(scoredCaptures.moves)) // TEST; most likely we're
 
 			for i := uint8(0); i < uint8(maxProbCutCaptures); i++ {
@@ -518,6 +542,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 				move := scoredCaptures.moves[i].move
 
 				if see(b, move, false) < -ProbCutSeeMargin {
+					SearchState.cutStats.ProbCutSeeSkips++
 					continue
 				}
 
@@ -527,6 +552,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 				}
 				SearchState.pushState(b)
 				SearchState.ContHistPushMove(ply, move)
+				SearchState.cutStats.ProbCutMovesSearched++
 				qScore := -quiescence(b, -probCutBeta, -probCutBeta+1, &childPVLine, 10, ply+1, rootIndex)
 
 				if qScore >= probCutBeta {
@@ -538,6 +564,9 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 						SearchState.cutStats.ProbCutCutoffs++
 						return score
 					}
+					// The taken branch returns, so reaching here means qsearch
+					// cleared the raised beta but the reduced search did not.
+					SearchState.cutStats.ProbCutVerifyFails++
 				}
 				b.UnmakeMove(move, moveState)
 				SearchState.popState()
@@ -556,6 +585,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			reducedDepth = depth - depth/4
 		}
 
+		SearchState.cutStats.IIDCalls++
 		var iidPV PVLine
 		alphabeta(b, alpha, beta, reducedDepth, ply, &iidPV, prevMove, false, true, 0, rootIndex)
 
@@ -646,6 +676,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 
 		ok, moveState := b.MakeMove(move)
 		if !ok {
+			SearchState.cutStats.MakeMoveRejects++
 			continue
 		}
 		SearchState.pushState(b)
@@ -674,6 +705,12 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 					moveHistoryScore, improving,
 					IsKiller(move, ply, &SearchState.killer), extendMove,
 				)
+				// Nested inside the eligibility test so the extra compare only
+				// runs for LMR candidates, and counts actual reductions rather
+				// than candidacy: computeLMRReduction may still return 0.
+				if reduct > 0 {
+					SearchState.cutStats.LMRReduced++
+				}
 			}
 
 			// Stage 1: Search with (possibly reduced) depth using null window
@@ -682,6 +719,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 
 			// Stage 2: If we had a reduction and score beats alpha, re-search at full depth with null window
 			if score > alpha && reduct > 0 {
+				SearchState.cutStats.LMRResearched++
 				nextDepth = calculateSearchDepth(depth-1, 0, extendMove)
 				score = -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, rootIndex)
 			}
@@ -703,6 +741,9 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 
 		if score >= beta {
 			SearchState.cutStats.BetaCutoffs++
+			// legalMoves is at least 1 here, having been incremented before the
+			// search that produced this score. Bucket 3 absorbs move 4 onward.
+			SearchState.cutStats.BetaCutoffByMove[Min(legalMoves, 4)-1]++
 			ttFlag = BetaFlag
 			if isQuiet {
 				InsertKiller(move, ply, &SearchState.killer)
@@ -729,6 +770,10 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		childPVLine.Clear()
 	}
 
+	// The loop leaves only by exhaustion or by break, so legalMoves is the final
+	// count on every path.
+	SearchState.cutStats.MovesSearched += uint64(legalMoves)
+
 	if !SearchState.ShouldStopNoClock() {
 		SearchState.tt.storeEntry(posHash, depth, ply, bestMove, bestScore, ttFlag)
 	}
@@ -739,6 +784,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8, ply int8, rootIndex int) int32 {
 	pvLine.Clear()
 	SearchState.nodesChecked++
+	SearchState.cutStats.QNodes++
 
 	if SearchState.nodesChecked&2047 == 0 {
 		if SearchState.timeHandler.TimeStatus() {

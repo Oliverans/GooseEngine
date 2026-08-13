@@ -5,7 +5,10 @@
 /build/
 /dist/
 /out/
+/research/out/
 /coverage/
+**/.gocache/
+**/.serena/
 
 # If you ever vendor deps, uncomment this:
 # /vendor/
@@ -74,11 +77,16 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+**/__pycache__/*
 
 # -------------------------
 # Coding agents (Claude, Codex, local etc)
 # -------------------------
 .claude
+.agents
+.codex
+AGENTS.md
+.hermes
 
 # -------------------------
 # Custom files / dirs
@@ -96,5 +104,47 @@ cmd/debug_eval/main.go
 *.epd
 *.bin
 *.zip
+*.sqlite
+*.nsys-rep
+cmd/sequence-analyze/**/*.json
+cmd/sequence-analyze/**/*.jsonl
+cmd/sequence-analyze/**/*.html
+cmd/sequence-analyze/firstread/
+cmd/**/*.pgn
+nn/checkpoints/
+nn/data/
+profiles/
+*.pgn
+stockfish-macos-m1-apple-silicon
 
-livereview/
+#livereview/
+.gocache/
+.serena/
+
+# Mermaid render cache
+# downloaded mermaid.min.js for research/tools/render_mermaid_docs.py
+research/tools/.mermaid-cache/
+
+# Datasets for texel tuning training
+data/
+
+# NN and research; not for publishing
+nn/
+research/
+
+# Review will be published once research are done
+# Ignore livereview-web binary
+review/
+livereview-web
+
+# NN engine will be published later; not now
+engine_nn/
+
+# Old tuner; will remove later, kept for reference right now
+_tuner_old/
+
+# Docs are for local work
+docs/
+
+# CMD is for locally building currently
+cmd/

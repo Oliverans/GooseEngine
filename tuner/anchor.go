@@ -1,72 +1,231 @@
 package tuner
 
-// BuildAnchorWeights constructs per-parameter L2 anchor weights.
-// These penalize deviation from the seeded defaults.
-func BuildAnchorWeights(layout Layout, cfg AnchorConfig) []float64 {
-	weights := make([]float64, layout.Total)
+import (
+	"errors"
+	"fmt"
+	"math"
+)
 
-	// Default all to free (minimal regularization)
-	for i := range weights {
-		weights[i] = cfg.FreeLambda
+// ParameterAnchorConfig optionally replaces registry group strengths without
+// changing the registry layout or dataset fingerprint. Omitted groups retain
+// their registry strength.
+type ParameterAnchorConfig struct {
+	GroupStrengths map[GroupID]float64
+}
+
+type anchorCoordinate struct {
+	parameterIndex int
+	trainIndex     int
+	groupIndex     int
+	anchor         float64
+	deviationScale float64
+	strengthScale  float64
+}
+
+type anchorGroup struct {
+	id       GroupID
+	strength float64
+	active   int
+}
+
+// ParameterAnchorModel is a precompiled L2-to-anchor penalty. Ordinary
+// zero-directed L2/weight decay is intentionally not part of this model.
+type ParameterAnchorModel struct {
+	parameterCount   int
+	trainableCount   int
+	coordinates      []anchorCoordinate
+	groups           []anchorGroup
+	frozenParameters int
+	uncovered        int
+}
+
+func NewParameterAnchorModel(registry *Registry, coverage []uint64, config ParameterAnchorConfig) (*ParameterAnchorModel, error) {
+	if registry == nil {
+		return nil, errors.New("parameter anchoring requires a registry")
+	}
+	if coverage != nil && len(coverage) != len(registry.Elements) {
+		return nil, fmt.Errorf("coverage vector has length %d, want %d", len(coverage), len(registry.Elements))
+	}
+	groupIndexes := make(map[GroupID]int, len(registry.Groups))
+	model := &ParameterAnchorModel{
+		parameterCount: len(registry.Elements),
+		trainableCount: registry.TrainableCount(),
+		groups:         make([]anchorGroup, len(registry.Groups)),
+	}
+	for index, group := range registry.Groups {
+		strength := group.AnchorStrength
+		if override, exists := config.GroupStrengths[group.ID]; exists {
+			strength = override
+		}
+		if !finite(strength) || strength < 0 {
+			return nil, fmt.Errorf("anchor strength for group %q must be finite and non-negative, got %v", group.ID, strength)
+		}
+		groupIndexes[group.ID] = index
+		model.groups[index] = anchorGroup{id: group.ID, strength: strength}
+	}
+	for group := range config.GroupStrengths {
+		if _, exists := groupIndexes[group]; !exists {
+			return nil, fmt.Errorf("anchor strength override refers to unknown group %q", group)
+		}
 	}
 
-	// --- Tier 1 parameters ---
-	ps := layout.PawnStructStart
-	weights[ps+0] = cfg.Tier1Lambda  // DoubledMG
-	weights[ps+1] = cfg.Tier1Lambda  // DoubledEG
-	weights[ps+2] = cfg.Tier1Lambda  // IsolatedMG
-	weights[ps+3] = cfg.Tier1Lambda  // IsolatedEG
-	weights[ps+6] = cfg.Tier1Lambda  // PhalanxMG
-	weights[ps+7] = cfg.Tier1Lambda  // PhalanxEG
-	weights[ps+10] = cfg.Tier1Lambda // WeakLeverMG
-	weights[ps+11] = cfg.Tier1Lambda // WeakLeverEG
-	weights[ps+12] = cfg.Tier1Lambda // BackwardMG
-	weights[ps+13] = cfg.Tier1Lambda // BackwardEG
-
-	ksc := layout.KingCorrStart
-	weights[ksc+0] = cfg.Tier1Lambda // KingSemiOpenFile
-	weights[ksc+1] = cfg.Tier1Lambda // KingOpenFile
-
-	// --- Tier 2 parameters ---
-	bp := layout.BishopPairStart
-	weights[bp+0] = cfg.Tier2Lambda // BishopPairMG
-	weights[bp+1] = cfg.Tier2Lambda // BishopPairEG
-
-	core := layout.CoreScalarStart
-	weights[core+0] = cfg.Tier2Lambda // RookSemiOpenFileMG
-	weights[core+1] = cfg.Tier2Lambda // RookOpenFileMG
-	weights[core+2] = cfg.Tier2Lambda // SeventhRankEG
-
-	weights[ksc+2] = cfg.Tier2Lambda // KingMinorDefense
-	weights[ksc+3] = cfg.Tier2Lambda // KingPawnDefense
-
-	ex1 := layout.Tier1ExtrasStart
-	weights[ex1+0] = cfg.Tier2Lambda // KnightOutpostMG
-	weights[ex1+1] = cfg.Tier2Lambda // KnightOutpostEG
-	weights[ex1+2] = cfg.Tier2Lambda // BishopOutpostMG
-	weights[ex1+3] = cfg.Tier2Lambda // BishopOutpostEG
-
-	st := layout.SpaceTempoStart
-	weights[st+2] = cfg.Tier2Lambda // Tempo
-
-	// --- Tier 3 parameters ---
-	weights[ps+4] = cfg.Tier3Lambda // ConnectedMG
-	weights[ps+5] = cfg.Tier3Lambda // ConnectedEG
-	weights[ps+8] = cfg.Tier3Lambda // BlockedMG
-	weights[ps+9] = cfg.Tier3Lambda // BlockedEG
-
-	ex3 := layout.Tier3ExtrasStart
-	weights[ex3+0] = cfg.Tier3Lambda // KnightTropismMG
-	weights[ex3+1] = cfg.Tier3Lambda // KnightTropismEG
-	weights[ex1+4] = cfg.Tier3Lambda // StackedRooksMG
-
-	// Material gets light anchor (traditional values are good starting points)
-	for i := layout.MaterialMGStart; i < layout.MaterialMGStart+6 && i < len(weights); i++ {
-		weights[i] = cfg.Tier3Lambda
+	model.coordinates = make([]anchorCoordinate, 0, registry.TrainableCount())
+	for _, element := range registry.Elements {
+		if element.Mode != TrainingContinuous || element.TrainIndex == NoTrainIndex {
+			model.frozenParameters++
+			continue
+		}
+		if coverage != nil && coverage[element.Index] == 0 {
+			model.uncovered++
+			continue
+		}
+		spec := registry.Specs[element.SpecIndex]
+		groupIndex, exists := groupIndexes[spec.Group]
+		if !exists {
+			return nil, fmt.Errorf("parameter %q refers to unknown anchor group %q", element.ID, spec.Group)
+		}
+		model.groups[groupIndex].active++
+		model.coordinates = append(model.coordinates, anchorCoordinate{
+			parameterIndex: element.Index,
+			trainIndex:     element.TrainIndex,
+			groupIndex:     groupIndex,
+			anchor:         element.Anchor,
+			deviationScale: element.DeviationScale,
+			strengthScale:  spec.Prior.StrengthScale,
+		})
 	}
-	for i := layout.MaterialEGStart; i < layout.MaterialEGStart+6 && i < len(weights); i++ {
-		weights[i] = cfg.Tier3Lambda
-	}
+	return model, nil
+}
 
-	return weights
+type AnchorGroupMetrics struct {
+	Group                             GroupID
+	Strength                          float64
+	ActiveParameters                  int
+	Loss                              float64
+	MeanSquaredNormalizedDisplacement float64
+	MaxAbsoluteNormalizedDisplacement float64
+}
+
+type ParameterAnchorMetrics struct {
+	Loss                              float64
+	ActiveParameters                  int
+	FrozenParameters                  int
+	UncoveredParameters               int
+	MaxAbsoluteNormalizedDisplacement float64
+	Groups                            []AnchorGroupMetrics
+}
+
+// Evaluate returns the normalized anchor penalty and optionally adds its
+// derivative to a dense train-coordinate gradient. Passing nil reports loss
+// without modifying a gradient.
+func (m *ParameterAnchorModel) Evaluate(parameters []float64, trainGradient []float64) (ParameterAnchorMetrics, error) {
+	if err := m.validateInputs(parameters, trainGradient); err != nil {
+		return ParameterAnchorMetrics{}, err
+	}
+	metrics := ParameterAnchorMetrics{
+		ActiveParameters: m.activeCount(), FrozenParameters: m.frozenParameters,
+		UncoveredParameters: m.uncovered,
+		Groups:              make([]AnchorGroupMetrics, len(m.groups)),
+	}
+	for index, group := range m.groups {
+		metrics.Groups[index] = AnchorGroupMetrics{
+			Group: group.id, Strength: group.strength, ActiveParameters: group.active,
+		}
+	}
+	for _, coordinate := range m.coordinates {
+		value := parameters[coordinate.parameterIndex]
+		group := m.groups[coordinate.groupIndex]
+		groupMetrics := &metrics.Groups[coordinate.groupIndex]
+		normalized := (value - coordinate.anchor) / coordinate.deviationScale
+		absolute := math.Abs(normalized)
+		groupMetrics.MeanSquaredNormalizedDisplacement += normalized * normalized
+		groupMetrics.MaxAbsoluteNormalizedDisplacement = max(groupMetrics.MaxAbsoluteNormalizedDisplacement, absolute)
+		metrics.MaxAbsoluteNormalizedDisplacement = max(metrics.MaxAbsoluteNormalizedDisplacement, absolute)
+		if group.active == 0 || group.strength == 0 || coordinate.strengthScale == 0 {
+			continue
+		}
+		coefficient := group.strength * coordinate.strengthScale / float64(group.active)
+		penalty := coefficient * normalized * normalized
+		groupMetrics.Loss += penalty
+		metrics.Loss += penalty
+		if trainGradient != nil {
+			trainGradient[coordinate.trainIndex] += 2 * coefficient *
+				(value - coordinate.anchor) / (coordinate.deviationScale * coordinate.deviationScale)
+		}
+	}
+	for index, group := range m.groups {
+		if group.active != 0 {
+			metrics.Groups[index].MeanSquaredNormalizedDisplacement /= float64(group.active)
+		}
+	}
+	if !finite(metrics.Loss) {
+		return ParameterAnchorMetrics{}, errors.New("parameter-anchor loss is not finite")
+	}
+	return metrics, nil
+}
+
+// Penalty is the allocation-free hot-loop form. It returns the same total loss
+// as Evaluate and optionally adds the anchor derivative to a dense train
+// gradient, but omits diagnostic group reporting.
+func (m *ParameterAnchorModel) Penalty(parameters []float64, trainGradient []float64) (float64, error) {
+	if err := m.validateInputs(parameters, trainGradient); err != nil {
+		return 0, err
+	}
+	loss := 0.0
+	for _, coordinate := range m.coordinates {
+		group := m.groups[coordinate.groupIndex]
+		if group.active == 0 || group.strength == 0 || coordinate.strengthScale == 0 {
+			continue
+		}
+		value := parameters[coordinate.parameterIndex]
+		difference := value - coordinate.anchor
+		coefficient := group.strength * coordinate.strengthScale / float64(group.active)
+		loss += coefficient * difference * difference / (coordinate.deviationScale * coordinate.deviationScale)
+		if trainGradient != nil {
+			trainGradient[coordinate.trainIndex] += 2 * coefficient * difference /
+				(coordinate.deviationScale * coordinate.deviationScale)
+		}
+	}
+	if !finite(loss) {
+		return 0, errors.New("parameter-anchor loss is not finite")
+	}
+	return loss, nil
+}
+
+func (m *ParameterAnchorModel) validateInputs(parameters []float64, trainGradient []float64) error {
+	if m == nil {
+		return errors.New("cannot evaluate a nil parameter-anchor model")
+	}
+	if len(parameters) != m.parameterCount {
+		return fmt.Errorf("parameter vector has length %d, want %d", len(parameters), m.parameterCount)
+	}
+	if trainGradient != nil && len(trainGradient) != m.trainableCount {
+		return fmt.Errorf("train gradient has length %d, want %d", len(trainGradient), m.trainableCount)
+	}
+	for _, coordinate := range m.coordinates {
+		if !finite(parameters[coordinate.parameterIndex]) {
+			return fmt.Errorf("parameter %d is not finite", coordinate.parameterIndex)
+		}
+	}
+	return nil
+}
+
+func (m *ParameterAnchorModel) activeCount() int {
+	if m == nil {
+		return 0
+	}
+	return len(m.coordinates)
+}
+
+// ActiveTrainIndexes returns the continuous optimizer coordinates not removed
+// by coverage freezing.
+func (m *ParameterAnchorModel) ActiveTrainIndexes() []int {
+	if m == nil {
+		return nil
+	}
+	indexes := make([]int, len(m.coordinates))
+	for index, coordinate := range m.coordinates {
+		indexes[index] = coordinate.trainIndex
+	}
+	return indexes
 }

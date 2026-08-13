@@ -135,6 +135,9 @@ func TestExplainTraceJSON(t *testing.T) {
 	if decoded["level"] != "basic" || decoded["eval"] == nil || decoded["position"] == nil {
 		t.Fatalf("unexpected top-level trace: %#v", decoded)
 	}
+	if got := int(decoded["schemaVersion"].(float64)); got != PositionTraceSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", got, PositionTraceSchemaVersion)
+	}
 }
 
 func parseTraceBitboard(t *testing.T, value string) uint64 {

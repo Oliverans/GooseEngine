@@ -19,7 +19,10 @@ const (
 	PositionTraceBasic    PositionTraceLevel = "basic"
 	PositionTraceExtended PositionTraceLevel = "extended"
 	PositionTraceMoves    PositionTraceLevel = "moves"
-	positionTraceSchema                      = 1
+	// PositionTraceSchemaVersion 2 records the revised single-ring king
+	// topology and the current evaluation trace. Version 1 is retained only in
+	// the frozen research artifacts generated before the 2026 evaluation rework.
+	PositionTraceSchemaVersion = 2
 )
 
 // ParsePositionTraceLevel validates the public trace-level spelling.
@@ -296,7 +299,7 @@ type positionMetrics struct {
 func ExplainTraceForBoard(b *gm.Board, level PositionTraceLevel) ExplainTrace {
 	initVariables(b)
 	return ExplainTrace{
-		SchemaVersion: positionTraceSchema,
+		SchemaVersion: PositionTraceSchemaVersion,
 		Level:         level,
 		Eval:          EvalTraceForBoard(b),
 		Position:      PositionTraceForBoard(b, level),
