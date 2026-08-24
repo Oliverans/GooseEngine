@@ -5,58 +5,80 @@ Using bitboards and strong core evaluation features.
 
 ## Documentation
 
-- Reviewer backend docs: `docs/reviewer/`
-- Live review web backend docs: `docs/livereview/`
-- Planning / working notes: `docs/planning/`
+This file is the feature inventory — what the engine implements. The contracts
+and invariants behind those features live under `docs/`:
+
+| Area | Docs |
+|---|---|
+| Engine | `docs/engine/` — architecture, evaluation contracts, trace systems |
+| Tuner | `docs/tuner/` — Texel tuner plan, export and parity |
+| Reviewer | `docs/reviewer/` — review pipeline and segmentation |
+| Live review | `docs/livereview/` — web backend architecture and flows |
+| Neural net | `docs/nn/` — experimental NN engine |
+
+Each directory has a `README.md` index stating its authority order. `AGENTS.md`
+carries repo-wide facts and per-domain routing for agents.
 
 ## Search algorithm
-- MultiPV line
-- Iterative deepening
-- Aspiration windows
-- Alpha-beta negamax
-- Transposition Table
-- Principal Variation Search (PVS)
-- Quiescence search
-- Check extension
-- Singular extension
-- Internal iterative deepening (IID)
-- PV line tracking
+- Alpha-beta negamax with Principal Variation Search (PVS)
+- Iterative deepening with per-depth PV line tracking
+- Aspiration windows, widening exponentially on each fail (`AspirationWindowSize << failures`, capped by `AspirationMaxFails`)
+- MultiPV at the root (`MultiPV`, default 1; each PV slot gets its own aspiration state)
+- Transposition table
+- Quiescence search — captures only, but full evasions when in check
+- Check extension (depth + 1 whenever the side to move is in check)
+- Singular extension (TT move re-searched against a reduced-depth verification window)
+- Internal Iterative Deepening (IID) when no TT move is available
+- `improving` heuristic (static eval vs. two plies ago) that loosens pruning margins
+- Upcoming-repetition detection, raising alpha to the draw score when a repetition is reachable
 
 ### Search pruning techniques
 - Transposition table cutoffs
-- Static Null Move Pruning (also known as Reverse futility pruning, RFP)
-- Null-move pruning (with verification search)
-- Razoring
-- Late Move Pruning (LMP)
-- Futility pruning
-- Late Move Reductions (LMR)
-- Quiescence stand-pat pruning
+- Reverse Futility Pruning / static null move pruning (depth ≤ 7, margin scales with depth, relaxed when `improving`)
+- Null-move pruning (depth ≥ 4, adaptive `R = 3 + depth/4`, gated on a static-eval margin and on the side having non-pawn material; mate-range scores are not trusted for the cutoff)
+- Razoring (depth ≤ 3, drops to quiescence to confirm the fail-low)
+- Late Move Pruning (depth ≤ 8, quiet moves only, threshold reduced when not `improving`)
+- Futility pruning (depth ≤ 7, quiet non-checking moves only)
+- Late Move Reductions, with a null-window re-search at full depth when a reduced search beats alpha
+- ProbCut (captures filtered by SEE, verified by quiescence then a reduced-depth search)
+- Quiescence stand-pat pruning (suppressed while in check)
 - Quiescence SEE pruning
 - Quiescence delta pruning
-- ProbCut pruning
 
 ### Transposition table implementation type
-- Bucketed hash table
-- Generation-based aging/replacement
+- Bucketed hash table, 4 entries per bucket, sized so one bucket fills a 64-byte cache line
+- Depth-preferred replacement with a generation age penalty; the generation counter is bumped per search
+- Mate scores stored relative to the root and re-adjusted on probe
+- Excluded-move aware, so singular-extension verification searches do not read back their own entry
 
 ### Move ordering optimizations
-- TT/PV move
-- Promotion
-- MVV-LVA
-- SEE-based scoring
-- Killer moves
-- Counter-moves
-- History heuristic
+Incremental selection sort over a fixed score tier per move:
+
+| Tier | Move class |
+|---|---|
+| 1 | TT / PV move |
+| 2 | Queen promotions (+ MVV bonus when also a capture) |
+| 3 | Winning captures — MVV-LVA plus SEE margin |
+| 4 | Equal captures (SEE == 0) |
+| 5–6 | Killer moves (two slots per ply) |
+| 7 | Counter moves |
+| 8 | Quiet moves — main history + continuation history (weighted 50%) |
+| 9 | Losing captures (SEE < 0), still searched, but last |
+| 10 | Under-promotions |
 
 ## Evaluation features
-- Generic: Material, PSQT, Mobility Tables
-- Pawn: Isolated, Doubled, Connected, Phalanx, Passed Pawns, Candidate Passed, Backward, Blocked, Weak Lever, Pawn Storm
+Tapered midgame/endgame evaluation. Pawn-structure hash table; terms that depend on piece occupancy are recomputed per call.
+
+- Generic: Material, PSQT, Mobility tables (knight, bishop, rook, queen)
+- Pawn: Isolated, Doubled, Backward, Blocked, Weak Lever, Passed (rank-indexed PSQT), Candidate Passed. Connected pawns are scored per rank from phalanx and defended pawns
 - Knight: Outposts, King Tropism
-- Bishop: Outposts, Bishop Pair (scaled by center openness), Bad Bishop
-- Rook: Open File, Semi-Open File, Stacked/Connected Rooks, Seventh Rank
-- Queen: Centralization
-- King: Attack Units (inner/outer ring), Open/Semi-Open File Penalty, Minor Piece Defense, Pawn Shield Defense, Weak King Squares, King Passer Proximity, Endgame King Centralization Penalty (Manhattan distance), Mop-up bonus (king distance + defender edge distance)
-- Positional features: Space Evaluation, Material Imbalance (knight/bishop imbalance vs pawn count), Center State (knight/bishop mobility + bishop-pair scaling by locked/open center), Theoretical Draw Detection & draw Score Divider, Tempo Bonus, Tapered Evaluation
+- Bishop: Outposts, Bishop Pair (scaled by center openness), Bad Bishop (own pawns fixed on the bishop's colour)
+- Rook: Open File, Semi-Open File, File Count bonus, Stacked/Connected Rooks (MG only), Seventh Rank
+- Queen: Centralization (EG only)
+- King safety: attacker-weighted danger accumulated over the inner king ring, plus safe-check threats per attacking piece type (knight, bishop, rook, queen) and an unsafe-check term; separate no-enemy-queen discount and MG/EG divisors
+- King structure: Pawn Shelter (MG), Pawn Storm (blocked and unblocked, MG/EG), Minor Piece Defense (MG)
+- King endgame: Passer Proximity, Centralization penalty (Manhattan distance), Mop-up bonus (king distance + defender edge distance), both gated on a low piece phase
+- Positional: Space (MG only), Material Imbalance (knight/bishop scaled against pawn count), Center State (locked/open index scaling knight and bishop mobility and the bishop pair), Tempo Bonus, Theoretical Draw Detection with a draw score divider
 
 ## Position Metadata Trace
 

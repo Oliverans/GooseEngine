@@ -4,7 +4,6 @@ import (
 	gm "chess-engine/goosemg"
 )
 
-// CHANGE 1: Use int32 for score to handle negative history values correctly
 type move struct {
 	move  gm.Move
 	score int32
@@ -14,8 +13,41 @@ type moveList struct {
 	moves []move
 }
 
+type movePickerStage uint8
+
+const (
+	movePickerStageTT movePickerStage = iota
+	movePickerStageGenerateTacticals
+	movePickerStageGoodCaptures
+	movePickerStageGenerateQuiets
+	movePickerStageQuiets
+	movePickerStageBadCaptures
+	movePickerStageDone
+)
+
+type movePickerCursor struct {
+	list  moveList
+	index uint8
+}
+
+type movePicker struct {
+	board    *gm.Board
+	depth    int8
+	ply      int8
+	ttMove   gm.Move
+	prevMove gm.Move
+
+	stage      movePickerStage
+	skipQuiets bool
+	moveIndex  uint8
+	hasMoves   bool
+
+	captures    movePickerCursor
+	quiets      movePickerCursor
+	badCaptures movePickerCursor
+}
+
 // Most Valuable Victim - Least Valuable Aggressor; used to score & sort captures
-// CHANGE 2: Slightly wider spread for better differentiation
 var mvvLva [7][7]int32 = [7][7]int32{
 	{0, 0, 0, 0, 0, 0, 0},
 	{0, 105, 104, 103, 102, 101, 100}, // victim Pawn
@@ -61,6 +93,11 @@ const MaxMovesPerPosition = 256
 var moveListPool [MaxPlyMoveList][MaxMovesPerPosition]move
 var moveListLengths [MaxPlyMoveList]int
 
+var movePickerRawPool [MaxPlyMoveList][MaxMovesPerPosition]gm.Move
+var movePickerCapturePool [MaxPlyMoveList][MaxMovesPerPosition]move
+var movePickerQuietPool [MaxPlyMoveList][MaxMovesPerPosition]move
+var movePickerBadCapturePool [MaxPlyMoveList][MaxMovesPerPosition]move
+
 // For quiescence, we have a separate pre-allocated pool (captures only).
 var qMoveListPool [MaxPlyMoveList][64]move
 
@@ -76,8 +113,153 @@ func GetMoveListForPly(ply int8, count int) []move {
 	return moveListPool[ply][:count]
 }
 
+func newMovePicker(board *gm.Board, depth int8, ply int8, ttMove gm.Move, prevMove gm.Move) movePicker {
+	return movePicker{
+		board:    board,
+		depth:    depth,
+		ply:      ply,
+		ttMove:   ttMove,
+		prevMove: prevMove,
+		stage:    movePickerStageTT,
+	}
+}
+
+func (p *movePicker) Next() (gm.Move, uint8, bool) {
+	for {
+		switch p.stage {
+		case movePickerStageTT:
+			p.stage = movePickerStageGenerateTacticals
+			if p.ttMove != 0 {
+				index := p.moveIndex
+				p.moveIndex++
+				return p.ttMove, index, true
+			}
+
+		case movePickerStageGenerateTacticals:
+			poolIndex := movePickerPoolIndex(p.ply)
+			rawMoves := p.board.GenerateTacticalsInto(movePickerRawPool[poolIndex][:0])
+			SearchState.cutStats.MovesGenerated += uint64(len(rawMoves))
+			p.hasMoves = p.hasMoves || len(rawMoves) != 0
+
+			scored := scoreMovesListInto(
+				p.board, rawMoves, p.depth, p.ply, p.ttMove, p.prevMove,
+				movePickerCapturePool[poolIndex][:len(rawMoves)],
+			)
+			goodCount := 0
+			badCount := 0
+			for _, entry := range scored.moves {
+				if entry.move == p.ttMove {
+					continue
+				}
+				if entry.score >= scoreEqualCapture {
+					movePickerCapturePool[poolIndex][goodCount] = entry
+					goodCount++
+				} else {
+					movePickerBadCapturePool[poolIndex][badCount] = entry
+					badCount++
+				}
+			}
+			p.captures.list.moves = movePickerCapturePool[poolIndex][:goodCount]
+			p.badCaptures.list.moves = movePickerBadCapturePool[poolIndex][:badCount]
+			p.stage = movePickerStageGoodCaptures
+
+		case movePickerStageGoodCaptures:
+			cursor := &p.captures
+			if int(cursor.index) >= len(cursor.list.moves) {
+				p.stage = movePickerStageGenerateQuiets
+				continue
+			}
+
+			orderNextMove(cursor.index, &cursor.list)
+			move := cursor.list.moves[cursor.index].move
+			cursor.index++
+			index := p.moveIndex
+			p.moveIndex++
+			return move, index, true
+
+		case movePickerStageGenerateQuiets:
+			if p.skipQuiets {
+				p.stage = movePickerStageBadCaptures
+				continue
+			}
+
+			poolIndex := movePickerPoolIndex(p.ply)
+			rawMoves := p.board.GenerateQuietsInto(movePickerRawPool[poolIndex][:0])
+			SearchState.cutStats.MovesGenerated += uint64(len(rawMoves))
+			p.hasMoves = p.hasMoves || len(rawMoves) != 0
+
+			scored := scoreMovesListInto(
+				p.board, rawMoves, p.depth, p.ply, p.ttMove, p.prevMove,
+				movePickerQuietPool[poolIndex][:len(rawMoves)],
+			)
+			quietCount := 0
+			badCount := len(p.badCaptures.list.moves)
+			for _, entry := range scored.moves {
+				if entry.move == p.ttMove {
+					continue
+				}
+				promotion := entry.move.PromotionPieceType()
+				if promotion == gm.PieceTypeQueen {
+					continue
+				}
+				if promotion != gm.PieceTypeNone {
+					movePickerBadCapturePool[poolIndex][badCount] = entry
+					badCount++
+					continue
+				}
+				movePickerQuietPool[poolIndex][quietCount] = entry
+				quietCount++
+			}
+			p.quiets.list.moves = movePickerQuietPool[poolIndex][:quietCount]
+			p.badCaptures.list.moves = movePickerBadCapturePool[poolIndex][:badCount]
+			p.stage = movePickerStageQuiets
+
+		case movePickerStageQuiets:
+			cursor := &p.quiets
+			if int(cursor.index) >= len(cursor.list.moves) {
+				p.stage = movePickerStageBadCaptures
+				continue
+			}
+
+			orderNextMove(cursor.index, &cursor.list)
+			move := cursor.list.moves[cursor.index].move
+			cursor.index++
+			index := p.moveIndex
+			p.moveIndex++
+			return move, index, true
+
+		case movePickerStageBadCaptures:
+			cursor := &p.badCaptures
+			if int(cursor.index) >= len(cursor.list.moves) {
+				p.stage = movePickerStageDone
+				continue
+			}
+
+			orderNextMove(cursor.index, &cursor.list)
+			move := cursor.list.moves[cursor.index].move
+			cursor.index++
+			index := p.moveIndex
+			p.moveIndex++
+			return move, index, true
+
+		default:
+			return 0, 0, false
+		}
+	}
+}
+
+func movePickerPoolIndex(ply int8) int {
+	index := int(ply)
+	if index < 0 {
+		return 0
+	}
+	if index >= MaxPlyMoveList {
+		return MaxPlyMoveList - 1
+	}
+	return index
+}
+
 // Ordering the moves one at a time, at index given.
-// CHANGE 3: Updated to use int32 comparison
 func orderNextMove(currIndex uint8, moves *moveList) {
 	bestIndex := currIndex
 	bestScore := moves.moves[bestIndex].score
@@ -92,7 +274,11 @@ func orderNextMove(currIndex uint8, moves *moveList) {
 	moves.moves[currIndex], moves.moves[bestIndex] = moves.moves[bestIndex], moves.moves[currIndex]
 }
 
-func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove gm.Move, prevMove gm.Move) (movesList moveList) {
+func scoreMovesList(board *gm.Board, moves []gm.Move, depth int8, ply int8, pvMove gm.Move, prevMove gm.Move) (movesList moveList) {
+	return scoreMovesListInto(board, moves, depth, ply, pvMove, prevMove, GetMoveListForPly(ply, len(moves)))
+}
+
+func scoreMovesListInto(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove gm.Move, prevMove gm.Move, scored []move) (movesList moveList) {
 	side := 0
 	if !board.Wtomove {
 		side = 1
@@ -106,7 +292,7 @@ func scoreMovesList(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMove g
 		killerIdx = len(SearchState.killer.KillerMoves) - 1
 	}
 
-	movesList.moves = GetMoveListForPly(ply, len(moves))
+	movesList.moves = scored[:len(moves)]
 
 	// Get continuation history context once for all moves
 	prev1Ply, prev2Ply := SearchState.ContHistContext(ply)

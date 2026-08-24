@@ -726,6 +726,7 @@ const (
 	genAll = iota
 	genCaptures
 	genQuiets
+	genTacticals
 )
 
 // generateMovesFilteredInto is the core generator. It appends legal moves matching the filter into dst.
@@ -740,6 +741,8 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 	ownOcc := usBB.All
 	oppOcc := themBB.All
 	allOcc := ownOcc | oppOcc
+	capturesOnly := filter == genCaptures || filter == genTacticals
+	quietsOnly := filter == genQuiets
 
 	// Precompute our king square for local safety checks (e.g., EP simulation)
 	kingBB := usBB.Kings
@@ -774,57 +777,55 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 			// White pawn pushes
 			// ----------------------
 			if filter != genCaptures {
-				// Single pushes: one rank forward into empty squares
 				singlePush := (pawns << 8) & ^allOcc
-
-				// Promotions vs non-promotions
 				promoPushes := singlePush & Rank8Mask
-				quietPushes := singlePush & ^Rank8Mask
+				if !capturesOnly {
+					quietPushes := singlePush & ^Rank8Mask
 
-				// Double pushes: from rank 2, two ranks forward, both squares empty
-				fromRank2 := pawns & Rank2Mask
-				oneStepFromRank2 := (fromRank2 << 8) & ^allOcc
-				doublePush := (oneStepFromRank2 << 8) & ^allOcc
+					// Double pushes: from rank 2, two ranks forward, both squares empty
+					fromRank2 := pawns & Rank2Mask
+					oneStepFromRank2 := (fromRank2 << 8) & ^allOcc
+					doublePush := (oneStepFromRank2 << 8) & ^allOcc
 
-				// Quiet non-promotion pushes
-				for bb := quietPushes; bb != 0; {
-					to := popLSB(&bb)
-					from := to - 8
-					fromSq := Square(from)
-					movedPiece := b.pieces[from]
-					pinMask := pinLine[from]
+					// Quiet non-promotion pushes
+					for bb := quietPushes; bb != 0; {
+						to := popLSB(&bb)
+						from := to - 8
+						fromSq := Square(from)
+						movedPiece := b.pieces[from]
+						pinMask := pinLine[from]
 
-					toBB := uint64(1) << uint(to)
-					if pinMask != 0 && (toBB&pinMask) == 0 {
-						continue
+						toBB := uint64(1) << uint(to)
+						if pinMask != 0 && (toBB&pinMask) == 0 {
+							continue
+						}
+						if inCheck && (toBB&checkMask) == 0 {
+							continue
+						}
+
+						moves = append(moves, NewMove(fromSq, Square(to), movedPiece, NoPiece, NoPiece, FlagNone))
 					}
-					if inCheck && (toBB&checkMask) == 0 {
-						continue
-					}
 
-					moves = append(moves, NewMove(fromSq, Square(to), movedPiece, NoPiece, NoPiece, FlagNone))
+					// Double pushes
+					for bb := doublePush; bb != 0; {
+						to := popLSB(&bb)
+						from := to - 16
+						fromSq := Square(from)
+						movedPiece := b.pieces[from]
+						pinMask := pinLine[from]
+
+						toBB := uint64(1) << uint(to)
+						if pinMask != 0 && (toBB&pinMask) == 0 {
+							continue
+						}
+						if inCheck && (toBB&checkMask) == 0 {
+							continue
+						}
+
+						moves = append(moves, NewMove(fromSq, Square(to), movedPiece, NoPiece, NoPiece, FlagNone))
+					}
 				}
 
-				// Double pushes
-				for bb := doublePush; bb != 0; {
-					to := popLSB(&bb)
-					from := to - 16
-					fromSq := Square(from)
-					movedPiece := b.pieces[from]
-					pinMask := pinLine[from]
-
-					toBB := uint64(1) << uint(to)
-					if pinMask != 0 && (toBB&pinMask) == 0 {
-						continue
-					}
-					if inCheck && (toBB&checkMask) == 0 {
-						continue
-					}
-
-					moves = append(moves, NewMove(fromSq, Square(to), movedPiece, NoPiece, NoPiece, FlagNone))
-				}
-
-				// Quiet promotions (no capture)
 				for bb := promoPushes; bb != 0; {
 					to := popLSB(&bb)
 					from := to - 8
@@ -840,19 +841,21 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 						continue
 					}
 
-					moves = append(moves,
-						NewMove(fromSq, Square(to), movedPiece, NoPiece, WhiteQueen, FlagNone),
-						NewMove(fromSq, Square(to), movedPiece, NoPiece, WhiteRook, FlagNone),
-						NewMove(fromSq, Square(to), movedPiece, NoPiece, WhiteBishop, FlagNone),
-						NewMove(fromSq, Square(to), movedPiece, NoPiece, WhiteKnight, FlagNone),
-					)
+					moves = append(moves, NewMove(fromSq, Square(to), movedPiece, NoPiece, WhiteQueen, FlagNone))
+					if filter != genTacticals {
+						moves = append(moves,
+							NewMove(fromSq, Square(to), movedPiece, NoPiece, WhiteRook, FlagNone),
+							NewMove(fromSq, Square(to), movedPiece, NoPiece, WhiteBishop, FlagNone),
+							NewMove(fromSq, Square(to), movedPiece, NoPiece, WhiteKnight, FlagNone),
+						)
+					}
 				}
 			}
 
 			// ----------------------
 			// White pawn captures
 			// ----------------------
-			if filter != genQuiets {
+			if !quietsOnly {
 				// Potential capture destinations
 				leftAttacks := (pawns & ^FileAMask) << 7
 				rightAttacks := (pawns & ^FileHMask) << 9
@@ -1018,57 +1021,55 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 			// ----------------------
 
 			if filter != genCaptures {
-				// Single pushes: one rank forward (down) into empty squares
 				singlePush := (pawns >> 8) & ^allOcc
-
-				// Promotions vs non-promotions
 				promoPushes := singlePush & Rank1Mask
-				quietPushes := singlePush & ^Rank1Mask
+				if !capturesOnly {
+					quietPushes := singlePush & ^Rank1Mask
 
-				// Double pushes: from rank 7, two ranks down, both squares empty
-				fromRank7 := pawns & Rank7Mask
-				oneStepFromRank7 := (fromRank7 >> 8) & ^allOcc
-				doublePush := (oneStepFromRank7 >> 8) & ^allOcc
+					// Double pushes: from rank 7, two ranks down, both squares empty
+					fromRank7 := pawns & Rank7Mask
+					oneStepFromRank7 := (fromRank7 >> 8) & ^allOcc
+					doublePush := (oneStepFromRank7 >> 8) & ^allOcc
 
-				// Quiet non-promotion pushes
-				for bb := quietPushes; bb != 0; {
-					to := popLSB(&bb)
-					from := to + 8
-					fromSq := Square(from)
-					movedPiece := b.pieces[from]
-					pinMask := pinLine[from]
+					// Quiet non-promotion pushes
+					for bb := quietPushes; bb != 0; {
+						to := popLSB(&bb)
+						from := to + 8
+						fromSq := Square(from)
+						movedPiece := b.pieces[from]
+						pinMask := pinLine[from]
 
-					toBB := uint64(1) << uint(to)
-					if pinMask != 0 && (toBB&pinMask) == 0 {
-						continue
+						toBB := uint64(1) << uint(to)
+						if pinMask != 0 && (toBB&pinMask) == 0 {
+							continue
+						}
+						if inCheck && (toBB&checkMask) == 0 {
+							continue
+						}
+
+						moves = append(moves, NewMove(fromSq, Square(to), movedPiece, NoPiece, NoPiece, FlagNone))
 					}
-					if inCheck && (toBB&checkMask) == 0 {
-						continue
-					}
 
-					moves = append(moves, NewMove(fromSq, Square(to), movedPiece, NoPiece, NoPiece, FlagNone))
+					// Double pushes
+					for bb := doublePush; bb != 0; {
+						to := popLSB(&bb)
+						from := to + 16
+						fromSq := Square(from)
+						movedPiece := b.pieces[from]
+						pinMask := pinLine[from]
+
+						toBB := uint64(1) << uint(to)
+						if pinMask != 0 && (toBB&pinMask) == 0 {
+							continue
+						}
+						if inCheck && (toBB&checkMask) == 0 {
+							continue
+						}
+
+						moves = append(moves, NewMove(fromSq, Square(to), movedPiece, NoPiece, NoPiece, FlagNone))
+					}
 				}
 
-				// Double pushes
-				for bb := doublePush; bb != 0; {
-					to := popLSB(&bb)
-					from := to + 16
-					fromSq := Square(from)
-					movedPiece := b.pieces[from]
-					pinMask := pinLine[from]
-
-					toBB := uint64(1) << uint(to)
-					if pinMask != 0 && (toBB&pinMask) == 0 {
-						continue
-					}
-					if inCheck && (toBB&checkMask) == 0 {
-						continue
-					}
-
-					moves = append(moves, NewMove(fromSq, Square(to), movedPiece, NoPiece, NoPiece, FlagNone))
-				}
-
-				// Quiet promotions (no capture)
 				for bb := promoPushes; bb != 0; {
 					to := popLSB(&bb)
 					from := to + 8
@@ -1084,19 +1085,21 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 						continue
 					}
 
-					moves = append(moves,
-						NewMove(fromSq, Square(to), movedPiece, NoPiece, BlackQueen, FlagNone),
-						NewMove(fromSq, Square(to), movedPiece, NoPiece, BlackRook, FlagNone),
-						NewMove(fromSq, Square(to), movedPiece, NoPiece, BlackBishop, FlagNone),
-						NewMove(fromSq, Square(to), movedPiece, NoPiece, BlackKnight, FlagNone),
-					)
+					moves = append(moves, NewMove(fromSq, Square(to), movedPiece, NoPiece, BlackQueen, FlagNone))
+					if filter != genTacticals {
+						moves = append(moves,
+							NewMove(fromSq, Square(to), movedPiece, NoPiece, BlackRook, FlagNone),
+							NewMove(fromSq, Square(to), movedPiece, NoPiece, BlackBishop, FlagNone),
+							NewMove(fromSq, Square(to), movedPiece, NoPiece, BlackKnight, FlagNone),
+						)
+					}
 				}
 			}
 
 			// ----------------------
 			// Black pawn captures
 			// ----------------------
-			if filter != genQuiets {
+			if !quietsOnly {
 				leftAttacks := (pawns & ^FileAMask) >> 9
 				rightAttacks := (pawns & ^FileHMask) >> 7
 
@@ -1274,9 +1277,9 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 			if inCheck {
 				targets &= checkMask
 			}
-			if filter == genCaptures {
+			if capturesOnly {
 				targets &= oppOcc
-			} else if filter == genQuiets {
+			} else if quietsOnly {
 				targets &^= oppOcc
 			}
 
@@ -1287,7 +1290,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 				if isCap {
 					cap = b.pieces[to]
 				}
-				if (filter == genCaptures && !isCap) || (filter == genQuiets && isCap) {
+				if (capturesOnly && !isCap) || (quietsOnly && isCap) {
 					continue
 				}
 				moves = append(moves, NewMove(fromSq, Square(to), movedPiece, cap, NoPiece, FlagNone))
@@ -1325,9 +1328,9 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 			if inCheck {
 				targets &= checkMask
 			}
-			if filter == genCaptures {
+			if capturesOnly {
 				targets &= oppOcc
-			} else if filter == genQuiets {
+			} else if quietsOnly {
 				targets &^= oppOcc
 			}
 
@@ -1338,7 +1341,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 				if isCap {
 					cap = b.pieces[to]
 				}
-				if (filter == genCaptures && !isCap) || (filter == genQuiets && isCap) {
+				if (capturesOnly && !isCap) || (quietsOnly && isCap) {
 					continue
 				}
 				m := NewMove(fromSq, Square(to), movedPiece, cap, NoPiece, FlagNone)
@@ -1377,9 +1380,9 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 			if inCheck {
 				targets &= checkMask
 			}
-			if filter == genCaptures {
+			if capturesOnly {
 				targets &= oppOcc
-			} else if filter == genQuiets {
+			} else if quietsOnly {
 				targets &^= oppOcc
 			}
 
@@ -1390,7 +1393,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 				if isCap {
 					cap = b.pieces[to]
 				}
-				if (filter == genCaptures && !isCap) || (filter == genQuiets && isCap) {
+				if (capturesOnly && !isCap) || (quietsOnly && isCap) {
 					continue
 				}
 				m := NewMove(fromSq, Square(to), movedPiece, cap, NoPiece, FlagNone)
@@ -1442,9 +1445,9 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 			if inCheck {
 				targets &= checkMask
 			}
-			if filter == genCaptures {
+			if capturesOnly {
 				targets &= oppOcc
-			} else if filter == genQuiets {
+			} else if quietsOnly {
 				targets &^= oppOcc
 			}
 
@@ -1455,7 +1458,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 				if isCap {
 					cap = b.pieces[to]
 				}
-				if (filter == genCaptures && !isCap) || (filter == genQuiets && isCap) {
+				if (capturesOnly && !isCap) || (quietsOnly && isCap) {
 					continue
 				}
 				m := NewMove(fromSq, Square(to), movedPiece, cap, NoPiece, FlagNone)
@@ -1476,7 +1479,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 			for t := targets; t != 0; {
 				to := popLSB(&t)
 				isCap := ((oppOcc >> uint(to)) & 1) != 0
-				if (filter == genCaptures && !isCap) || (filter == genQuiets && isCap) {
+				if (capturesOnly && !isCap) || (quietsOnly && isCap) {
 					continue
 				}
 
@@ -1507,7 +1510,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 				if b.castlingRights&CastlingWhiteK != 0 {
 					if b.pieces[5] == NoPiece && b.pieces[6] == NoPiece && b.pieces[7] == WhiteRook &&
 						!inCheck && !b.isSquareAttackedWithOcc(5, Black, occ) && !b.isSquareAttackedWithOcc(6, Black, occ) {
-						if filter != genCaptures {
+						if !capturesOnly {
 							moves = append(moves, NewMove(4, 6, WhiteKing, NoPiece, NoPiece, FlagCastle))
 						}
 					}
@@ -1516,7 +1519,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 				if b.castlingRights&CastlingWhiteQ != 0 {
 					if b.pieces[1] == NoPiece && b.pieces[2] == NoPiece && b.pieces[3] == NoPiece && b.pieces[0] == WhiteRook &&
 						!inCheck && !b.isSquareAttackedWithOcc(3, Black, occ) && !b.isSquareAttackedWithOcc(2, Black, occ) {
-						if filter != genCaptures {
+						if !capturesOnly {
 							moves = append(moves, NewMove(4, 2, WhiteKing, NoPiece, NoPiece, FlagCastle))
 						}
 					}
@@ -1527,7 +1530,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 				if b.castlingRights&CastlingBlackK != 0 {
 					if b.pieces[61] == NoPiece && b.pieces[62] == NoPiece && b.pieces[63] == BlackRook &&
 						!inCheck && !b.isSquareAttackedWithOcc(61, White, occ) && !b.isSquareAttackedWithOcc(62, White, occ) {
-						if filter != genCaptures {
+						if !capturesOnly {
 							moves = append(moves, NewMove(60, 62, BlackKing, NoPiece, NoPiece, FlagCastle))
 						}
 					}
@@ -1536,7 +1539,7 @@ func (b *Board) generateMovesFilteredInto(dst []Move, filter int) []Move {
 				if b.castlingRights&CastlingBlackQ != 0 {
 					if b.pieces[57] == NoPiece && b.pieces[58] == NoPiece && b.pieces[59] == NoPiece && b.pieces[56] == BlackRook &&
 						!inCheck && !b.isSquareAttackedWithOcc(59, White, occ) && !b.isSquareAttackedWithOcc(58, White, occ) {
-						if filter != genCaptures {
+						if !capturesOnly {
 							moves = append(moves, NewMove(60, 58, BlackKing, NoPiece, NoPiece, FlagCastle))
 						}
 					}
@@ -1561,6 +1564,11 @@ func (b *Board) GenerateMovesInto(dst []Move) []Move {
 // GenerateCapturesInto appends all legal captures (including en passant and capture promotions).
 func (b *Board) GenerateCapturesInto(dst []Move) []Move {
 	return b.generateMovesFilteredInto(dst, genCaptures)
+}
+
+// GenerateTacticalsInto appends legal captures and queen promotions.
+func (b *Board) GenerateTacticalsInto(dst []Move) []Move {
+	return b.generateMovesFilteredInto(dst, genTacticals)
 }
 
 // GenerateQuietsInto appends all legal non-capturing moves (includes non-capturing promotions and castling).

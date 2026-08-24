@@ -24,8 +24,11 @@ const (
 // =============================================================================
 var FutilityBase int32 = 21
 var FutilityScale int32 = 114
+var FutilityMaxDepth int8 = 7
 var RFPScale int32 = 83
+var RFPMaxDepth int8 = 7
 var RazoringScale int32 = 155
+var RazoringMaxDepth int8 = 3
 
 var AspirationWindowSize int32 = 20
 
@@ -56,15 +59,29 @@ var LMRMoveLimit = 2
 var LMRHistoryBonus = 515
 var LMRHistoryMalus = -100
 var LMPOffset int = 3
+var LMPMaxDepth int8 = 8
 
 var NullMoveMinDepth int8 = 4
 var NMMarginBase int32 = 210
 var NMMarginDepth int32 = 16
+var NullMoveReductionBase int8 = 3
+var NullMoveReductionDepthDivisor int8 = 4
+
+var SingularMinDepth int8 = 8
+var SingularTTDepthSlack int8 = 3
+var SingularMarginBase int32 = 50
+var SingularMarginDepth int32 = 10
+var SingularReductionBase int8 = 3
+var SingularReductionDepthDivisor int8 = 4
 
 // =============================================================================
 // QSEARCH PARAMETERS
 // =============================================================================
 var ProbCutSeeMargin int = 140
+var ProbCutMinDepth int8 = 5
+var ProbCutBetaMargin int32 = 200
+var ProbCutReduction int8 = 4
+var ProbCutMaxCaptures = 10
 var DeltaMargin int32 = 210
 var QuiescenceSeeMargin int = 150
 
@@ -394,15 +411,6 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		return quiescence(b, alpha, beta, pvLine, 30, ply, rootIndex)
 	}
 
-	allMoves := b.GenerateLegalMoves()
-	SearchState.cutStats.MovesGenerated += uint64(len(allMoves))
-	if len(allMoves) == 0 {
-		if inCheck {
-			return -MaxScore + int32(ply) // Checkmate
-		}
-		return DrawScore // Stalemate
-	}
-
 	var staticScore int32
 	var ttMove gm.Move
 	if ttHit {
@@ -436,7 +444,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	*/
 	var wCount, bCount = hasMinorOrMajorPiece(b)
 	var sideHasPieces = (b.Wtomove && wCount > 0) || (!b.Wtomove && bCount > 0)
-	if !inCheck && !isPVNode && depth <= 7 && depth >= 1 && abs32(beta) < Checkmate && !isRoot {
+	if !inCheck && !isPVNode && depth <= RFPMaxDepth && depth >= 1 && abs32(beta) < Checkmate && !isRoot {
 		SearchState.cutStats.RFPEligible++
 		rfpMargin := RFPScale * int32(depth)
 		if improving {
@@ -460,7 +468,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		nullState := b.MakeNullMove()
 		SearchState.pushState(b)
 
-		var R = 3 + depth/4
+		var R = NullMoveReductionBase + depth/NullMoveReductionDepthDivisor
 		score := -alphabeta(b, -beta, -beta+1, depth-1-R, ply+1, &childPVLine, bestMove, true, isExtended, 0, rootIndex)
 
 		b.UnmakeNullMove(nullState)
@@ -479,7 +487,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		the position is likely too bad for quiet moves to save it.
 		We drop into qsearch to confirm, and if it still fails low, we return early.
 	*/
-	if depth <= 3 && !isPVNode && !inCheck && !isRoot {
+	if depth <= RazoringMaxDepth && !isPVNode && !inCheck && !isRoot {
 		razorMargin := RazoringScale * int32(depth)
 		if staticScore+razorMargin < alpha {
 			SearchState.cutStats.RazoringAttempts++
@@ -497,15 +505,15 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		extend its search depth.
 	*/
 	var singularExtension bool
-	if !isPVNode && !isRoot && !inCheck && !didNull && !isExtended && depth >= 8 && ttMove != 0 && ttEntry.Flag != AlphaFlag && ttEntry.Depth >= depth-3 {
+	if !isPVNode && !isRoot && !inCheck && !didNull && !isExtended && depth >= SingularMinDepth && ttMove != 0 && ttEntry.Flag != AlphaFlag && ttEntry.Depth >= depth-SingularTTDepthSlack {
 		ttValue := ttEntry.Score
 		if ttValue < Checkmate && ttValue > -Checkmate {
 			// Counted here, not at the outer guard: only this branch runs the
 			// verification search that the extension is paying for.
 			SearchState.cutStats.SingularAttempts++
-			margin := int32(50 + 10*depth)
+			margin := SingularMarginBase + SingularMarginDepth*int32(depth)
 			scoreToBeat := ttValue - margin
-			R := int8(3) + depth/4
+			R := SingularReductionBase + depth/SingularReductionDepthDivisor
 			if R > depth-1 {
 				R = depth - 1
 			}
@@ -524,14 +532,14 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		We test with qsearch, then confirm with a reduced search that it still elevates beta.
 		If both searches beat the elevated beta, the position is likely to fail high and we cut early.
 	*/
-	if !inCheck && !isPVNode && depth >= 5 && abs32(alpha) < Checkmate {
-		probCutBeta := beta + 200
+	if !inCheck && !isPVNode && depth >= ProbCutMinDepth && abs32(alpha) < Checkmate {
+		probCutBeta := beta + ProbCutBetaMargin
 
 		captures := b.GenerateCaptures()
 		scoredCaptures, hasCaptures := scoreMovesListCaptures(captures, ply)
 		if hasCaptures {
 			SearchState.cutStats.ProbCutAttempts++
-			maxProbCutCaptures := Min(10, len(scoredCaptures.moves)) // TEST; most likely we're
+			maxProbCutCaptures := Min(ProbCutMaxCaptures, len(scoredCaptures.moves)) // TEST; most likely we're
 
 			for i := uint8(0); i < uint8(maxProbCutCaptures); i++ {
 				orderNextMove(i, &scoredCaptures)
@@ -552,7 +560,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 				qScore := -quiescence(b, -probCutBeta, -probCutBeta+1, &childPVLine, 10, ply+1, rootIndex)
 
 				if qScore >= probCutBeta {
-					score := -alphabeta(b, -probCutBeta, -probCutBeta+1, depth-4, ply+1, &childPVLine, prevMove, didNull, isExtended, excludedMove, rootIndex)
+					score := -alphabeta(b, -probCutBeta, -probCutBeta+1, depth-ProbCutReduction, ply+1, &childPVLine, prevMove, didNull, isExtended, excludedMove, rootIndex)
 					if score >= probCutBeta {
 						b.UnmakeMove(move, moveState)
 						SearchState.popState()
@@ -594,15 +602,17 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 
 	var score int32 = -MaxScore
 	var bestScore int32 = -MaxScore
-	var moveList = scoreMovesList(b, allMoves, depth, ply, bestMove, prevMove)
+	picker := newMovePicker(b, depth, ply, bestMove, prevMove)
 	var ttFlag int8 = AlphaFlag
 	legalMoves := 0
 
 	quietMovesTried := make([]gm.Move, 0, 16)
 
-	for index := uint8(0); index < uint8(len(moveList.moves)); index++ {
-		orderNextMove(index, &moveList)
-		move := moveList.moves[index].move
+	for {
+		move, index, hasMove := picker.Next()
+		if !hasMove {
+			break
+		}
 
 		if move == excludedMove {
 			continue
@@ -638,7 +648,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			====== LATE MOVE PRUNING ======
 			Skip quiet moves late in the move list at low depths.
 		*/
-		if depth <= 8 && !isPVNode && !tactical && !isRoot && legalMoves > 1 {
+		if depth <= LMPMaxDepth && !isPVNode && !tactical && !isRoot && legalMoves > 1 {
 			lmpMargin := int(depth) * (int(depth) + LMPOffset) / 2
 			if !improving {
 				lmpMargin = lmpMargin * 2 / 3
@@ -655,7 +665,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			quiet moves are unlikely to raise the score.
 			We skip all quiet moves, assuming only a capture could help
 		*/
-		if depth <= 7 && depth >= 1 && !moveGivesCheck && !isPVNode && !isRoot && !tactical && abs32(alpha) < Checkmate && legalMoves >= 1 {
+		if depth <= FutilityMaxDepth && depth >= 1 && !moveGivesCheck && !isPVNode && !isRoot && !tactical && abs32(alpha) < Checkmate && legalMoves >= 1 {
 			futilityMargin := FutilityBase + FutilityScale*int32(depth)
 			if !improving {
 				futilityMargin -= 50
@@ -769,6 +779,12 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	// The loop leaves only by exhaustion or by break, so legalMoves is the final
 	// count on every path.
 	SearchState.cutStats.MovesSearched += uint64(legalMoves)
+	if legalMoves == 0 && !picker.hasMoves {
+		if inCheck {
+			return -MaxScore + int32(ply)
+		}
+		return DrawScore
+	}
 
 	if !SearchState.ShouldStopNoClock() {
 		SearchState.tt.storeEntry(posHash, depth, ply, bestMove, bestScore, ttFlag)
@@ -808,10 +824,6 @@ func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8
 		}
 	}
 
-	// When in check there is no stand-pat: we are obliged to move, so the score
-	// must not be floored at the static eval or we can never report that every
-	// evasion loses material. Seeding with "mated at this ply" also makes
-	// checkmate fall out for free when no evasion exists.
 	bestScore := standpat
 	if inCheck {
 		bestScore = -MaxScore + int32(ply)
