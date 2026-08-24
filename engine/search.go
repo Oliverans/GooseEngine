@@ -1,5 +1,7 @@
 package engine
 
+// Base alpha-beta written during vacation in Japan 2020
+
 import (
 	"fmt"
 	"os"
@@ -392,10 +394,6 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		return quiescence(b, alpha, beta, pvLine, 30, ply, rootIndex)
 	}
 
-	// Move generation is deferred to here on purpose: nodes that take the TT
-	// cutoff or drop into quiescence above never need a move list, and that is
-	// roughly a third of all nodes. Everything below this point does need one,
-	// so mate/stalemate is still resolved before any pruning can fire.
 	allMoves := b.GenerateLegalMoves()
 	SearchState.cutStats.MovesGenerated += uint64(len(allMoves))
 	if len(allMoves) == 0 {
@@ -417,8 +415,6 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 
 	staticScore = Evaluation(b, false)
 
-	// If we're
-	// Store eval (with invalid marker for check positions)
 	if inCheck {
 		SearchState.evalStack[ply] = -MaxScore // We never aggressively prune checks
 	} else {
@@ -901,8 +897,3 @@ func calculateSearchDepth(baseDepth int8, reduction int8, extendMove bool) int8 
 	}
 	return depth
 }
-
-// Note: the search deliberately does not use goosemg's Apply/ApplyNullMove
-// undo-closure helpers. A closure capturing the MoveState forces that state
-// onto the heap (one allocation per move made); keeping it in a local here
-// leaves it on the caller's stack, which already outlives the make/unmake pair.

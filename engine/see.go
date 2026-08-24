@@ -1,4 +1,4 @@
-package engine
+package engine // SEE Mostly written on vacation in Bali
 
 import (
 	"math/bits"
