@@ -141,8 +141,9 @@ livereview-web
 # NN engine will be published later; not now
 engine_nn/
 
-# Old tuner; will remove later, kept for reference right now
+# Old stuff; will remove later, kept for reference right now
 _tuner_old/
+_old_skills/
 
 # Docs are for local work
 docs/
