@@ -535,8 +535,9 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	if !inCheck && !isPVNode && depth >= ProbCutMinDepth && abs32(alpha) < Checkmate {
 		probCutBeta := beta + ProbCutBetaMargin
 
-		captures := b.GenerateCaptures()
-		scoredCaptures, hasCaptures := scoreMovesListCaptures(captures, ply)
+		poolIndex := movePickerPoolIndex(ply)
+		captures := b.GenerateCapturesInto(qMoveRawPool[poolIndex][:0])
+		scoredCaptures, hasCaptures := scoreMovesListTacticals(captures, ply)
 		if hasCaptures {
 			SearchState.cutStats.ProbCutAttempts++
 			maxProbCutCaptures := Min(ProbCutMaxCaptures, len(scoredCaptures.moves)) // TEST; most likely we're
@@ -637,8 +638,11 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		}
 
 		isCapture := gm.IsCapture(move, b)
-		moveGivesCheck := b.GivesCheck(move)
 		isPromotion := move.PromotionPieceType() != gm.PieceTypeNone
+		moveGivesCheck := false
+		if !isCapture && !isPromotion {
+			moveGivesCheck = b.GivesCheck(move)
+		}
 
 		// Tactical = capture, check, or promotion
 		tactical := isCapture || moveGivesCheck || isPromotion
@@ -809,12 +813,19 @@ func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8
 	}
 
 	inCheck := b.OurKingInCheck()
+	if ply >= MaxDepth {
+		if inCheck {
+			return DrawScore
+		}
+		return Evaluation(b, false)
+	}
 	var childPVLine = PVLine{}
 
-	var standpat int32 = Evaluation(b, false)
-
-	// Stand-pat pruning (not when in check)
+	bestScore := -MaxScore + int32(ply)
+	var standpat int32
 	if !inCheck {
+		standpat = Evaluation(b, false)
+		bestScore = standpat
 		if standpat >= beta {
 			SearchState.cutStats.QStandPatCutoffs++
 			return standpat
@@ -824,17 +835,14 @@ func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8
 		}
 	}
 
-	bestScore := standpat
-	if inCheck {
-		bestScore = -MaxScore + int32(ply)
-	}
-
-	// Generate moves: all moves when in check, only captures otherwise
+	poolIndex := movePickerPoolIndex(ply)
 	var moveList moveList
 	if inCheck {
-		moveList = scoreMovesList(b, b.GenerateLegalMoves(), 0, ply, gm.Move(0), gm.Move(0))
+		moves := b.GenerateMovesInto(qMoveRawPool[poolIndex][:0])
+		moveList = scoreMovesListInto(b, moves, 0, ply, 0, 0, qMoveListPool[poolIndex][:len(moves)])
 	} else {
-		moveList, _ = scoreMovesListCaptures(b.GenerateCaptures(), ply)
+		moves := b.GenerateTacticalsInto(qMoveRawPool[poolIndex][:0])
+		moveList, _ = scoreMovesListTacticals(moves, ply)
 	}
 
 	for index := uint8(0); index < uint8(len(moveList.moves)); index++ {
@@ -846,7 +854,7 @@ func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8
 			If the capture + a margin still can't beat alpha, skip it.
 			Only apply when not in check.
 		*/
-		if !inCheck {
+		if !inCheck && abs32(alpha) < Checkmate {
 			// SEE pruning first
 			seeScore := see(b, move, false)
 			if seeScore < -QuiescenceSeeMargin {

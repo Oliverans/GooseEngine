@@ -31,6 +31,7 @@ type TTEntry struct {
 	Depth      int8    // Search depth
 	Flag       int8    // Alpha/Beta/Exact flag
 	Generation uint8   // Which search this entry is from
+	Lock       uint8
 }
 
 // TTBucket holds multiple entries for the same hash index
@@ -98,10 +99,11 @@ func (TT *TransTable) ProbeEntry(hash uint64) (entry *TTEntry, found bool) {
 	bucketIdx := hash & TT.mask
 	bucket := &TT.buckets[bucketIdx]
 	hashHigh := uint32(hash >> 32)
+	lock := uint8(hash >> 24)
 
 	// Check all entries in the bucket for a match
 	for i := 0; i < BucketSize; i++ {
-		if bucket.Entries[i].Hash == hashHigh {
+		if bucket.Entries[i].Hash == hashHigh && bucket.Entries[i].Lock == lock {
 			return &bucket.Entries[i], true
 		}
 	}
@@ -123,7 +125,7 @@ func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha 
 
 	// Verify hash matches (upper 32 bits) - defensive check
 	hashHigh := uint32(hash >> 32)
-	if ttEntry.Hash != hashHigh {
+	if ttEntry.Hash != hashHigh || ttEntry.Lock != uint8(hash>>24) {
 		return false, score
 	}
 
@@ -174,6 +176,7 @@ func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move
 	bucketIdx := hash & TT.mask
 	bucket := &TT.buckets[bucketIdx]
 	hashHigh := uint32(hash >> 32)
+	lock := uint8(hash >> 24)
 
 	// Adjust mate scores for storage (make them relative to root)
 	if score > Checkmate {
@@ -185,12 +188,13 @@ func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move
 
 	// First pass: check if position already exists in bucket
 	for i := 0; i < BucketSize; i++ {
-		if bucket.Entries[i].Hash == hashHigh {
+		if bucket.Entries[i].Hash == hashHigh && bucket.Entries[i].Lock == lock {
 			// Position exists - update it if new info is better or same depth
 			// Always update if: same/deeper depth, or entry is from old search
 			existing := &bucket.Entries[i]
 			if depth >= existing.Depth || existing.Generation != TT.generation {
 				existing.Hash = hashHigh
+				existing.Lock = lock
 				existing.Move = move
 				existing.Score = score
 				existing.Depth = depth
@@ -219,6 +223,7 @@ func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move
 	// Replace the selected entry
 	entry := &bucket.Entries[replaceIdx]
 	entry.Hash = hashHigh
+	entry.Lock = lock
 	entry.Move = move
 	entry.Score = score
 	entry.Depth = depth
@@ -313,10 +318,11 @@ func (TT *TransTable) GetTTMove(hash uint64) gm.Move {
 	bucketIdx := hash & TT.mask
 	bucket := &TT.buckets[bucketIdx]
 	hashHigh := uint32(hash >> 32)
+	lock := uint8(hash >> 24)
 
 	// Check all entries in the bucket for a match
 	for i := 0; i < BucketSize; i++ {
-		if bucket.Entries[i].Hash == hashHigh {
+		if bucket.Entries[i].Hash == hashHigh && bucket.Entries[i].Lock == lock {
 			return bucket.Entries[i].Move
 		}
 	}

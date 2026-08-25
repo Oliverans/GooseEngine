@@ -98,8 +98,8 @@ var movePickerCapturePool [MaxPlyMoveList][MaxMovesPerPosition]move
 var movePickerQuietPool [MaxPlyMoveList][MaxMovesPerPosition]move
 var movePickerBadCapturePool [MaxPlyMoveList][MaxMovesPerPosition]move
 
-// For quiescence, we have a separate pre-allocated pool (captures only).
-var qMoveListPool [MaxPlyMoveList][64]move
+var qMoveRawPool [MaxPlyMoveList][MaxMovesPerPosition]gm.Move
+var qMoveListPool [MaxPlyMoveList][MaxMovesPerPosition]move
 
 // GetMoveListForPly returns a pre-allocated slice for the given ply.
 func GetMoveListForPly(ply int8, count int) []move {
@@ -388,7 +388,7 @@ func scoreMovesListInto(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMo
 	return movesList
 }
 
-func scoreMovesListCaptures(moves []gm.Move, ply int8) (movesList moveList, anyCaptures bool) {
+func scoreMovesListTacticals(moves []gm.Move, ply int8) (movesList moveList, anyTacticals bool) {
 	if ply < 0 {
 		ply = 0
 	}
@@ -397,29 +397,37 @@ func scoreMovesListCaptures(moves []gm.Move, ply int8) (movesList moveList, anyC
 	}
 
 	pool := qMoveListPool[ply][:]
-	var capturedMovesIndex uint8
+	moveIndex := 0
 
 	for i := range moves {
 		mv := moves[i]
 		capturedPiece := mv.CapturedPiece()
 		capturedType := capturedPiece.Type()
+		promotion := mv.PromotionPieceType()
 
 		if mv.Flags() == gm.FlagEnPassant {
 			capturedType = gm.PieceTypePawn
 		}
 
-		if capturedPiece != gm.NoPiece || mv.Flags() == gm.FlagEnPassant {
+		isCapture := capturedPiece != gm.NoPiece || mv.Flags() == gm.FlagEnPassant
+		if isCapture || promotion == gm.PieceTypeQueen {
 			moverType := mv.MovedPiece().Type()
 			score := mvvLva[capturedType][moverType]
+			if promotion == gm.PieceTypeQueen {
+				score = scoreQueenPromo + int32(pieceValueEG[promotion])
+				if isCapture {
+					score += mvvLva[capturedType][gm.PieceTypePawn]
+				}
+			}
 
-			pool[capturedMovesIndex].move = mv
-			pool[capturedMovesIndex].score = score
-			capturedMovesIndex++
+			pool[moveIndex].move = mv
+			pool[moveIndex].score = score
+			moveIndex++
 		}
 	}
 
-	movesList.moves = pool[:capturedMovesIndex]
-	return movesList, capturedMovesIndex > 0
+	movesList.moves = pool[:moveIndex]
+	return movesList, moveIndex > 0
 }
 
 // IsKiller checks if a move is a killer move at the given ply
