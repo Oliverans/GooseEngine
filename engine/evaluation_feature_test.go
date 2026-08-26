@@ -737,6 +737,25 @@ func TestEvalExplainMopUpSignMirrors(t *testing.T) {
 	}
 }
 
+// The same property on the evaluation trace, which computes the mop-up term on
+// its own parallel path and so can regress independently of EvalExplain.
+func TestEvalTraceMopUpSignMirrors(t *testing.T) {
+	// White mates with the rook; then the same position with colours swapped.
+	white := traceFromFEN(t, "7k/8/6K1/8/8/8/8/7R w - - 0 1")
+	black := traceFromFEN(t, "7r/8/8/8/8/6k1/8/7K b - - 0 1")
+
+	whiteMopUp := white.King.Terms["mopUp"].EG
+	blackMopUp := black.King.Terms["mopUp"].EG
+
+	if whiteMopUp == 0 {
+		t.Fatal("fixture does not reach the mop-up branch")
+	}
+	if whiteMopUp != -blackMopUp {
+		t.Fatalf("mop-up sign is not mirror-symmetric: white %d, black %d",
+			whiteMopUp, blackMopUp)
+	}
+}
+
 // A lone knight on e6 bears on two squares of the black king's ring (f8 and g7)
 // and gives no check from there, so the accumulator is one piece weight plus two
 // ring squares. White has no queen, so SafetyNoEnemyQueens comes off the top.

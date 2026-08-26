@@ -1,6 +1,9 @@
 package engine
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // CutStatistics collects counts for each pruning/cutoff mechanism.
 //
@@ -135,4 +138,11 @@ func dumpCutStats() {
 		c.QStandPatCutoffs, c.QBetaCutoffs)
 	fmt.Printf("info string   Aspiration: %d fail high, %d fail low\n",
 		c.AspirationFailHigh, c.AspirationFailLow)
+	th := &SearchState.timeHandler
+	if th.isInitialized {
+		fmt.Printf("info string   Time: %d ms base, %.0f%% opening, %d ms optimum, %d ms target, %d ms maximum\n",
+			th.baseAllocationMillis, th.openingScale*100, th.optimumMillis, th.targetMillis, th.maximumMillis)
+		fmt.Printf("info string   Time state: %d ms elapsed, move stable %d depths, score drop %d cp, stop %s\n",
+			time.Since(th.startTime).Milliseconds(), th.bestMoveStability, th.lastScoreDrop, th.stopReason)
+	}
 }

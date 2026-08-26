@@ -149,4 +149,28 @@ _old_skills/
 docs/
 
 # CMD is for locally building currently
-cmd/
+cmd/activity/
+cmd/assetvec/
+cmd/benchrun/
+cmd/bookbuild/
+cmd/engine_nn/
+cmd/evalfen/
+cmd/livereview/-web
+cmd/nn_training/
+cmd/openingstruct/
+cmd/pawnfeat/
+cmd/perft/
+cmd/positiontrace/
+cmd/searchbench/
+cmd/segcombine/
+cmd/sequence-analyze/
+cmd/tension/
+cmd/tunercalibrate/
+cmd/tunerdata/
+cmd/tunerexport/
+cmd/tunerinspect/
+cmd/tunerparity/
+cmd/tunerreport/
+cmd/tunerseed/
+cmd/tunersmoke/
+cmd/tunertrain/

@@ -67,3 +67,85 @@ func TestPromotionCapturesAndQuiets(t *testing.T) {
 		}
 	}
 }
+
+func TestTacticalsIncludeCapturesAndQueenPromotions(t *testing.T) {
+	tests := []struct {
+		fen  string
+		want map[string]bool
+	}{
+		{
+			fen: "1n5k/P7/8/8/8/8/8/7K w - - 0 1",
+			want: map[string]bool{
+				"a7a8q": true,
+				"a7b8q": true,
+				"a7b8r": true,
+				"a7b8b": true,
+				"a7b8n": true,
+			},
+		},
+		{
+			fen: "7k/8/8/8/8/8/p7/1N5K b - - 0 1",
+			want: map[string]bool{
+				"a2a1q": true,
+				"a2b1q": true,
+				"a2b1r": true,
+				"a2b1b": true,
+				"a2b1n": true,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		b, err := myengine.ParseFEN(test.fen)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		moves := b.GenerateTacticalsInto(make([]myengine.Move, 0, 16))
+		if len(moves) != len(test.want) {
+			t.Fatalf("tacticals: got %v want %v", moves, test.want)
+		}
+		for _, move := range moves {
+			if !test.want[move.String()] {
+				t.Fatalf("unexpected tactical move %s", move.String())
+			}
+		}
+	}
+}
+
+func TestTacticalsMatchCapturesPlusQuietQueenPromotions(t *testing.T) {
+	fens := []string{
+		myengine.FENStartPos,
+		"r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
+		"k7/8/8/3pP3/8/8/8/7K w - d6 0 2",
+		"1n5k/P7/8/8/8/8/8/7K w - - 0 1",
+		"7k/8/8/8/8/8/p7/1N5K b - - 0 1",
+	}
+
+	for _, fen := range fens {
+		b, err := myengine.ParseFEN(fen)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		want := make(map[myengine.Move]bool)
+		for _, move := range b.GenerateCaptures() {
+			want[move] = true
+		}
+		for _, move := range b.GenerateQuiets() {
+			if move.PromotionPieceType() == myengine.PieceTypeQueen {
+				want[move] = true
+			}
+		}
+
+		moves := b.GenerateTacticalsInto(make([]myengine.Move, 0, 128))
+		if len(moves) != len(want) {
+			t.Fatalf("%s: got %v want %v", fen, moves, want)
+		}
+		for _, move := range moves {
+			if !want[move] {
+				t.Fatalf("%s: unexpected tactical move %s", fen, move.String())
+			}
+		}
+	}
+}

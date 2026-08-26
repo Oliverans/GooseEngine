@@ -105,7 +105,7 @@ func StartSearchWithEvalMode(board *gm.Board, depth uint8, gameTime int, increme
 
 	SearchState.GlobalStop = false
 	SearchState.timeHandler.initTimemanagement(gameTime, increment, board.FullmoveNumber(), movesToGo, useCustomDepth)
-	SearchState.timeHandler.StartTime(board.FullmoveNumber())
+	SearchState.timeHandler.StartTime(board.FullmoveNumber(), board.Wtomove)
 
 	var bestMove gm.Move
 
@@ -163,13 +163,8 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool, printSearchInform
 	}
 
 	for i := uint8(1); i <= depth; i++ {
-		if !useCustomDepth && i > 1 {
-			if SearchState.timeHandler.SoftTimeExceeded() && !SearchState.timeHandler.ShouldExtendTime() {
-				break
-			}
-			if SearchState.timeHandler.ShouldStopEarly() {
-				break
-			}
+		if i > 1 && !SearchState.timeHandler.ShouldStartNextIteration() {
+			break
 		}
 
 		// Per-depth scratch: only commit to prev* once all slots at this
@@ -291,10 +286,7 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool, printSearchInform
 		score1 := prevScores[0]
 		pvLine1 := prevPVLines[0]
 		if len(pvLine1.Moves) > 0 {
-			SearchState.timeHandler.UpdateStability(int16(score1), uint32(pvLine1.Moves[0]))
-		}
-		if SearchState.timeHandler.ShouldExtendTime() {
-			SearchState.timeHandler.ExtendTime()
+			SearchState.timeHandler.UpdateIteration(score1, uint32(pvLine1.Moves[0]))
 		}
 
 		if printSearchInformation {
@@ -329,7 +321,17 @@ func rootsearch(b *gm.Board, depth uint8, useCustomDepth bool, printSearchInform
 
 		// Stop iterative deepening once PV1 is a forced mate.
 		if (score1 > Checkmate || score1 < -Checkmate) && len(pvLine1.Moves) > 0 {
+			SearchState.timeHandler.stopReason = "mate"
 			break
+		}
+	}
+	if SearchState.timeHandler.stopReason == "" {
+		if SearchState.GlobalStop {
+			SearchState.timeHandler.stopReason = "external stop"
+		} else if useCustomDepth {
+			SearchState.timeHandler.stopReason = "depth"
+		} else {
+			SearchState.timeHandler.stopReason = "completed depth"
 		}
 	}
 

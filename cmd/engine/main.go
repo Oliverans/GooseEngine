@@ -194,6 +194,17 @@ var uciOptionSetters = map[string]uciOption{
 	"deltamargin":          {100, 300, func(v int) { engine.DeltaMargin = int32(v) }},
 	"aspirationwindowsize": {10, 100, func(v int) { engine.AspirationWindowSize = int32(v) }},
 	"aspirationmaxfails":   {0, 8, func(v int) { engine.AspirationMaxFails = v }},
+
+	"timesoftpercent":            {30, 100, func(v int) { engine.TimeSoftPercent = v }},
+	"timehardpercent":            {100, 600, func(v int) { engine.TimeHardPercent = v }},
+	"timeopeningminpercent":      {50, 100, func(v int) { engine.TimeOpeningMinPercent = v }},
+	"timeopeningramply":          {4, 80, func(v int) { engine.TimeOpeningRampPly = v }},
+	"timeminimumpercent":         {10, 100, func(v int) { engine.TimeMinimumPercent = v }},
+	"timebestmovechangedpercent": {100, 250, func(v int) { engine.TimeBestMoveChangedPercent = v }},
+	"timebestmovesteppercent":    {0, 30, func(v int) { engine.TimeBestMoveStepPercent = v }},
+	"timebestmovestablepercent":  {30, 100, func(v int) { engine.TimeBestMoveStablePercent = v }},
+	"timescoredropmaxcp":         {10, 300, func(v int) { engine.TimeScoreDropMaxCP = int32(v) }},
+	"timescoredropmaxpercent":    {100, 300, func(v int) { engine.TimeScoreDropMaxPercent = v }},
 }
 
 var uciCheckOptionSetters = map[string]func(bool){}
@@ -317,6 +328,17 @@ func uciLoop() {
 			fmt.Printf("option name DeltaMargin type spin default %d min 100 max 300\n", engine.DeltaMargin)
 			fmt.Printf("option name AspirationWindowSize type spin default %d min 10 max 100\n", engine.AspirationWindowSize)
 			fmt.Printf("option name AspirationMaxFails type spin default %d min 0 max 8\n", engine.AspirationMaxFails)
+
+			fmt.Printf("option name TimeSoftPercent type spin default %d min 30 max 100\n", engine.TimeSoftPercent)
+			fmt.Printf("option name TimeHardPercent type spin default %d min 100 max 600\n", engine.TimeHardPercent)
+			fmt.Printf("option name TimeOpeningMinPercent type spin default %d min 50 max 100\n", engine.TimeOpeningMinPercent)
+			fmt.Printf("option name TimeOpeningRampPly type spin default %d min 4 max 80\n", engine.TimeOpeningRampPly)
+			fmt.Printf("option name TimeMinimumPercent type spin default %d min 10 max 100\n", engine.TimeMinimumPercent)
+			fmt.Printf("option name TimeBestMoveChangedPercent type spin default %d min 100 max 250\n", engine.TimeBestMoveChangedPercent)
+			fmt.Printf("option name TimeBestMoveStepPercent type spin default %d min 0 max 30\n", engine.TimeBestMoveStepPercent)
+			fmt.Printf("option name TimeBestMoveStablePercent type spin default %d min 30 max 100\n", engine.TimeBestMoveStablePercent)
+			fmt.Printf("option name TimeScoreDropMaxCP type spin default %d min 10 max 300\n", engine.TimeScoreDropMaxCP)
+			fmt.Printf("option name TimeScoreDropMaxPercent type spin default %d min 100 max 300\n", engine.TimeScoreDropMaxPercent)
 
 			fmt.Println("uciok")
 		case "isready":

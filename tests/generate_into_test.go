@@ -87,3 +87,22 @@ func TestGenerateQuietsInto_NoAlloc(t *testing.T) {
 		t.Fatalf("expected 0 allocs, got %f", allocs)
 	}
 }
+
+func TestGenerateTacticalsInto_NoAlloc(t *testing.T) {
+	b, err := myengine.ParseFEN("1n5k/P7/8/8/8/8/8/7K w - - 0 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	buf := make([]myengine.Move, 0, 16)
+	allocs := testing.AllocsPerRun(100, func() {
+		buf = b.GenerateTacticalsInto(buf)
+		if len(buf) != 5 {
+			t.Fatalf("expected 5 tactical moves, got %d", len(buf))
+		}
+		buf = buf[:0]
+	})
+	if allocs != 0 {
+		t.Fatalf("expected 0 allocs, got %f", allocs)
+	}
+}
