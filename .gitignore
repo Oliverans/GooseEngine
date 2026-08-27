@@ -148,6 +148,9 @@ _old_skills/
 # Docs are for local work
 docs/
 
+# Game matches etc
+artifacts/
+
 # CMD is for locally building currently
 cmd/activity/
 cmd/assetvec/
