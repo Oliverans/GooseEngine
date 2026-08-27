@@ -7,15 +7,15 @@ import (
 )
 
 const (
-	// Flags
-	AlphaFlag = iota
+	AlphaFlag int8 = iota
 	BetaFlag
 	ExactFlag
 
-	// Unusable score
+	ttBoundMask int8 = 0x3
+	ttPvFlag    int8 = 1 << 2
+
 	UnusableScore int32 = -32500
 
-	// Number of entries per bucket
 	BucketSize = 4
 )
 
@@ -25,13 +25,36 @@ var TTSize = 256
 // TTEntry represents a single transposition table entry
 // Optimized for size: 16 bytes with this layout
 type TTEntry struct {
-	Hash       uint32  // Upper 32 bits of hash (lower bits are implicit from index)
-	Move       gm.Move // Move that caused this position
-	Score      int32   // Score from search
-	Depth      int8    // Search depth
-	Flag       int8    // Alpha/Beta/Exact flag
-	Generation uint8   // Which search this entry is from
+	Hash       uint32
+	Move       gm.Move
+	Score      int16
+	StaticEval int16
+	Depth      int8
+	Flag       int8
+	Generation uint8
 	Lock       uint8
+}
+
+func ttBound(flag int8) int8 {
+	return flag & ttBoundMask
+}
+
+func ttPV(flag int8) bool {
+	return flag&ttPvFlag != 0
+}
+
+func makeTTFlag(bound int8, pv bool) int8 {
+	if pv {
+		return bound | ttPvFlag
+	}
+	return bound
+}
+
+func ttStaticEval(entry *TTEntry, found bool) (int32, bool) {
+	if !found || entry == nil || int32(entry.StaticEval) == -MaxScore {
+		return 0, false
+	}
+	return int32(entry.StaticEval), true
 }
 
 // TTBucket holds multiple entries for the same hash index
@@ -136,7 +159,7 @@ func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha 
 
 	// Only use entry if depth is sufficient
 	if ttEntry.Depth >= depth {
-		score = ttEntry.Score
+		score = int32(ttEntry.Score)
 
 		// Adjust mate scores relative to current ply
 		if score > Checkmate {
@@ -147,7 +170,7 @@ func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha 
 		}
 
 		// Check if we can use this entry based on flag
-		switch ttEntry.Flag {
+		switch ttBound(ttEntry.Flag) {
 		case ExactFlag:
 			usable = true
 		case AlphaFlag:
@@ -168,10 +191,11 @@ func (TT *TransTable) useEntry(ttEntry *TTEntry, hash uint64, depth int8, alpha 
 
 // storeEntry stores a position in the transposition table
 // Uses a scoring system to determine which entry to replace
-func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move, score int32, flag int8) {
+func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move, score int32, staticEval int32, bound int8, pv bool) {
 	if !TT.isInitialized {
 		return
 	}
+	flag := makeTTFlag(bound, pv)
 
 	bucketIdx := hash & TT.mask
 	bucket := &TT.buckets[bucketIdx]
@@ -185,6 +209,8 @@ func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move
 	if score < -Checkmate {
 		score -= int32(ply)
 	}
+	storedScore := int16(score)
+	storedStaticEval := int16(staticEval)
 
 	// First pass: check if position already exists in bucket
 	for i := 0; i < BucketSize; i++ {
@@ -196,13 +222,16 @@ func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move
 				existing.Hash = hashHigh
 				existing.Lock = lock
 				existing.Move = move
-				existing.Score = score
+				existing.Score = storedScore
+				existing.StaticEval = storedStaticEval
 				existing.Depth = depth
 				existing.Flag = flag
 				existing.Generation = TT.generation
 			} else if move != 0 && existing.Move == 0 {
-				// At minimum, store the move if we didn't have one
 				existing.Move = move
+			}
+			if existing.StaticEval == int16(-MaxScore) && staticEval != -MaxScore {
+				existing.StaticEval = storedStaticEval
 			}
 			return
 		}
@@ -225,7 +254,8 @@ func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move
 	entry.Hash = hashHigh
 	entry.Lock = lock
 	entry.Move = move
-	entry.Score = score
+	entry.Score = storedScore
+	entry.StaticEval = storedStaticEval
 	entry.Depth = depth
 	entry.Flag = flag
 	entry.Generation = TT.generation
@@ -257,7 +287,7 @@ func (TT *TransTable) scoreEntryForReplacement(entry *TTEntry, newDepth int8) in
 	score -= age * 4
 
 	// Exact entries are more valuable than bound entries
-	if entry.Flag == ExactFlag {
+	if ttBound(entry.Flag) == ExactFlag {
 		score += 4
 	}
 

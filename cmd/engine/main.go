@@ -37,7 +37,7 @@ func runBench() {
 		engine.SearchState.ResetForNewGame()
 
 		// Search with fixed depth, large time, no time-based cutoff
-		engine.StartSearch(&board, uint8(benchDepth), 1000000, 0, 0, true, false, false, false)
+		engine.StartSearch(&board, engine.SearchLimits{Depth: uint8(benchDepth)}, false, false, false)
 
 		// Accumulate nodes
 		totalNodes += engine.GetNodeCount()
@@ -138,6 +138,87 @@ func parseSetOption(line string) (name string, value string, ok bool) {
 	return name, value, true
 }
 
+func parseGoLimits(line string) (engine.SearchLimits, []string, bool) {
+	var limits engine.SearchLimits
+	var messages []string
+	tokens := strings.Fields(line)
+	valid := true
+
+	parseInt := func(index *int, name string, positive bool) (int, bool) {
+		if *index+1 >= len(tokens) {
+			messages = append(messages, "Malformed go command option "+name)
+			valid = false
+			return 0, false
+		}
+		*index = *index + 1
+		value, err := strconv.Atoi(tokens[*index])
+		if err != nil || (positive && value <= 0) || (!positive && value < 0) {
+			messages = append(messages, "Malformed go command option "+name)
+			valid = false
+			return 0, false
+		}
+		return value, true
+	}
+
+	for i := 1; i < len(tokens); i++ {
+		switch strings.ToLower(tokens[i]) {
+		case "infinite":
+			limits.Infinite = true
+		case "wtime":
+			if value, ok := parseInt(&i, "wtime", false); ok {
+				limits.WTime = value
+			}
+		case "btime":
+			if value, ok := parseInt(&i, "btime", false); ok {
+				limits.BTime = value
+			}
+		case "winc":
+			if value, ok := parseInt(&i, "winc", false); ok {
+				limits.WInc = value
+			}
+		case "binc":
+			if value, ok := parseInt(&i, "binc", false); ok {
+				limits.BInc = value
+			}
+		case "movestogo":
+			if value, ok := parseInt(&i, "movestogo", true); ok {
+				limits.MovesToGo = value
+			}
+		case "depth":
+			if value, ok := parseInt(&i, "depth", true); ok {
+				if value > int(engine.MaxDepth) {
+					messages = append(messages, fmt.Sprintf("go depth %d exceeds maximum %d", value, engine.MaxDepth))
+					valid = false
+				} else {
+					limits.Depth = uint8(value)
+				}
+			}
+		case "movetime":
+			if value, ok := parseInt(&i, "movetime", true); ok {
+				limits.MoveTimeMs = value
+			}
+		case "nodes":
+			if i+1 >= len(tokens) {
+				messages = append(messages, "Malformed go command option nodes")
+				valid = false
+				continue
+			}
+			i++
+			value, err := strconv.ParseUint(tokens[i], 10, 64)
+			if err != nil || value == 0 {
+				messages = append(messages, "Malformed go command option nodes")
+				valid = false
+				continue
+			}
+			limits.Nodes = value
+		default:
+			messages = append(messages, "Unknown go subcommand "+tokens[i])
+		}
+	}
+
+	return limits, messages, valid
+}
+
 func normalizeOptionName(name string) string {
 	return strings.ReplaceAll(strings.ToLower(name), " ", "")
 }
@@ -223,19 +304,70 @@ func main() {
 
 func uciLoop() {
 	scanner := bufio.NewScanner(os.Stdin)
+	commands := make(chan string)
+	go func() {
+		defer close(commands)
+		for scanner.Scan() {
+			commands <- scanner.Text()
+		}
+	}()
+
 	board := gm.ParseFen(gm.Startpos) // the game board
 
 	evalMode := engine.EvalOutputNone
 	var moveOrderingOnly = false
 	var printSearchInformation = true
+	var searchDone chan struct{}
+	searching := false
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	for {
+		var line string
+		var ok bool
+		select {
+		case <-searchDone:
+			searching = false
+			searchDone = nil
+			continue
+		case line, ok = <-commands:
+		}
+		if !ok {
+			if searching {
+				engine.SearchState.RequestStop()
+				<-searchDone
+			}
+			return
+		}
+
 		tokens := strings.Fields(line)
 		if len(tokens) == 0 { // ignore blank lines
 			continue
 		}
-		switch strings.ToLower(tokens[0]) {
+		command := strings.ToLower(tokens[0])
+		if searching {
+			select {
+			case <-searchDone:
+				searching = false
+				searchDone = nil
+			default:
+			}
+		}
+		if searching {
+			switch command {
+			case "stop":
+				engine.SearchState.RequestStop()
+			case "quit":
+				engine.SearchState.RequestStop()
+				<-searchDone
+				return
+			case "isready":
+				fmt.Println("readyok")
+			default:
+				fmt.Printf("info string Command %s rejected while searching\n", tokens[0])
+			}
+			continue
+		}
+
+		switch command {
 		case "bench":
 			runBench()
 		case "eval":
@@ -351,122 +483,30 @@ func uciLoop() {
 		case "stop":
 			engine.SearchState.RequestStop()
 		case "go":
-			goScanner := bufio.NewScanner(strings.NewReader(line))
-			goScanner.Split(bufio.ScanWords)
-			goScanner.Scan() // skip the first token
-			var timeToUse = 0
-			var incToUse = 0
-			var err error
-			var wTime = 0
-			var bTime = 0
-			var wInc = 0
-			var bInc = 0
-			var movesToGo = 0
-			var depthToUse = 0
-			for goScanner.Scan() {
-				nextToken := strings.ToLower(goScanner.Text())
-				switch nextToken {
-				case "infinite":
-					continue
-				case "wtime":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option wtime")
-						continue
-					}
-					if err != nil {
-						fmt.Println("info string Malformed go command option; could not convert wtime")
-						continue
-					}
-					wTime, err = strconv.Atoi(goScanner.Text())
-				case "btime":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option btime")
-						continue
-					}
-					if err != nil {
-						fmt.Println("info string Malformed go command option; could not convert btime")
-						continue
-					}
-					bTime, err = strconv.Atoi(goScanner.Text())
-				case "winc":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option winc")
-						continue
-					}
-					if err != nil {
-						fmt.Println("info string Malformed go command option; could not convert winc")
-						continue
-					}
-					wInc, err = strconv.Atoi(goScanner.Text())
-				case "binc":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option binc")
-						continue
-					}
-					if err != nil {
-						fmt.Println("info string Malformed go command option; could not convert binc")
-						continue
-					}
-					bInc, err = strconv.Atoi(goScanner.Text())
-				case "movestogo":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option movestogo")
-						continue
-					}
-					if err != nil {
-						fmt.Println("info string Malformed go command option; could not convert movestogo")
-						continue
-					}
-					movesToGo, err = strconv.Atoi(goScanner.Text())
-				case "depth":
-					if !goScanner.Scan() {
-						fmt.Println("info string Malformed go command option depth")
-						continue
-					}
-					if err != nil {
-						fmt.Println("info string Malformed go command option; could not convert depth")
-						continue
-					}
-					depthToUse, err = strconv.Atoi(goScanner.Text())
-				default:
-					fmt.Println("info string Unknown go subcommand", nextToken)
-					continue
-				}
+			limits, messages, valid := parseGoLimits(line)
+			for _, message := range messages {
+				fmt.Println("info string", message)
 			}
-
-			if board.Wtomove {
-				if wTime > 0 {
-					timeToUse = wTime
-				} else {
-					timeToUse = 250000
-				}
-				incToUse = wInc
-			} else {
-				if bTime > 0 {
-					timeToUse = bTime
-				} else {
-					timeToUse = 250000
-				}
-				incToUse = bInc
-			}
-			var useCustomDepth = false
-			if depthToUse > 0 {
-				useCustomDepth = true
-			} else {
-				depthToUse = 50
-			}
-
-			currentEvalMode := evalMode
-			bestMove := engine.StartSearchWithEvalMode(&board, uint8(depthToUse), timeToUse, incToUse, movesToGo, useCustomDepth, currentEvalMode, moveOrderingOnly, printSearchInformation)
-			if currentEvalMode != engine.EvalOutputNone {
-				evalMode = engine.EvalOutputNone
-				engine.SearchState.UpdateBetweenSearches()
+			if !valid {
 				continue
 			}
-			fmt.Println("bestmove ", bestMove)
-
-			// Reset after search (while not incrementing time ...)
-			engine.SearchState.UpdateBetweenSearches()
+			currentEvalMode := evalMode
+			if currentEvalMode != engine.EvalOutputNone {
+				evalMode = engine.EvalOutputNone
+			}
+			searchBoard := board
+			done := make(chan struct{})
+			searchDone = done
+			searching = true
+			engine.SearchState.ClearStop()
+			go func() {
+				bestMove := engine.StartSearchWithEvalMode(&searchBoard, limits, currentEvalMode, moveOrderingOnly, printSearchInformation)
+				engine.SearchState.UpdateBetweenSearches()
+				if currentEvalMode == engine.EvalOutputNone {
+					fmt.Println("bestmove", bestMove)
+				}
+				close(done)
+			}()
 		case "position":
 			posScanner := bufio.NewScanner(strings.NewReader(line))
 			posScanner.Split(bufio.ScanWords)

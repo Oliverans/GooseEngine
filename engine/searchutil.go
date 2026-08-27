@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"math/bits"
+	"sync/atomic"
 
 	gm "chess-engine/goosemg"
 )
@@ -229,7 +230,8 @@ type searchState struct {
 	evalStack        [MaxDepth]int32
 	prevSearchScore  int32
 	searchShouldStop bool
-	GlobalStop       bool
+	globalStop       atomic.Bool
+	selDepth         int8
 	tt               TransTable
 	timeHandler      TimeHandler
 
@@ -297,23 +299,28 @@ func (s *searchState) ResetForSearch(board *gm.Board) {
 
 // RequestStop signals an external stop (e.g. UCI stop command).
 func (s *searchState) RequestStop() {
-	s.GlobalStop = true
+	s.globalStop.Store(true)
 }
 
 // ClearStop clears any external stop request.
 func (s *searchState) ClearStop() {
-	s.GlobalStop = false
+	s.globalStop.Store(false)
+}
+
+// StopRequested reports whether an external stop has been requested.
+func (s *searchState) StopRequested() bool {
+	return s.globalStop.Load()
 }
 
 // ShouldStopRoot returns true when the current search should stop,
 // including time-based termination checks.
 func (s *searchState) ShouldStopRoot() bool {
-	return s.searchShouldStop || s.GlobalStop || s.timeHandler.stopSearch || s.timeHandler.TimeStatus()
+	return s.searchShouldStop || s.StopRequested() || s.timeHandler.stopSearch || s.timeHandler.TimeStatus()
 }
 
 // ShouldStopNoClock returns true when the search should stop without polling the clock.
 func (s *searchState) ShouldStopNoClock() bool {
-	return s.searchShouldStop || s.GlobalStop || s.timeHandler.stopSearch
+	return s.searchShouldStop || s.StopRequested() || s.timeHandler.stopSearch
 }
 
 // UpdateBetweenSearches performs post-search maintenance/aging.
@@ -350,7 +357,7 @@ func ResetForNewGame() {
 
 	SearchState.prevSearchScore = 0
 	SearchState.searchShouldStop = false
-	SearchState.GlobalStop = false
+	SearchState.ClearStop()
 	SearchState.nodesChecked = 0
 	SearchState.totalTimeSpent = 0
 }

@@ -10,6 +10,8 @@ const (
 	maxTimeUsageFraction = 0.20 // Never use more than 20% of remaining time
 	movesToGoBufferDiv   = 50   // 2% buffer when movestogo is known
 	minBufferMillis      = 50
+	moveTimeOverheadMs   = 10
+	nodeHardLimitFactor  = 4
 )
 
 var TimeSoftPercent = 60
@@ -32,6 +34,10 @@ type TimeHandler struct {
 	stopSearch           bool
 	isInitialized        bool
 	usingCustomDepth     bool
+	clockEnabled         bool
+	infinite             bool
+	moveTimeMillis       int64
+	nodeLimit            uint64
 	baseAllocationMillis int64
 	optimumMillis        int64
 	targetMillis         int64
@@ -47,18 +53,27 @@ type TimeHandler struct {
 	bestMoveStability int
 }
 
-func (th *TimeHandler) initTimemanagement(remainingTime int, increment int, fullmoveNumber int, movesToGo int, useCustomDepth bool) {
-	th.remainingTime = remainingTime
-	th.increment = increment
+func (th *TimeHandler) initTimemanagement(limits SearchLimits, fullmoveNumber int, whiteToMove bool) {
+	if whiteToMove {
+		th.remainingTime = limits.WTime
+		th.increment = limits.WInc
+	} else {
+		th.remainingTime = limits.BTime
+		th.increment = limits.BInc
+	}
 	th.fullmoveNumber = fullmoveNumber
 	th.stopSearch = false
 	th.isInitialized = true
-	th.usingCustomDepth = useCustomDepth
+	th.infinite = limits.Infinite
+	th.moveTimeMillis = int64(limits.MoveTimeMs)
+	th.nodeLimit = limits.Nodes
+	th.clockEnabled = limits.MoveTimeMs > 0 || th.remainingTime > 0 || th.increment > 0
+	th.usingCustomDepth = limits.Depth > 0 && !th.clockEnabled && limits.Nodes == 0 && !limits.Infinite
 	th.baseAllocationMillis = 0
 	th.optimumMillis = 0
 	th.targetMillis = 0
 	th.maximumMillis = 0
-	th.movesToGo = movesToGo
+	th.movesToGo = limits.MovesToGo
 	th.openingScale = 1
 	th.stopReason = ""
 	th.lastScore = 0
@@ -72,6 +87,25 @@ func (th *TimeHandler) StartTime(fullmoveNumber int, whiteToMove bool) {
 	th.fullmoveNumber = fullmoveNumber
 	th.stopSearch = false
 	th.startTime = time.Now()
+	th.hardTimeLimit = time.Time{}
+
+	if th.infinite || !th.clockEnabled {
+		return
+	}
+
+	if th.moveTimeMillis > 0 {
+		budget := th.moveTimeMillis - moveTimeOverheadMs
+		if budget < 1 {
+			budget = 1
+		}
+		th.baseAllocationMillis = budget
+		th.optimumMillis = budget
+		th.targetMillis = budget
+		th.maximumMillis = budget
+		th.openingScale = 1
+		th.hardTimeLimit = th.startTime.Add(time.Duration(budget) * time.Millisecond)
+		return
+	}
 
 	// Estimate moves remaining based on game phase
 	movesRemaining := th.estimateMovesRemaining(fullmoveNumber)
@@ -236,7 +270,7 @@ func (th *TimeHandler) maxHardLimitMillis() int64 {
 // TimeStatus returns true if we should stop searching
 // This checks the HARD limit - we must stop
 func (th *TimeHandler) TimeStatus() bool {
-	if th.usingCustomDepth {
+	if th.infinite || !th.clockEnabled || th.usingCustomDepth {
 		return false
 	}
 	exceeded := !th.hardTimeLimit.IsZero() && time.Now().After(th.hardTimeLimit)
@@ -247,6 +281,9 @@ func (th *TimeHandler) TimeStatus() bool {
 }
 
 func (th *TimeHandler) UpdateIteration(score int32, bestMove uint32) {
+	if th.infinite || th.moveTimeMillis > 0 || !th.clockEnabled || th.usingCustomDepth {
+		return
+	}
 	if !th.hasLastIteration {
 		th.lastScore = score
 		th.lastBestMove = bestMove
@@ -296,13 +333,34 @@ func (th *TimeHandler) UpdateIteration(score int32, bestMove uint32) {
 	th.lastBestMove = bestMove
 }
 
-func (th *TimeHandler) ShouldStartNextIteration() bool {
-	if th.usingCustomDepth {
+func (th *TimeHandler) ShouldStartNextIteration(nodesChecked int) bool {
+	if th.nodeLimit > 0 && uint64(nodesChecked) >= th.nodeLimit {
+		th.stopReason = "node soft limit"
+		return false
+	}
+	if th.infinite || !th.clockEnabled || th.usingCustomDepth {
 		return true
 	}
 	if time.Since(th.startTime).Milliseconds() >= th.targetMillis {
 		th.stopReason = "dynamic target"
 		return false
 	}
+	return true
+}
+
+// NodeHardLimitReached is the coarse in-iteration backstop for fixed-node
+// searches. The soft limit is checked between completed iterations.
+func (th *TimeHandler) NodeHardLimitReached(nodesChecked int) bool {
+	if th.nodeLimit == 0 || nodesChecked < 0 {
+		return false
+	}
+	threshold := ^uint64(0)
+	if th.nodeLimit <= ^uint64(0)/nodeHardLimitFactor {
+		threshold = th.nodeLimit * nodeHardLimitFactor
+	}
+	if uint64(nodesChecked) < threshold {
+		return false
+	}
+	th.stopReason = "node hard limit"
 	return true
 }

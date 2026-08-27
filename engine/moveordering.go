@@ -388,7 +388,7 @@ func scoreMovesListInto(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMo
 	return movesList
 }
 
-func scoreMovesListTacticals(moves []gm.Move, ply int8) (movesList moveList, anyTacticals bool) {
+func scoreMovesListTacticals(moves []gm.Move, ply int8, ttMove gm.Move) (movesList moveList, anyTacticals bool) {
 	if ply < 0 {
 		ply = 0
 	}
@@ -411,12 +411,17 @@ func scoreMovesListTacticals(moves []gm.Move, ply int8) (movesList moveList, any
 
 		isCapture := capturedPiece != gm.NoPiece || mv.Flags() == gm.FlagEnPassant
 		if isCapture || promotion == gm.PieceTypeQueen {
-			moverType := mv.MovedPiece().Type()
-			score := mvvLva[capturedType][moverType]
-			if promotion == gm.PieceTypeQueen {
-				score = scoreQueenPromo + int32(pieceValueEG[promotion])
-				if isCapture {
-					score += mvvLva[capturedType][gm.PieceTypePawn]
+			var score int32
+			if mv == ttMove {
+				score = scorePVMove
+			} else {
+				moverType := mv.MovedPiece().Type()
+				score = mvvLva[capturedType][moverType]
+				if promotion == gm.PieceTypeQueen {
+					score = scoreQueenPromo + int32(pieceValueEG[promotion])
+					if isCapture {
+						score += mvvLva[capturedType][gm.PieceTypePawn]
+					}
 				}
 			}
 

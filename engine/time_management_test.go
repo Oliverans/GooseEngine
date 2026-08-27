@@ -56,7 +56,7 @@ func TestOpeningTimeScale(t *testing.T) {
 
 func TestStartTimeBuildsOpeningAndHardBudgets(t *testing.T) {
 	th := TimeHandler{}
-	th.initTimemanagement(10000, 300, 1, 0, false)
+	th.initTimemanagement(SearchLimits{WTime: 10000, WInc: 300}, 1, true)
 	th.StartTime(1, true)
 
 	if th.baseAllocationMillis != 394 {
@@ -70,7 +70,7 @@ func TestStartTimeBuildsOpeningAndHardBudgets(t *testing.T) {
 	}
 
 	lowClock := TimeHandler{}
-	lowClock.initTimemanagement(200, 300, 50, 0, false)
+	lowClock.initTimemanagement(SearchLimits{WTime: 200, WInc: 300}, 50, true)
 	lowClock.StartTime(50, true)
 	if lowClock.maximumMillis != 150 {
 		t.Fatalf("low-clock maximum = %d, want 150", lowClock.maximumMillis)
@@ -83,6 +83,7 @@ func TestUpdateIterationAdjustsDynamicTarget(t *testing.T) {
 		optimumMillis:        600,
 		targetMillis:         600,
 		maximumMillis:        2500,
+		clockEnabled:         true,
 	}
 
 	th.UpdateIteration(100, 1)
@@ -108,6 +109,7 @@ func TestDynamicTargetRespectsMinimumAndMaximum(t *testing.T) {
 		optimumMillis:        300,
 		targetMillis:         300,
 		maximumMillis:        2500,
+		clockEnabled:         true,
 	}
 	minimum.UpdateIteration(0, 1)
 	for range 8 {
@@ -122,6 +124,7 @@ func TestDynamicTargetRespectsMinimumAndMaximum(t *testing.T) {
 		optimumMillis:        1000,
 		targetMillis:         1000,
 		maximumMillis:        1200,
+		clockEnabled:         true,
 	}
 	maximum.UpdateIteration(100, 1)
 	maximum.UpdateIteration(0, 2)
@@ -134,8 +137,9 @@ func TestShouldStartNextIterationUsesDynamicTarget(t *testing.T) {
 	th := TimeHandler{
 		startTime:    time.Now().Add(-101 * time.Millisecond),
 		targetMillis: 100,
+		clockEnabled: true,
 	}
-	if th.ShouldStartNextIteration() {
+	if th.ShouldStartNextIteration(0) {
 		t.Fatal("iteration started after dynamic target")
 	}
 	if th.stopReason != "dynamic target" {
@@ -143,7 +147,56 @@ func TestShouldStartNextIterationUsesDynamicTarget(t *testing.T) {
 	}
 
 	th.usingCustomDepth = true
-	if !th.ShouldStartNextIteration() {
+	if !th.ShouldStartNextIteration(0) {
 		t.Fatal("custom-depth search was stopped by dynamic target")
+	}
+}
+
+func TestMoveTimeUsesSingleFixedBudget(t *testing.T) {
+	th := TimeHandler{}
+	th.initTimemanagement(SearchLimits{MoveTimeMs: 1000}, 1, true)
+	th.StartTime(1, true)
+
+	if th.baseAllocationMillis != 990 || th.optimumMillis != 990 || th.targetMillis != 990 || th.maximumMillis != 990 {
+		t.Fatalf("movetime budgets = base %d optimum %d target %d maximum %d, want all 990",
+			th.baseAllocationMillis, th.optimumMillis, th.targetMillis, th.maximumMillis)
+	}
+	th.UpdateIteration(100, 1)
+	th.UpdateIteration(0, 2)
+	if th.targetMillis != 990 || th.hasLastIteration {
+		t.Fatalf("movetime dynamic state changed: target %d, has iteration %v", th.targetMillis, th.hasLastIteration)
+	}
+}
+
+func TestInfiniteDisablesTimeLimits(t *testing.T) {
+	th := TimeHandler{}
+	th.initTimemanagement(SearchLimits{Infinite: true, WTime: 1}, 1, true)
+	th.StartTime(1, true)
+	th.hardTimeLimit = time.Now().Add(-time.Second)
+
+	if th.TimeStatus() {
+		t.Fatal("infinite search stopped on time")
+	}
+	if !th.ShouldStartNextIteration(1_000_000) {
+		t.Fatal("infinite search refused the next iteration")
+	}
+}
+
+func TestNodeSoftAndHardLimits(t *testing.T) {
+	th := TimeHandler{}
+	th.initTimemanagement(SearchLimits{Nodes: 50_000}, 1, true)
+	th.StartTime(1, true)
+
+	if !th.ShouldStartNextIteration(49_999) {
+		t.Fatal("node soft limit stopped early")
+	}
+	if th.ShouldStartNextIteration(50_000) {
+		t.Fatal("node soft limit did not stop at the limit")
+	}
+	if th.NodeHardLimitReached(199_999) {
+		t.Fatal("node hard limit stopped early")
+	}
+	if !th.NodeHardLimitReached(200_000) {
+		t.Fatal("node hard limit did not stop at four times the limit")
 	}
 }

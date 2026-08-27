@@ -485,4 +485,5 @@ func (b *Board) UnmakeNullMove(st NullState) {
 	b.sideToMove = st.prevSide
 	// Ensure exact Zobrist restoration
 	b.zobristKey = st.prevZobrist
+	b.syncTurnFlag()
 }

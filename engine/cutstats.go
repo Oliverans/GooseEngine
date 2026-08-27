@@ -19,13 +19,16 @@ type CutStatistics struct {
 	// Quiescence nodes. Main-search nodes are derived as nodesChecked - QNodes.
 	QNodes uint64
 
-	// Transposition table. Only alphabeta probes; quiescence never does. Usable
-	// trails hits because an entry must also pass the depth and bound tests, and
-	// cutoffs trail usable because PV and root nodes may not return early.
+	// Main-search transposition table.
 	TTProbes  uint64
 	TTHits    uint64
 	TTUsable  uint64
 	TTCutoffs uint64
+
+	// Quiescence transposition table.
+	QTTProbes  uint64
+	QTTHits    uint64
+	QTTCutoffs uint64
 
 	// Reverse futility pruning (static null).
 	RFPEligible uint64
@@ -111,6 +114,9 @@ func dumpCutStats() {
 		c.TTProbes, c.TTHits, pct(c.TTHits, c.TTProbes),
 		c.TTUsable, pct(c.TTUsable, c.TTHits),
 		c.TTCutoffs, pct(c.TTCutoffs, c.TTUsable))
+	fmt.Printf("info string   QTT: %d probes, %d hits (%s), %d cutoffs (%s of hits)\n",
+		c.QTTProbes, c.QTTHits, pct(c.QTTHits, c.QTTProbes),
+		c.QTTCutoffs, pct(c.QTTCutoffs, c.QTTHits))
 	fmt.Printf("info string   RFP: %d eligible, %d cutoffs (%s)\n",
 		c.RFPEligible, c.RFPCutoffs, pct(c.RFPCutoffs, c.RFPEligible))
 	fmt.Printf("info string   Null move: %d attempts, %d cutoffs (%s)\n",

@@ -24,8 +24,12 @@ carries repo-wide facts and per-domain routing for agents.
 - Iterative deepening with per-depth PV line tracking
 - Aspiration windows, widening exponentially on each fail (`AspirationWindowSize << failures`, capped by `AspirationMaxFails`)
 - MultiPV at the root (`MultiPV`, default 1; each PV slot gets its own aspiration state)
+- Asynchronous UCI search control with responsive `stop`/`quit`, fixed
+  `movetime` and `nodes` limits, infinite analysis, and `seldepth`/`hashfull`
+  reporting
 - Transposition table
-- Quiescence search — captures only, but full evasions when in check
+- Quiescence search with TT cutoffs, static-eval reuse, tactical TT ordering,
+  and full evasions when in check
 - Check extension (depth + 1 whenever the side to move is in check)
 - Singular extension (TT move re-searched against a reduced-depth verification window)
 - Internal Iterative Deepening (IID) when no TT move is available
@@ -47,6 +51,8 @@ carries repo-wide facts and per-domain routing for agents.
 
 ### Transposition table implementation type
 - Bucketed hash table, 4 entries per bucket, sized so one bucket fills a 64-byte cache line
+- 16-byte entries with packed search scores and reusable raw static evaluations
+- Depth-0 quiescence entries, separated from positive-depth main-search requests
 - Depth-preferred replacement with a generation age penalty; the generation counter is bumped per search
 - Mate scores stored relative to the root and re-adjusted on probe
 - Excluded-move aware, so singular-extension verification searches do not read back their own entry
