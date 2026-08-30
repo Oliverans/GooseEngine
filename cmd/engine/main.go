@@ -266,6 +266,9 @@ var uciOptionSetters = map[string]uciOption{
 	"singularreductiondepthdivisor": {2, 8, func(v int) { engine.SingularReductionDepthDivisor = int8(v) }},
 
 	"quiescenceseemargin": {100, 200, func(v int) { engine.QuiescenceSeeMargin = v }},
+	"seenoisyscale":       {50, 200, func(v int) { engine.SEENoisyScale = v }},
+	"seequietscale":       {20, 80, func(v int) { engine.SEEQuietScale = v }},
+	"seeprunemaxdepth":    {0, 12, func(v int) { engine.SEEPruneMaxDepth = int8(v) }},
 	"probcutseemargin":    {100, 200, func(v int) { engine.ProbCutSeeMargin = v }},
 	"probcutmindepth":     {3, 12, func(v int) { engine.ProbCutMinDepth = int8(v) }},
 	"probcutbetamargin":   {50, 400, func(v int) { engine.ProbCutBetaMargin = int32(v) }},
@@ -443,6 +446,9 @@ func uciLoop() {
 
 			// SEE pruning parameters
 			fmt.Printf("option name QuiescenceSeeMargin type spin default %d min 100 max 200\n", engine.QuiescenceSeeMargin)
+			fmt.Printf("option name SEENoisyScale type spin default %d min 50 max 200\n", engine.SEENoisyScale)
+			fmt.Printf("option name SEEQuietScale type spin default %d min 20 max 80\n", engine.SEEQuietScale)
+			fmt.Printf("option name SEEPruneMaxDepth type spin default %d min 0 max 12\n", engine.SEEPruneMaxDepth)
 			fmt.Printf("option name ProbCutSeeMargin type spin default %d min 100 max 200\n", engine.ProbCutSeeMargin)
 			fmt.Printf("option name ProbCutMinDepth type spin default %d min 3 max 12\n", engine.ProbCutMinDepth)
 			fmt.Printf("option name ProbCutBetaMargin type spin default %d min 50 max 400\n", engine.ProbCutBetaMargin)
