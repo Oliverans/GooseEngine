@@ -86,7 +86,9 @@ __pycache__/
 .agents
 .codex
 AGENTS.md
+CLAUDE.md
 .hermes/
+.hermes*/
 .hermes-tmp/
 
 # -------------------------
