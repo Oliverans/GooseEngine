@@ -22,21 +22,6 @@ const (
 	colorBlack
 )
 
-// see is a static exchange evaluation on the move's target square.
-//
-// Conventions worth knowing before changing anything here:
-//
-//   - Legality is ignored. A pinned defender still "recaptures", and a recapture
-//     that would expose its own king is still counted. Modelling that would need
-//     make/unmake per exchange step, which defeats the purpose of SEE. Stockfish
-//     makes the same trade.
-//   - The king is handled by giving it a 5000 sentinel value rather than by an
-//     explicit rule: if it captures into a defended square the following
-//     "recapture" is worth 5000, so the fold makes the king decline.
-//   - Promotions are credited. The initial move promotes to whatever the move
-//     encodes; a pawn recapturing onto the back rank is assumed to take a queen.
-//     SEE cannot see check, so underpromotion tactics are search's problem, and
-//     assuming a queen errs on the conservative side for the original capture.
 func see(b *gm.Board, move gm.Move, debug bool) int {
 	const maxDepth = 32
 
@@ -83,15 +68,9 @@ func see(b *gm.Board, move gm.Move, debug bool) int {
 		capturedPiece = gm.PieceTypePawn
 	}
 
-	// Occupancy as it stands after the initial capture. The piece bitboards are
-	// deliberately left stale from here on: anything that has been used is
-	// already cleared from occupied, and the attacker set is masked by occupied
-	// on every iteration, so stale entries can never be picked twice.
 	occupied &^= PositionBB[int(from)] | PositionBB[int(captureSquare)]
 	occupied |= PositionBB[int(to)]
 
-	// onSquare is whatever now stands on the target and is therefore what the
-	// next capture wins.
 	onSquare := movingPiece
 	gain[0] = SeePieceValue[capturedPiece]
 	if promo := move.PromotionPieceType(); promo != gm.PieceTypeNone {
@@ -134,18 +113,12 @@ func see(b *gm.Board, move gm.Move, debug bool) int {
 		}
 		gain[depth] = SeePieceValue[onSquare] + promoBonus - gain[depth-1]
 
-		// If capturing cannot beat simply stopping, the side to move stops. The
-		// fold below can only lower gain[depth] further, so this is safe.
 		if gain[depth] <= -gain[depth-1] {
 			break
 		}
 
 		occupied &^= attackerBB
 
-		// Only a slider standing behind the vacated square can appear, and the
-		// attacker's own type tells us which ray it was standing on: a pawn or
-		// bishop attacking the target must be on a diagonal, a rook on a rank or
-		// file, and a knight on neither. Only a queen or king is ambiguous.
 		switch attackerPiece {
 		case gm.PieceTypeKnight:
 			// A knight never stands on a ray from the target.
