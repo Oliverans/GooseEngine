@@ -31,13 +31,19 @@ type CutStatistics struct {
 	QTTCutoffs uint64
 
 	// Reverse futility pruning (static null).
-	RFPEligible uint64
-	RFPCutoffs  uint64
+	RFPEligible       uint64
+	RFPRefinements    uint64
+	RFPEnabledByTT    uint64
+	RFPSuppressedByTT uint64
+	RFPCutoffs        uint64
 
-	// Null-move pruning. There is no verification search here, so an attempt
-	// either cuts or falls through; the gap is entirely mate-score rejections.
-	NullMoveAttempts uint64
-	NullMoveCutoffs  uint64
+	// Null-move pruning.
+	NullMoveGateChecks     uint64
+	NullMoveRefinements    uint64
+	NullMoveEnabledByTT    uint64
+	NullMoveSuppressedByTT uint64
+	NullMoveAttempts       uint64
+	NullMoveCutoffs        uint64
 
 	// Razoring. Attempts count the confirming qsearch calls, so the difference
 	// against cutoffs is the verification failure rate.
@@ -64,11 +70,16 @@ type CutStatistics struct {
 	LMRResearched uint64
 
 	// Main move loop.
-	MovesGenerated  uint64
-	MovesSearched   uint64
-	MakeMoveRejects uint64
-	FutilityPrunes  uint64
-	LateMovePrunes  uint64
+	MovesGenerated            uint64
+	MovesSearched             uint64
+	MakeMoveRejects           uint64
+	FutilityPrunes            uint64
+	LateMovePrunes            uint64
+	SEENoisyAttempts          uint64
+	SEENoisyPrunes            uint64
+	SEEQuietAttempts          uint64
+	SEEQuietPrunes            uint64
+	SEEQuietPriorityProtected uint64
 
 	// Beta cutoffs, bucketed by how many legal moves had been searched when the
 	// cutoff landed. Index 0 is the first move, index 3 is the fourth or later.
@@ -117,10 +128,14 @@ func dumpCutStats() {
 	fmt.Printf("info string   QTT: %d probes, %d hits (%s), %d cutoffs (%s of hits)\n",
 		c.QTTProbes, c.QTTHits, pct(c.QTTHits, c.QTTProbes),
 		c.QTTCutoffs, pct(c.QTTCutoffs, c.QTTHits))
-	fmt.Printf("info string   RFP: %d eligible, %d cutoffs (%s)\n",
-		c.RFPEligible, c.RFPCutoffs, pct(c.RFPCutoffs, c.RFPEligible))
-	fmt.Printf("info string   Null move: %d attempts, %d cutoffs (%s)\n",
-		c.NullMoveAttempts, c.NullMoveCutoffs, pct(c.NullMoveCutoffs, c.NullMoveAttempts))
+	fmt.Printf("info string   RFP: %d eligible, %d TT refinements (%s), %d enabled, %d suppressed, %d cutoffs (%s)\n",
+		c.RFPEligible, c.RFPRefinements, pct(c.RFPRefinements, c.RFPEligible),
+		c.RFPEnabledByTT, c.RFPSuppressedByTT,
+		c.RFPCutoffs, pct(c.RFPCutoffs, c.RFPEligible))
+	fmt.Printf("info string   Null move: %d gate checks, %d TT refinements (%s), %d enabled, %d suppressed, %d attempts, %d cutoffs (%s)\n",
+		c.NullMoveGateChecks, c.NullMoveRefinements, pct(c.NullMoveRefinements, c.NullMoveGateChecks),
+		c.NullMoveEnabledByTT, c.NullMoveSuppressedByTT, c.NullMoveAttempts,
+		c.NullMoveCutoffs, pct(c.NullMoveCutoffs, c.NullMoveAttempts))
 	fmt.Printf("info string   Razoring: %d attempts, %d cutoffs (%s)\n",
 		c.RazoringAttempts, c.RazoringCutoffs, pct(c.RazoringCutoffs, c.RazoringAttempts))
 	fmt.Printf("info string   ProbCut: %d nodes, %d moves searched, %d SEE skips, %d verify fails, %d cutoffs (%s of nodes)\n",
@@ -134,6 +149,9 @@ func dumpCutStats() {
 	fmt.Printf("info string   Moves: %d generated, %d searched (%s), %d make rejects\n",
 		c.MovesGenerated, c.MovesSearched, pct(c.MovesSearched, c.MovesGenerated), c.MakeMoveRejects)
 	fmt.Printf("info string   Pruned: %d futility, %d late move\n", c.FutilityPrunes, c.LateMovePrunes)
+	fmt.Printf("info string   SEE pruning: noisy %d attempts, %d pruned (%s); quiet %d attempts, %d pruned (%s), %d priority protected\n",
+		c.SEENoisyAttempts, c.SEENoisyPrunes, pct(c.SEENoisyPrunes, c.SEENoisyAttempts),
+		c.SEEQuietAttempts, c.SEEQuietPrunes, pct(c.SEEQuietPrunes, c.SEEQuietAttempts), c.SEEQuietPriorityProtected)
 	fmt.Printf("info string   Beta cutoffs: %d total | move 1: %d (%s), move 2: %d (%s), move 3: %d (%s), move 4+: %d (%s)\n",
 		c.BetaCutoffs,
 		c.BetaCutoffByMove[0], pct(c.BetaCutoffByMove[0], c.BetaCutoffs),

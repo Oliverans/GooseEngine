@@ -170,6 +170,97 @@ func see(b *gm.Board, move gm.Move, debug bool) int {
 	return gain[0]
 }
 
+func seeGE(b *gm.Board, move gm.Move, threshold int) bool {
+	if gm.IsCapture(move, b) {
+		return see(b, move, false) >= threshold
+	}
+
+	return quietSeeGE(b, move, threshold)
+}
+
+func quietSeeGE(b *gm.Board, move gm.Move, threshold int) bool {
+	from := uint8(move.From())
+	to := uint8(move.To())
+
+	us := colorIndex(b.Wtomove)
+	them := us ^ 1
+
+	var pieces [2]gm.Bitboards
+	pieces[colorWhite] = b.White
+	pieces[colorBlack] = b.Black
+
+	movingPiece := pieceAtSquare(from, &pieces[us])
+	if movingPiece == gm.PieceTypeNone {
+		return 0 >= threshold
+	}
+
+	balance := -threshold
+	if balance < 0 {
+		return false
+	}
+
+	occupied := pieces[colorWhite].All | pieces[colorBlack].All
+	occupied &^= PositionBB[int(from)]
+	occupied |= PositionBB[int(to)]
+
+	diagSliders := pieces[colorWhite].Bishops | pieces[colorWhite].Queens |
+		pieces[colorBlack].Bishops | pieces[colorBlack].Queens
+	orthoSliders := pieces[colorWhite].Rooks | pieces[colorWhite].Queens |
+		pieces[colorBlack].Rooks | pieces[colorBlack].Queens
+
+	attackers := allAttackersTo(to, occupied, &pieces)
+	onSquare := movingPiece
+	side := them
+
+	for {
+		attackers &= occupied
+		sideAttackers := attackers & pieces[side].All
+		if sideAttackers == 0 {
+			return balance >= 0
+		}
+
+		attackerBB, attackerPiece := minAttacker(sideAttackers, pieces[side])
+		if attackerBB == 0 {
+			return balance >= 0
+		}
+
+		promotedTo := attackerPiece
+		captureValue := SeePieceValue[onSquare]
+		if attackerPiece == gm.PieceTypePawn && (to < 8 || to > 55) {
+			promotedTo = gm.PieceTypeQueen
+			captureValue += SeePieceValue[gm.PieceTypeQueen] - SeePieceValue[gm.PieceTypePawn]
+		}
+
+		if side == them {
+			balance -= captureValue
+			if balance >= 0 {
+				return true
+			}
+		} else {
+			balance += captureValue
+			if balance < 0 {
+				return false
+			}
+		}
+
+		occupied &^= attackerBB
+
+		switch attackerPiece {
+		case gm.PieceTypeKnight:
+		case gm.PieceTypePawn, gm.PieceTypeBishop:
+			attackers |= gm.CalculateBishopMoveBitboard(to, occupied) & diagSliders
+		case gm.PieceTypeRook:
+			attackers |= gm.CalculateRookMoveBitboard(to, occupied) & orthoSliders
+		default:
+			attackers |= gm.CalculateBishopMoveBitboard(to, occupied) & diagSliders
+			attackers |= gm.CalculateRookMoveBitboard(to, occupied) & orthoSliders
+		}
+
+		onSquare = promotedTo
+		side ^= 1
+	}
+}
+
 // allAttackersTo builds the attacker set for both colours in a single pass.
 func allAttackersTo(target uint8, occupied uint64, pieces *[2]gm.Bitboards) uint64 {
 	targetBB := PositionBB[int(target)]

@@ -5,8 +5,9 @@ import (
 )
 
 type move struct {
-	move  gm.Move
-	score int32
+	move     gm.Move
+	score    int32
+	seeScore int32
 }
 
 type moveList struct {
@@ -74,16 +75,17 @@ var SortingNormal int
 // 10. Under-promos:     50,000 + piece value
 
 const (
-	scorePVMove         int32 = 2_000_000_000
-	scoreQueenPromo     int32 = 1_000_000
-	scoreWinningCapture int32 = 900_000
-	scoreEqualCapture   int32 = 800_000
-	scoreKiller1        int32 = 700_000
-	scoreKiller2        int32 = 690_000
-	scoreCounterMove    int32 = 600_000
-	scoreQuietBase      int32 = 500_000
-	scoreLosingCapture  int32 = 100_000
-	scoreUnderPromo     int32 = 50_000
+	scorePVMove           int32 = 2_000_000_000
+	scoreQueenPromo       int32 = 1_000_000
+	scoreWinningCapture   int32 = 900_000
+	scoreEqualCapture     int32 = 800_000
+	scoreKiller1          int32 = 700_000
+	scoreKiller2          int32 = 690_000
+	scoreCounterMove      int32 = 600_000
+	scoreQuietBase        int32 = 500_000
+	scoreSEEPruningCutoff int32 = (scoreCounterMove + scoreQuietBase) / 2
+	scoreLosingCapture    int32 = 100_000
+	scoreUnderPromo       int32 = 50_000
 )
 
 const MaxPlyMoveList = 128
@@ -124,7 +126,7 @@ func newMovePicker(board *gm.Board, depth int8, ply int8, ttMove gm.Move, prevMo
 	}
 }
 
-func (p *movePicker) Next() (gm.Move, uint8, bool) {
+func (p *movePicker) Next() (move, uint8, bool) {
 	for {
 		switch p.stage {
 		case movePickerStageTT:
@@ -132,7 +134,7 @@ func (p *movePicker) Next() (gm.Move, uint8, bool) {
 			if p.ttMove != 0 {
 				index := p.moveIndex
 				p.moveIndex++
-				return p.ttMove, index, true
+				return move{move: p.ttMove}, index, true
 			}
 
 		case movePickerStageGenerateTacticals:
@@ -171,11 +173,11 @@ func (p *movePicker) Next() (gm.Move, uint8, bool) {
 			}
 
 			orderNextMove(cursor.index, &cursor.list)
-			move := cursor.list.moves[cursor.index].move
+			entry := cursor.list.moves[cursor.index]
 			cursor.index++
 			index := p.moveIndex
 			p.moveIndex++
-			return move, index, true
+			return entry, index, true
 
 		case movePickerStageGenerateQuiets:
 			if p.skipQuiets {
@@ -222,11 +224,11 @@ func (p *movePicker) Next() (gm.Move, uint8, bool) {
 			}
 
 			orderNextMove(cursor.index, &cursor.list)
-			move := cursor.list.moves[cursor.index].move
+			entry := cursor.list.moves[cursor.index]
 			cursor.index++
 			index := p.moveIndex
 			p.moveIndex++
-			return move, index, true
+			return entry, index, true
 
 		case movePickerStageBadCaptures:
 			cursor := &p.badCaptures
@@ -236,14 +238,14 @@ func (p *movePicker) Next() (gm.Move, uint8, bool) {
 			}
 
 			orderNextMove(cursor.index, &cursor.list)
-			move := cursor.list.moves[cursor.index].move
+			entry := cursor.list.moves[cursor.index]
 			cursor.index++
 			index := p.moveIndex
 			p.moveIndex++
-			return move, index, true
+			return entry, index, true
 
 		default:
-			return 0, 0, false
+			return move{}, 0, false
 		}
 	}
 }
@@ -300,6 +302,7 @@ func scoreMovesListInto(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMo
 	for i := range moves {
 		mv := moves[i]
 		var moveEval int32
+		var negativeSEE int32
 
 		capturedPiece := mv.CapturedPiece()
 		capturedType := capturedPiece.Type()
@@ -354,6 +357,7 @@ func scoreMovesListInto(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMo
 					moveEval = scoreEqualCapture + captureScore
 				} else {
 					moveEval = scoreLosingCapture + captureScore
+					negativeSEE = int32(seeScore)
 				}
 			}
 
@@ -383,6 +387,7 @@ func scoreMovesListInto(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMo
 
 		movesList.moves[i].move = mv
 		movesList.moves[i].score = moveEval
+		movesList.moves[i].seeScore = negativeSEE
 	}
 
 	return movesList
@@ -427,6 +432,7 @@ func scoreMovesListTacticals(moves []gm.Move, ply int8, ttMove gm.Move) (movesLi
 
 			pool[moveIndex].move = mv
 			pool[moveIndex].score = score
+			pool[moveIndex].seeScore = 0
 			moveIndex++
 		}
 	}

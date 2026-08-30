@@ -174,8 +174,8 @@ var PSQT_EG = [7][64]int{
 		-50, -30, -20, -20, -20, -20, -29, -50,
 	},
 }
-var pieceValueMG = [7]int{gm.PieceTypeKing: 0, gm.PieceTypePawn: 84, gm.PieceTypeKnight: 325, gm.PieceTypeBishop: 338, gm.PieceTypeRook: 496, gm.PieceTypeQueen: 951}
-var pieceValueEG = [7]int{gm.PieceTypeKing: 0, gm.PieceTypePawn: 95, gm.PieceTypeKnight: 321, gm.PieceTypeBishop: 340, gm.PieceTypeRook: 548, gm.PieceTypeQueen: 1002}
+var pieceValueMG = [7]int{gm.PieceTypeKing: 0, gm.PieceTypePawn: 75, gm.PieceTypeKnight: 329, gm.PieceTypeBishop: 347, gm.PieceTypeRook: 495, gm.PieceTypeQueen: 1040}
+var pieceValueEG = [7]int{gm.PieceTypeKing: 0, gm.PieceTypePawn: 110, gm.PieceTypeKnight: 340, gm.PieceTypeBishop: 358, gm.PieceTypeRook: 580, gm.PieceTypeQueen: 1120}
 var KnightMobilityMG = [9]int{-26, -9, -4, -1, 1, 5, 10, 17, 20}
 var KnightMobilityEG = [9]int{-50, -20, 5, 20, 27, 32, 33, 28, 22}
 var BishopMobilityMG = [14]int{-17, -7, 2, 7, 12, 15, 15, 15, 17, 19, 23, 26, 28, 29}
@@ -234,8 +234,8 @@ var (
 	BadBishopMG     = -4
 	BadBishopEG     = -16
 
-	BishopPairBonusMG = 25
-	BishopPairBonusEG = 50
+	BishopPairBonusMG = 24
+	BishopPairBonusEG = 90
 
 	CenterKnightMobilityMG = 12
 	CenterKnightMobilityEG = 4
@@ -291,8 +291,8 @@ var (
 
 	// Safety limiter; without this you don't get an attack bonus at all
 	// Also taken from Ethereal, which uses a -74/-26 offset
-	SafetyAdjustmentMG = 0
-	SafetyAdjustmentEG = 0
+	SafetyAdjustmentMG = -76
+	SafetyAdjustmentEG = -26
 
 	// Scale raw king danger to centipawns
 	SafetyMGDivisor = 47

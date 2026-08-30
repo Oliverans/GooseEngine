@@ -5,6 +5,7 @@ package engine
 import (
 	"fmt"
 	"os"
+	"slices"
 	"time"
 
 	gm "chess-engine/goosemg"
@@ -74,6 +75,9 @@ var LMRHistoryBonus = 515
 var LMRHistoryMalus = -100
 var LMPOffset int = 3
 var LMPMaxDepth int8 = 8
+var SEENoisyScale = 100
+var SEEQuietScale = 45
+var SEEPruneMaxDepth int8 = 9
 
 var NullMoveMinDepth int8 = 4
 var NMMarginBase int32 = 210
@@ -206,11 +210,6 @@ func rootsearch(b *gm.Board, depth uint8, depthLimited bool, printSearchInformat
 		for pvIdx := 0; pvIdx < activeMultiPV; pvIdx++ {
 			var alpha, beta int32
 
-			// Aspiration window. Start narrow around the previous iteration's
-			// score; each failure widens by a further doubling of the tuned base
-			// (AspirationWindowSize << failures) and re-searches. Only the bound
-			// that actually failed moves: on a fail high alpha is still a valid
-			// lower bound, so widening it would cost nodes for nothing.
 			delta := AspirationWindowSize
 			failures := 0
 			fullWidth := !(i >= 5 && completed[pvIdx] && prevScores[pvIdx] > -MaxScore)
@@ -468,21 +467,21 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	if !hasStaticEval {
 		rawStaticEval = Evaluation(b, false)
 	}
-	staticScore := rawStaticEval
+	pruningEval := ttCorrectedPruningEval(rawStaticEval, ttScore, ttEntry.Flag)
 	storedStaticEval := rawStaticEval
 
 	if inCheck {
 		SearchState.evalStack[ply] = -MaxScore // We never aggressively prune checks
 		storedStaticEval = -MaxScore
 	} else {
-		SearchState.evalStack[ply] = staticScore
+		SearchState.evalStack[ply] = rawStaticEval
 	}
 
 	// Calculate improving
 	improving := true // Default to true (conservative)
 	if ply >= 2 && !inCheck {
 		if SearchState.evalStack[ply-2] != -MaxScore {
-			improving = staticScore > SearchState.evalStack[ply-2]
+			improving = rawStaticEval > SearchState.evalStack[ply-2]
 		}
 		// If ply-2 was in check, keep improving = true (conservative)
 	}
@@ -499,10 +498,19 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		if improving {
 			rfpMargin -= 50 // More lenient when improving
 		}
-		if staticScore-rfpMargin >= beta {
-			//SearchState.tt.storeEntry(posHash, depth, ply, ttMove, staticScore-rfpMargin, BetaFlag)
+		rawPassesRFP := rawStaticEval-rfpMargin >= beta
+		correctedPassesRFP := pruningEval-rfpMargin >= beta
+		if pruningEval != rawStaticEval {
+			SearchState.cutStats.RFPRefinements++
+		}
+		if !rawPassesRFP && correctedPassesRFP {
+			SearchState.cutStats.RFPEnabledByTT++
+		} else if rawPassesRFP && !correctedPassesRFP {
+			SearchState.cutStats.RFPSuppressedByTT++
+		}
+		if correctedPassesRFP {
 			SearchState.cutStats.RFPCutoffs++
-			return staticScore - rfpMargin
+			return pruningEval - rfpMargin
 		}
 	}
 
@@ -511,24 +519,35 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		If we give the opponent a free move, and we still raise beta even after
 		giving our opponent the free move, we can prune this branch
 	*/
-	var margin int32 = Max32(0, NMMarginBase-NMMarginDepth*int32(depth)) // Margin to only look at positions already risking being beta nodes
-	if !inCheck && !isPVNode && !didNull && sideHasPieces && depth >= NullMoveMinDepth && !isRoot && staticScore >= beta-margin {
-		SearchState.cutStats.NullMoveAttempts++
-		nullState := b.MakeNullMove()
-		SearchState.pushState(b)
-
-		var R = NullMoveReductionBase + depth/NullMoveReductionDepthDivisor
-		score := -alphabeta(b, -beta, -beta+1, depth-1-R, ply+1, &childPVLine, bestMove, true, isExtended, 0, rootIndex)
-
-		b.UnmakeNullMove(nullState)
-		SearchState.popState()
-
-		if score >= beta && score < Checkmate {
-			//SearchState.tt.storeEntry(posHash, depth, ply, 0, score, BetaFlag)
-			SearchState.cutStats.NullMoveCutoffs++
-			return score
+	margin := Max32(0, NMMarginBase-NMMarginDepth*int32(depth))
+	if !inCheck && !isPVNode && !didNull && sideHasPieces && depth >= NullMoveMinDepth && !isRoot {
+		SearchState.cutStats.NullMoveGateChecks++
+		rawAllowsNull := rawStaticEval >= beta-margin
+		correctedAllowsNull := pruningEval >= beta-margin
+		if pruningEval != rawStaticEval {
+			SearchState.cutStats.NullMoveRefinements++
 		}
+		if !rawAllowsNull && correctedAllowsNull {
+			SearchState.cutStats.NullMoveEnabledByTT++
+		} else if rawAllowsNull && !correctedAllowsNull {
+			SearchState.cutStats.NullMoveSuppressedByTT++
+		}
+		if correctedAllowsNull {
+			SearchState.cutStats.NullMoveAttempts++
+			nullState := b.MakeNullMove()
+			SearchState.pushState(b)
 
+			var R = NullMoveReductionBase + depth/NullMoveReductionDepthDivisor
+			score := -alphabeta(b, -beta, -beta+1, depth-1-R, ply+1, &childPVLine, bestMove, true, isExtended, 0, rootIndex)
+
+			b.UnmakeNullMove(nullState)
+			SearchState.popState()
+
+			if score >= beta && score < Checkmate {
+				SearchState.cutStats.NullMoveCutoffs++
+				return score
+			}
+		}
 	}
 	/*
 		====== Razoring ======
@@ -538,7 +557,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	*/
 	if depth <= RazoringMaxDepth && !isPVNode && !inCheck && !isRoot {
 		razorMargin := RazoringScale * int32(depth)
-		if staticScore+razorMargin < alpha {
+		if rawStaticEval+razorMargin < alpha {
 			SearchState.cutStats.RazoringAttempts++
 			score := quiescence(b, alpha, beta, &childPVLine, 30, ply, rootIndex)
 			if score < alpha {
@@ -659,23 +678,18 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	quietMovesTried := make([]gm.Move, 0, 16)
 
 	for {
-		move, index, hasMove := picker.Next()
+		picked, index, hasMove := picker.Next()
 		if !hasMove {
 			break
 		}
+		move := picked.move
 
 		if move == excludedMove {
 			continue
 		}
 
 		if isRoot && len(SearchState.rootExcludedMoves) > 0 {
-			skip := false
-			for _, ex := range SearchState.rootExcludedMoves {
-				if ex == move {
-					skip = true
-					break
-				}
-			}
+			skip := slices.Contains(SearchState.rootExcludedMoves, move)
 			if skip {
 				continue
 			}
@@ -723,9 +737,34 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			if !improving {
 				futilityMargin -= 50
 			}
-			if staticScore+futilityMargin <= alpha {
+			if rawStaticEval+futilityMargin <= alpha {
 				SearchState.cutStats.FutilityPrunes++
 				continue
+			}
+		}
+
+		if seePruningEligible(isPVNode, isRoot, inCheck, depth, legalMoves, bestScore, alpha, move, ttMove) {
+			kind := seePruningMoveKind(move, isCapture, isQuiet)
+			if seePruningLowPriority(picked.score) {
+				switch kind {
+				case seePruningNoisy:
+					if picked.seeScore < 0 {
+						SearchState.cutStats.SEENoisyAttempts++
+						if noisySEEPruned(picked.seeScore, depth) {
+							SearchState.cutStats.SEENoisyPrunes++
+							continue
+						}
+					}
+				case seePruningQuiet:
+					SearchState.cutStats.SEEQuietAttempts++
+					threshold := -SEEQuietScale * int(depth)
+					if !quietSeeGE(b, move, threshold) {
+						SearchState.cutStats.SEEQuietPrunes++
+						continue
+					}
+				}
+			} else if kind == seePruningQuiet {
+				SearchState.cutStats.SEEQuietPriorityProtected++
 			}
 		}
 
@@ -1024,4 +1063,59 @@ func calculateSearchDepth(baseDepth int8, reduction int8, extendMove bool) int8 
 		depth++
 	}
 	return depth
+}
+
+func ttCorrectedPruningEval(rawEval, ttScore int32, flag int8) int32 {
+	if ttScore == UnusableScore {
+		return rawEval
+	}
+
+	switch ttBound(flag) {
+	case ExactFlag:
+		return ttScore
+	case BetaFlag:
+		if ttScore > rawEval {
+			return ttScore
+		}
+	case AlphaFlag:
+		if ttScore < rawEval {
+			return ttScore
+		}
+	}
+
+	return rawEval
+}
+
+const (
+	seePruningNone uint8 = iota
+	seePruningNoisy
+	seePruningQuiet
+)
+
+func seePruningEligible(isPVNode, isRoot, inCheck bool, depth int8, legalMoves int, bestScore, alpha int32, move, ttMove gm.Move) bool {
+	return !isPVNode && !isRoot && !inCheck &&
+		depth >= 1 && depth <= SEEPruneMaxDepth &&
+		legalMoves >= 1 && bestScore > -Checkmate &&
+		abs32(alpha) < Checkmate && move != ttMove
+}
+
+func seePruningMoveKind(move gm.Move, isCapture, isQuiet bool) uint8 {
+	if move.PromotionPieceType() != gm.PieceTypeNone || move.Flags() == gm.FlagCastle {
+		return seePruningNone
+	}
+	if isCapture {
+		return seePruningNoisy
+	}
+	if isQuiet && move.MovedPiece().Type() != gm.PieceTypeKing {
+		return seePruningQuiet
+	}
+	return seePruningNone
+}
+
+func seePruningLowPriority(score int32) bool {
+	return score < scoreSEEPruningCutoff
+}
+
+func noisySEEPruned(score int32, depth int8) bool {
+	return score < -int32(SEENoisyScale)*int32(depth)*int32(depth)
 }

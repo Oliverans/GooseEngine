@@ -25,7 +25,8 @@ func TestMovePickerTTIsGenerationFree(t *testing.T) {
 	}
 
 	picker := newMovePicker(b, 5, 0, ttMove, 0)
-	move, index, ok := picker.Next()
+	picked, index, ok := picker.Next()
+	move := picked.move
 	if !ok || move != ttMove || index != 0 {
 		t.Fatalf("got move=%s index=%d ok=%v", move.String(), index, ok)
 	}
@@ -43,7 +44,8 @@ func TestMovePickerGeneratesTacticalsBeforeQuiets(t *testing.T) {
 	}
 
 	picker := newMovePicker(b, 5, 0, 0, 0)
-	move, index, ok := picker.Next()
+	picked, index, ok := picker.Next()
+	move := picked.move
 	if !ok || move.PromotionPieceType() != gm.PieceTypeQueen || index != 0 {
 		t.Fatalf("got move=%s index=%d ok=%v", move.String(), index, ok)
 	}
@@ -69,10 +71,11 @@ func TestMovePickerMatchesLegalMoves(t *testing.T) {
 	got := make(map[gm.Move]bool)
 	underPromotionSeen := false
 	for expectedIndex := uint8(0); ; expectedIndex++ {
-		move, index, ok := picker.Next()
+		picked, index, ok := picker.Next()
 		if !ok {
 			break
 		}
+		move := picked.move
 		if index != expectedIndex {
 			t.Fatalf("move %s: got index %d want %d", move.String(), index, expectedIndex)
 		}
@@ -96,6 +99,61 @@ func TestMovePickerMatchesLegalMoves(t *testing.T) {
 		if !got[move] {
 			t.Fatalf("missing move %s", move.String())
 		}
+	}
+}
+
+func TestMovePickerCarriesNegativeCaptureSEE(t *testing.T) {
+	ResetForNewGame()
+	InitPositionBB()
+	b := gm.ParseFen("4k3/8/2p5/3p4/8/8/8/3QK3 w - - 0 1")
+
+	picker := newMovePicker(&b, 5, 0, 0, 0)
+	for {
+		picked, _, ok := picker.Next()
+		if !ok {
+			t.Fatal("missing d1d5")
+		}
+		if picked.move.String() == "d1d5" {
+			if picked.seeScore != -800 {
+				t.Fatalf("SEE = %d, want -800", picked.seeScore)
+			}
+			return
+		}
+	}
+}
+
+func TestMovePickerCarriesPriorityScores(t *testing.T) {
+	ResetForNewGame()
+	b := gm.ParseFen(gm.FENStartPos)
+	killer := seeTestMove(t, &b, "g1f3")
+	counter := seeTestMove(t, &b, "b1c3")
+	prevMove := gm.NewMove(52, 36, gm.BlackPawn, gm.NoPiece, gm.NoPiece, gm.FlagNone)
+	SearchState.killer.KillerMoves[0][0] = killer
+	SearchState.counterMoves[0][prevMove.From()][prevMove.To()] = counter
+
+	found := 0
+	picker := newMovePicker(&b, 1, 0, 0, prevMove)
+	for {
+		picked, _, ok := picker.Next()
+		if !ok {
+			break
+		}
+		switch picked.move {
+		case killer:
+			if picked.score != scoreKiller1 || seePruningLowPriority(picked.score) {
+				t.Fatalf("killer score = %d", picked.score)
+			}
+			found++
+		case counter:
+			if picked.score != scoreCounterMove || seePruningLowPriority(picked.score) {
+				t.Fatalf("counter score = %d", picked.score)
+			}
+			found++
+		}
+	}
+
+	if found != 2 {
+		t.Fatalf("found %d priority moves, want 2", found)
 	}
 }
 
