@@ -43,14 +43,6 @@ func main() {
 		}()
 	}
 
-	// This mimics "go depth N" in your UCI:
-	// timeToUse defaults to 250000 ms (no wtime/btime given).
-	timeToUseMs := 250000
-	incMs := 0
-	useCustomDepth := true
-	evalOnly := false
-	moveOrderingOnly := false
-
 	// FEN selection
 	fen := gm.Startpos
 	if *fenFlag != "" {
@@ -75,13 +67,9 @@ func main() {
 		iterStart := time.Now()
 		bestMove := engine.StartSearch(
 			&board,
-			uint8(depth),
-			timeToUseMs,
-			incMs,
-			0,
-			useCustomDepth,
-			evalOnly,
-			moveOrderingOnly,
+			engine.SearchLimits{Depth: uint8(depth)},
+			false,
+			false,
 			false,
 		)
 		iterElapsed := time.Since(iterStart)
