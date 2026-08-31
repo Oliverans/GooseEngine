@@ -58,28 +58,64 @@ type CutStatistics struct {
 	ProbCutVerifyFails   uint64
 	ProbCutCutoffs       uint64
 
-	// Singular extensions and IID. Both run a full extra search per attempt, so
-	// the hit rate is what justifies the cost.
 	SingularAttempts uint64
 	SingularHits     uint64
-	IIDCalls         uint64
+	IIRReductions    uint64
 
-	// Late move reductions. The re-search rate is the tuning signal: too high
-	// and the reductions are too aggressive, too low and they are too timid.
-	LMRReduced    uint64
-	LMRResearched uint64
+	LMREligible                uint64
+	LMRReduced                 uint64
+	LMRQuietEligible           uint64
+	LMRQuietReduced            uint64
+	LMRNoisyEligible           uint64
+	LMRNoisyReduced            uint64
+	LMRCheckEligible           uint64
+	LMRCheckReduced            uint64
+	LMRCutnodeAdjustments      uint64
+	LMRTTPvAdjustments         uint64
+	LMRBadCaptureAdjustments   uint64
+	LMRResearched              uint64
+	LMRResearchDeeper          uint64
+	LMRResearchNominal         uint64
+	LMRResearchShallower       uint64
+	LMRContHistBonuses         uint64
+	LMRContHistMaluses         uint64
+	LMRCaptureHistoryPositive  uint64
+	LMRCaptureHistoryNegative  uint64
+	LMRCaptureHistoryZero      uint64
+	LMRCaptureHistoryDeeper    uint64
+	LMRCaptureHistoryUnchanged uint64
+	LMRCaptureHistoryShallower uint64
+
+	CaptureHistoryRewards          uint64
+	CaptureHistoryPenalties        uint64
+	CaptureHistoryMainCutoffs      uint64
+	CaptureHistoryMainCutoffByMove [4]uint64
+	CaptureHistoryQCutoffs         uint64
+	CaptureHistoryQCutoffByMove    [4]uint64
+	CaptureHistoryProbCutCutoffs   uint64
+	CaptureHistoryProbCutByMove    [4]uint64
 
 	// Main move loop.
-	MovesGenerated            uint64
-	MovesSearched             uint64
-	MakeMoveRejects           uint64
-	FutilityPrunes            uint64
-	LateMovePrunes            uint64
-	SEENoisyAttempts          uint64
-	SEENoisyPrunes            uint64
-	SEEQuietAttempts          uint64
-	SEEQuietPrunes            uint64
-	SEEQuietPriorityProtected uint64
+	MovesGenerated                    uint64
+	MovesSearched                     uint64
+	MakeMoveRejects                   uint64
+	FutilityPrunes                    uint64
+	LateMovePrunes                    uint64
+	SEENoisyAttempts                  uint64
+	SEENoisyPrunes                    uint64
+	SEENoisyHistoryRefinements        uint64
+	SEENoisyHistoryEnabled            uint64
+	SEENoisyHistorySuppressed         uint64
+	SEENoisyHistoryUnchanged          uint64
+	SEEQuietAttempts                  uint64
+	SEEQuietPrunes                    uint64
+	SEEQuietPriorityProtected         uint64
+	CaptureFutilityAttempts           uint64
+	CaptureFutilityPrunes             uint64
+	CaptureFutilityHistoryRefinements uint64
+	CaptureFutilityHistoryEnabled     uint64
+	CaptureFutilityHistorySuppressed  uint64
+	CaptureFutilityHistoryUnchanged   uint64
 
 	// Beta cutoffs, bucketed by how many legal moves had been searched when the
 	// cutoff landed. Index 0 is the first move, index 3 is the fourth or later.
@@ -113,6 +149,12 @@ func pct(part, whole uint64) string {
 	return fmt.Sprintf("%.1f%%", float64(part)*100/float64(whole))
 }
 
+func recordCutoffOrdinal(buckets *[4]uint64, ordinal int) {
+	if ordinal > 0 {
+		buckets[Min(ordinal, 4)-1]++
+	}
+}
+
 func dumpCutStats() {
 	c := SearchState.cutStats
 	total := uint64(SearchState.nodesChecked)
@@ -143,15 +185,56 @@ func dumpCutStats() {
 		c.ProbCutVerifyFails, c.ProbCutCutoffs, pct(c.ProbCutCutoffs, c.ProbCutAttempts))
 	fmt.Printf("info string   Singular: %d attempts, %d extensions (%s)\n",
 		c.SingularAttempts, c.SingularHits, pct(c.SingularHits, c.SingularAttempts))
-	fmt.Printf("info string   IID: %d calls\n", c.IIDCalls)
-	fmt.Printf("info string   LMR: %d reduced, %d re-searched (%s)\n",
-		c.LMRReduced, c.LMRResearched, pct(c.LMRResearched, c.LMRReduced))
+	fmt.Printf("info string   IIR: %d reductions (%s of main nodes)\n",
+		c.IIRReductions, pct(c.IIRReductions, mainNodes))
+	fmt.Printf("info string   LMR: %d eligible, %d reduced (%s), %d re-searched (%s of reduced)\n",
+		c.LMREligible, c.LMRReduced, pct(c.LMRReduced, c.LMREligible),
+		c.LMRResearched, pct(c.LMRResearched, c.LMRReduced))
+	fmt.Printf("info string   LMR classes: quiet %d/%d reduced (%s), noisy %d/%d (%s), checking %d/%d (%s)\n",
+		c.LMRQuietReduced, c.LMRQuietEligible, pct(c.LMRQuietReduced, c.LMRQuietEligible),
+		c.LMRNoisyReduced, c.LMRNoisyEligible, pct(c.LMRNoisyReduced, c.LMRNoisyEligible),
+		c.LMRCheckReduced, c.LMRCheckEligible, pct(c.LMRCheckReduced, c.LMRCheckEligible))
+	fmt.Printf("info string   LMR modifiers: %d cutnode, %d non-ttPv, %d bad capture\n",
+		c.LMRCutnodeAdjustments, c.LMRTTPvAdjustments, c.LMRBadCaptureAdjustments)
+	fmt.Printf("info string   LMR re-search: %d deeper, %d nominal, %d shallower; conthist %d bonuses, %d maluses\n",
+		c.LMRResearchDeeper, c.LMRResearchNominal, c.LMRResearchShallower,
+		c.LMRContHistBonuses, c.LMRContHistMaluses)
+	fmt.Printf("info string   LMR capture history: %d positive, %d negative, %d zero; %d deeper, %d unchanged, %d shallower\n",
+		c.LMRCaptureHistoryPositive, c.LMRCaptureHistoryNegative, c.LMRCaptureHistoryZero,
+		c.LMRCaptureHistoryDeeper, c.LMRCaptureHistoryUnchanged, c.LMRCaptureHistoryShallower)
+	fmt.Printf("info string   Capture history: %d rewards, %d penalties\n",
+		c.CaptureHistoryRewards, c.CaptureHistoryPenalties)
+	fmt.Printf("info string   Capture ordering main: %d cutoffs | move 1: %d (%s), move 2: %d (%s), move 3: %d (%s), move 4+: %d (%s)\n",
+		c.CaptureHistoryMainCutoffs,
+		c.CaptureHistoryMainCutoffByMove[0], pct(c.CaptureHistoryMainCutoffByMove[0], c.CaptureHistoryMainCutoffs),
+		c.CaptureHistoryMainCutoffByMove[1], pct(c.CaptureHistoryMainCutoffByMove[1], c.CaptureHistoryMainCutoffs),
+		c.CaptureHistoryMainCutoffByMove[2], pct(c.CaptureHistoryMainCutoffByMove[2], c.CaptureHistoryMainCutoffs),
+		c.CaptureHistoryMainCutoffByMove[3], pct(c.CaptureHistoryMainCutoffByMove[3], c.CaptureHistoryMainCutoffs))
+	fmt.Printf("info string   Capture ordering qsearch: %d cutoffs | move 1: %d (%s), move 2: %d (%s), move 3: %d (%s), move 4+: %d (%s)\n",
+		c.CaptureHistoryQCutoffs,
+		c.CaptureHistoryQCutoffByMove[0], pct(c.CaptureHistoryQCutoffByMove[0], c.CaptureHistoryQCutoffs),
+		c.CaptureHistoryQCutoffByMove[1], pct(c.CaptureHistoryQCutoffByMove[1], c.CaptureHistoryQCutoffs),
+		c.CaptureHistoryQCutoffByMove[2], pct(c.CaptureHistoryQCutoffByMove[2], c.CaptureHistoryQCutoffs),
+		c.CaptureHistoryQCutoffByMove[3], pct(c.CaptureHistoryQCutoffByMove[3], c.CaptureHistoryQCutoffs))
+	fmt.Printf("info string   Capture ordering ProbCut: %d cutoffs | move 1: %d (%s), move 2: %d (%s), move 3: %d (%s), move 4+: %d (%s)\n",
+		c.CaptureHistoryProbCutCutoffs,
+		c.CaptureHistoryProbCutByMove[0], pct(c.CaptureHistoryProbCutByMove[0], c.CaptureHistoryProbCutCutoffs),
+		c.CaptureHistoryProbCutByMove[1], pct(c.CaptureHistoryProbCutByMove[1], c.CaptureHistoryProbCutCutoffs),
+		c.CaptureHistoryProbCutByMove[2], pct(c.CaptureHistoryProbCutByMove[2], c.CaptureHistoryProbCutCutoffs),
+		c.CaptureHistoryProbCutByMove[3], pct(c.CaptureHistoryProbCutByMove[3], c.CaptureHistoryProbCutCutoffs))
 	fmt.Printf("info string   Moves: %d generated, %d searched (%s), %d make rejects\n",
 		c.MovesGenerated, c.MovesSearched, pct(c.MovesSearched, c.MovesGenerated), c.MakeMoveRejects)
 	fmt.Printf("info string   Pruned: %d futility, %d late move\n", c.FutilityPrunes, c.LateMovePrunes)
 	fmt.Printf("info string   SEE pruning: noisy %d attempts, %d pruned (%s); quiet %d attempts, %d pruned (%s), %d priority protected\n",
 		c.SEENoisyAttempts, c.SEENoisyPrunes, pct(c.SEENoisyPrunes, c.SEENoisyAttempts),
 		c.SEEQuietAttempts, c.SEEQuietPrunes, pct(c.SEEQuietPrunes, c.SEEQuietAttempts), c.SEEQuietPriorityProtected)
+	fmt.Printf("info string   SEE noisy history: %d refinements (%s of noisy attempts), %d enabled, %d suppressed, %d unchanged\n",
+		c.SEENoisyHistoryRefinements, pct(c.SEENoisyHistoryRefinements, c.SEENoisyAttempts),
+		c.SEENoisyHistoryEnabled, c.SEENoisyHistorySuppressed, c.SEENoisyHistoryUnchanged)
+	fmt.Printf("info string   Capture futility: %d attempts, %d pruned (%s); %d history refinements (%s), %d enabled, %d suppressed, %d unchanged\n",
+		c.CaptureFutilityAttempts, c.CaptureFutilityPrunes, pct(c.CaptureFutilityPrunes, c.CaptureFutilityAttempts),
+		c.CaptureFutilityHistoryRefinements, pct(c.CaptureFutilityHistoryRefinements, c.CaptureFutilityAttempts),
+		c.CaptureFutilityHistoryEnabled, c.CaptureFutilityHistorySuppressed, c.CaptureFutilityHistoryUnchanged)
 	fmt.Printf("info string   Beta cutoffs: %d total | move 1: %d (%s), move 2: %d (%s), move 3: %d (%s), move 4+: %d (%s)\n",
 		c.BetaCutoffs,
 		c.BetaCutoffByMove[0], pct(c.BetaCutoffByMove[0], c.BetaCutoffs),

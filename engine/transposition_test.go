@@ -63,6 +63,18 @@ func TestTTFlagEncoding(t *testing.T) {
 	}
 }
 
+func TestNodeTTPv(t *testing.T) {
+	if !nodeTTPv(true, false, AlphaFlag) {
+		t.Fatal("PV node did not set ttPv")
+	}
+	if !nodeTTPv(false, true, makeTTFlag(BetaFlag, true)) {
+		t.Fatal("probed ttPv was not inherited")
+	}
+	if nodeTTPv(false, true, BetaFlag) || nodeTTPv(false, false, makeTTFlag(BetaFlag, true)) {
+		t.Fatal("ttPv was set without a PV node or matching TT hit")
+	}
+}
+
 func TestTTScoreRoundTrip(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -155,6 +167,18 @@ func TestTTShallowStoreFillsMissingStaticEval(t *testing.T) {
 	}
 	if eval, ok := ttStaticEval(entry, true); !ok || eval != 44 {
 		t.Fatalf("static eval = (%d, %v), want (44, true)", eval, ok)
+	}
+}
+
+func TestTTShallowStoreSetsTTPv(t *testing.T) {
+	tt := newTestTT()
+	hash := uint64(0x12345678) << 32
+	tt.storeEntry(hash, 8, 0, 1, 120, 30, ExactFlag, false)
+	tt.storeEntry(hash, 0, 0, 2, 20, 30, AlphaFlag, true)
+
+	entry, found := tt.ProbeEntry(hash)
+	if !found || !ttPV(entry.Flag) || ttBound(entry.Flag) != ExactFlag || entry.Depth != 8 {
+		t.Fatalf("shallow ttPv store changed deeper entry incorrectly: %+v", *entry)
 	}
 }
 

@@ -174,7 +174,7 @@ func TestStagedPickerTerminalScores(t *testing.T) {
 		}
 
 		var pv PVLine
-		got := alphabeta(b, -MaxScore, MaxScore, 1, 0, &pv, 0, false, false, 0, -1)
+		got := alphabeta(b, -MaxScore, MaxScore, 1, 0, &pv, 0, false, false, 0, false, -1)
 		if got != test.want {
 			t.Fatalf("%s: got %d want %d", test.fen, got, test.want)
 		}

@@ -64,7 +64,7 @@ func TestTTCorrectionSuppressesRFPAndKeepsRawEval(t *testing.T) {
 	SearchState.tt.storeEntry(b.Hash(), 1, 0, 0, 10, rawEval, AlphaFlag, false)
 
 	var pv PVLine
-	alphabeta(&b, 0, 1, 1, 1, &pv, 0, false, false, 0, 0)
+	alphabeta(&b, 0, 1, 1, 1, &pv, 0, false, false, 0, false, 0)
 
 	if SearchState.cutStats.RFPEligible != 1 || SearchState.cutStats.RFPRefinements != 1 || SearchState.cutStats.RFPSuppressedByTT != 1 || SearchState.cutStats.RFPEnabledByTT != 0 {
 		t.Fatalf("RFP eligible/refinement/suppression/enable = %d/%d/%d/%d, want 1/1/1/0",
@@ -97,10 +97,11 @@ func TestTTCorrectionEnablesNullMove(t *testing.T) {
 	tt := newTestTT()
 	prepareAlphaBetaTest(t, &b, tt)
 
-	SearchState.tt.storeEntry(b.Hash(), 4, 0, 0, 0, -100, BetaFlag, false)
+	ttMove := b.GenerateLegalMoves()[0]
+	SearchState.tt.storeEntry(b.Hash(), 4, 0, ttMove, 0, -100, BetaFlag, false)
 
 	var pv PVLine
-	alphabeta(&b, 99, 100, 4, 1, &pv, 0, false, false, 0, 0)
+	alphabeta(&b, 99, 100, 4, 1, &pv, 0, false, false, 0, false, 0)
 
 	if SearchState.cutStats.NullMoveGateChecks != 1 || SearchState.cutStats.NullMoveRefinements != 1 {
 		t.Fatalf("null gate checks/refinements = %d/%d, want 1/1",

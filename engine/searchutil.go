@@ -22,6 +22,8 @@ const MaxDepth int8 = 100
 var LMR = [MaxDepth + 1][100]int16{}
 var historyMaxVal = 8000 // Cap to prevent overflow, triggers aging
 
+const captureHistoryMax = 8000
+
 // To keep track of 3-fold repetition and/or 50 move draw
 // (legacy: kept for UCI position tracking helpers)
 // TBD: Replace and fold properly into SearchStack
@@ -239,8 +241,9 @@ type searchState struct {
 	moveStack [MaxDepth + 4]gm.Move
 
 	// Continuation history tables (1-ply and 2-ply)
-	contHist1Ply [2][6][64][6][64]int16
-	contHist2Ply [2][6][64][6][64]int16
+	contHist1Ply   [2][6][64][6][64]int16
+	contHist2Ply   [2][6][64][6][64]int16
+	captureHistory [15][64][6]int16
 
 	// Root moves to skip in the current search pass (multi-PV).
 	// Only consulted at the root node (ply == 0).
@@ -329,8 +332,9 @@ func (s *searchState) UpdateBetweenSearches() {
 }
 
 func UpdateBetweenSearches() {
-	HistoryAge()        // Age history
-	ContHistAge()       // Age continuation history
+	HistoryAge()  // Age history
+	ContHistAge() // Age continuation history
+	captureHistoryAge()
 	ResetNodesChecked() // Reset nodes checked
 	ResetCutStats()     // Reset cut statistics
 	SearchState.tt.NewSearch()
@@ -343,6 +347,7 @@ func ResetForNewGame() {
 	ClearKillers(&SearchState.killer)
 	HistoryClear()
 	ContHistClear()
+	captureHistoryClear()
 	SearchState.stateStack = SearchState.stateStack[:0]
 	var nilMove gm.Move
 	for i := 0; i < 64; i++ {
@@ -451,6 +456,77 @@ func HistoryClear() {
 	}
 }
 
+func captureHistoryIndex(move gm.Move) (int, int, int, bool) {
+	if move == 0 || move.PromotionPieceType() != gm.PieceTypeNone {
+		return 0, 0, 0, false
+	}
+
+	movingPiece := int(move.MovedPiece())
+	if movingPiece <= 0 || movingPiece >= len(SearchState.captureHistory) {
+		return 0, 0, 0, false
+	}
+
+	capturedType := move.CapturedPiece().Type()
+	if move.Flags() == gm.FlagEnPassant {
+		capturedType = gm.PieceTypePawn
+	}
+	if capturedType < gm.PieceTypePawn || capturedType > gm.PieceTypeKing {
+		return 0, 0, 0, false
+	}
+
+	return movingPiece, int(move.To()), int(capturedType - 1), true
+}
+
+func captureHistoryScore(move gm.Move) int {
+	piece, to, captured, ok := captureHistoryIndex(move)
+	if !ok {
+		return 0
+	}
+	return int(SearchState.captureHistory[piece][to][captured])
+}
+
+func isCaptureHistoryMove(move gm.Move) bool {
+	_, _, _, ok := captureHistoryIndex(move)
+	return ok
+}
+
+func captureHistoryUpdate(move gm.Move, bonus int) bool {
+	piece, to, captured, ok := captureHistoryIndex(move)
+	if !ok {
+		return false
+	}
+
+	bonus = Max(-captureHistoryMax, Min(bonus, captureHistoryMax))
+	absBonus := bonus
+	if absBonus < 0 {
+		absBonus = -absBonus
+	}
+
+	current := int(SearchState.captureHistory[piece][to][captured])
+	current += bonus - current*absBonus/captureHistoryMax
+	current = Max(-captureHistoryMax, Min(current, captureHistoryMax))
+	SearchState.captureHistory[piece][to][captured] = int16(current)
+	return true
+}
+
+func captureHistoryBonus(depth int8) int {
+	return int(depth) * int(depth)
+}
+
+func captureHistoryAge() {
+	for piece := range SearchState.captureHistory {
+		for to := range SearchState.captureHistory[piece] {
+			for captured := range SearchState.captureHistory[piece][to] {
+				SearchState.captureHistory[piece][to][captured] /= 2
+			}
+		}
+	}
+}
+
+func captureHistoryClear() {
+	SearchState.captureHistory = [15][64][6]int16{}
+}
+
 // =============================================================================
 // COMBINED HISTORY UPDATE (call on beta cutoff for quiet moves)
 // =============================================================================
@@ -492,10 +568,18 @@ func HistoryUpdateAllBad(sideToMove bool, move gm.Move, ply int8, depth int8) {
 // LMR REDUCTIONS
 // =============================================================================
 
-func computeLMRReduction(depth int8, legalMoves int, moveIdx int, isPVNode bool, tactical bool,
-	historyScore int, improving bool, isKiller bool, extendMove bool) int8 {
-	if tactical || depth < 2 {
-		return 0
+func lmrEligible(depth int8, legalMoves int, isPromotion bool) bool {
+	return depth >= LMRDepthLimit && legalMoves >= LMRMoveLimit && !isPromotion
+}
+
+func lmrBadCapture(isCapture bool, seeScore int32) bool {
+	return isCapture && seeScore < 0
+}
+
+func computeLMRReduction(depth int8, legalMoves int, isPVNode, cutnode, ttPv, isCapture, badCapture, moveGivesCheck bool,
+	historyScore, captureHistoryScore int, improving bool, isKiller bool, extendMove bool) (int8, int8) {
+	if depth < 2 {
+		return 0, 0
 	}
 
 	d := Max(1, Min(int(depth), int(MaxDepth)))
@@ -511,16 +595,32 @@ func computeLMRReduction(depth int8, legalMoves int, moveIdx int, isPVNode bool,
 	if isPVNode {
 		r -= 100
 	}
-
-	if historyScore > LMRHistoryBonus {
-		r -= 50
+	if cutnode {
+		r += LMRCutnode
 	}
-	if historyScore > LMRHistoryBonus*2 {
-		r -= 50
+	if !ttPv {
+		r += LMRTTPv
+	}
+	if isCapture {
+		r += LMRNoisyOffset
+		if badCapture {
+			r += 100
+		}
+	}
+	if moveGivesCheck {
+		r += LMRCheckBonus
 	}
 
-	if historyScore < LMRHistoryMalus {
-		r += 100
+	if !isCapture {
+		if historyScore > LMRHistoryBonus {
+			r -= 50
+		}
+		if historyScore > LMRHistoryBonus*2 {
+			r -= 50
+		}
+		if historyScore < LMRHistoryMalus {
+			r += 100
+		}
 	}
 
 	if legalMoves > 10 && !isPVNode {
@@ -539,7 +639,7 @@ func computeLMRReduction(depth int8, legalMoves int, moveIdx int, isPVNode bool,
 		r -= 50
 	}
 
-	if isKiller {
+	if !isCapture && isKiller {
 		r -= 50
 	}
 
@@ -547,16 +647,39 @@ func computeLMRReduction(depth int8, legalMoves int, moveIdx int, isPVNode bool,
 		r -= 50
 	}
 
+	baseReduction := clampLMRReduction(r, depth)
+	if isCapture && LMRCaptureHistoryDivisor > 0 {
+		r -= captureHistoryScore / LMRCaptureHistoryDivisor
+	}
+	return clampLMRReduction(r, depth), baseReduction
+}
+
+func clampLMRReduction(r int, depth int8) int8 {
 	if r < 0 {
 		r = 0
 	}
-
 	reduction := int8(r / 100)
 	if reduction > depth-2 {
 		reduction = depth - 2
 	}
-
 	return reduction
+}
+
+const (
+	lmrResearchShallower int8 = -1
+	lmrResearchNominal   int8 = 0
+	lmrResearchDeeper    int8 = 1
+)
+
+func lmrResearchDepth(depth int8, bestScore, score int32, extendMove bool) (int8, int8) {
+	nextDepth := calculateSearchDepth(depth-1, 0, extendMove)
+	if score > bestScore+LMRDeeperBase+2*int32(depth) {
+		return nextDepth + 1, lmrResearchDeeper
+	}
+	if score < bestScore+int32(depth) && nextDepth > 1 {
+		return nextDepth - 1, lmrResearchShallower
+	}
+	return nextDepth, lmrResearchNominal
 }
 
 // =============================================================================

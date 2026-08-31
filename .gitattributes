@@ -1,0 +1,39 @@
+# Line endings are repo-defined, not machine-defined.
+#
+# `eol=lf` overrides each clone's core.autocrlf / core.eol, so every working
+# tree on every OS holds LF and the index holds LF. No conversion happens in
+# either direction, which is why `git add` stops warning about it.
+#
+# This matters here because the tree is synchronized across machines: with
+# conversion enabled, the same file would be byte-different per OS.
+
+* text=auto eol=lf
+
+# What this repo actually tracks. Listed explicitly so intent survives even if
+# Git's text auto-detection ever guesses wrong on a file.
+*.go    text eol=lf
+*.s     text eol=lf
+*.md    text eol=lf
+*.mod   text eol=lf
+*.sum   text eol=lf
+Makefile text eol=lf
+LICENSE  text eol=lf
+
+# cmd.exe genuinely requires CRLF; batch files are the one deliberate exception.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Never apply any conversion to these, whether or not .gitignore covers them.
+*.exe   binary
+*.dll   binary
+*.so    binary
+*.dylib binary
+*.a     binary
+*.bin   binary
+*.nnue  binary
+*.zip   binary
+*.gz    binary
+*.sqlite binary
+*.png   binary
+*.jpg   binary
+*.pyc   binary

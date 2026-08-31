@@ -73,17 +73,30 @@ var LMRDepthLimit int8 = 2
 var LMRMoveLimit = 2
 var LMRHistoryBonus = 515
 var LMRHistoryMalus = -100
+var LMRCutnode = 100
+var LMRTTPv = 50
+var LMRNoisyOffset = -100
+var LMRCheckBonus = -100
+var LMRDeeperBase int32 = 40
+var LMRCaptureHistoryDivisor = 50
 var LMPOffset int = 3
 var LMPMaxDepth int8 = 8
 var SEENoisyScale = 100
+var SEENoisyHistoryDivisor = 80
 var SEEQuietScale = 45
 var SEEPruneMaxDepth int8 = 9
+var CaptureFutilityBase int32 = 100
+var CaptureFutilityScale int32 = 100
+var CaptureFutilityMaxDepth int8 = 4
+var CaptureFutilityHistoryDivisor = 128
 
 var NullMoveMinDepth int8 = 4
 var NMMarginBase int32 = 210
 var NMMarginDepth int32 = 16
 var NullMoveReductionBase int8 = 3
 var NullMoveReductionDepthDivisor int8 = 4
+
+var IIRMinDepth int8 = 4
 
 var SingularMinDepth int8 = 8
 var SingularTTDepthSlack int8 = 3
@@ -226,7 +239,7 @@ func rootsearch(b *gm.Board, depth uint8, depthLimited bool, printSearchInformat
 				var pvLine PVLine
 
 				startTime := time.Now()
-				score := alphabeta(b, alpha, beta, int8(i), 0, &pvLine, nullMove, false, false, 0, rootIndex)
+				score := alphabeta(b, alpha, beta, int8(i), 0, &pvLine, nullMove, false, false, 0, false, rootIndex)
 				timeSpent += time.Since(startTime).Milliseconds()
 
 				if SearchState.ShouldStopRoot() {
@@ -382,7 +395,7 @@ func rootsearch(b *gm.Board, depth uint8, depthLimited bool, printSearchInformat
 	return int(prevScores[0]), bestMove
 }
 
-func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLine *PVLine, prevMove gm.Move, didNull bool, isExtended bool, excludedMove gm.Move, rootIndex int) int32 {
+func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLine *PVLine, prevMove gm.Move, didNull bool, isExtended bool, excludedMove gm.Move, cutnode bool, rootIndex int) int32 {
 	SearchState.nodesChecked++
 	if ply > SearchState.selDepth {
 		SearchState.selDepth = ply
@@ -434,6 +447,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	*/
 	ttEntry, ttHit := SearchState.tt.ProbeEntry(posHash)
 	usable, ttScore := SearchState.tt.useEntry(ttEntry, posHash, depth, alpha, beta, ply, excludedMove)
+	ttPv := nodeTTPv(isPVNode, ttHit, ttEntry.Flag)
 
 	SearchState.cutStats.TTProbes++
 	if ttHit {
@@ -459,6 +473,11 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 
 	if ttMove != 0 {
 		bestMove = ttMove
+	}
+
+	if reducedDepth, reduced := iirDepth(depth, ttMove, inCheck); reduced {
+		depth = reducedDepth
+		SearchState.cutStats.IIRReductions++
 	}
 
 	var rawStaticEval int32
@@ -538,7 +557,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			SearchState.pushState(b)
 
 			var R = NullMoveReductionBase + depth/NullMoveReductionDepthDivisor
-			score := -alphabeta(b, -beta, -beta+1, depth-1-R, ply+1, &childPVLine, bestMove, true, isExtended, 0, rootIndex)
+			score := -alphabeta(b, -beta, -beta+1, depth-1-R, ply+1, &childPVLine, bestMove, true, isExtended, 0, !cutnode, rootIndex)
 
 			b.UnmakeNullMove(nullState)
 			SearchState.popState()
@@ -586,7 +605,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 				R = depth - 1
 			}
 			var verificationPV PVLine
-			scoreSingular := alphabeta(b, scoreToBeat-1, scoreToBeat, depth-1-R, ply, &verificationPV, prevMove, didNull, true, ttMove, rootIndex)
+			scoreSingular := alphabeta(b, scoreToBeat-1, scoreToBeat, depth-1-R, ply, &verificationPV, prevMove, didNull, true, ttMove, cutnode, rootIndex)
 			if scoreSingular < scoreToBeat {
 				SearchState.cutStats.SingularHits++
 				singularExtension = true
@@ -609,10 +628,12 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		if hasCaptures {
 			SearchState.cutStats.ProbCutAttempts++
 			maxProbCutCaptures := Min(ProbCutMaxCaptures, len(scoredCaptures.moves)) // TEST; most likely we're
+			probCutCaptureOrdinal := 0
 
 			for i := uint8(0); i < uint8(maxProbCutCaptures); i++ {
 				orderNextMove(i, &scoredCaptures)
 				move := scoredCaptures.moves[i].move
+				captureHistoryMove := isCaptureHistoryMove(move)
 
 				if see(b, move, false) < -ProbCutSeeMargin {
 					SearchState.cutStats.ProbCutSeeSkips++
@@ -623,18 +644,25 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 				if !ok {
 					continue
 				}
+				if captureHistoryMove {
+					probCutCaptureOrdinal++
+				}
 				SearchState.pushState(b)
 				SearchState.ContHistPushMove(ply, move)
 				SearchState.cutStats.ProbCutMovesSearched++
 				qScore := -quiescence(b, -probCutBeta, -probCutBeta+1, &childPVLine, 10, ply+1, rootIndex)
 
 				if qScore >= probCutBeta {
-					score := -alphabeta(b, -probCutBeta, -probCutBeta+1, depth-ProbCutReduction, ply+1, &childPVLine, prevMove, didNull, isExtended, excludedMove, rootIndex)
+					score := -alphabeta(b, -probCutBeta, -probCutBeta+1, depth-ProbCutReduction, ply+1, &childPVLine, prevMove, didNull, isExtended, excludedMove, !cutnode, rootIndex)
 					if score >= probCutBeta {
 						b.UnmakeMove(move, moveState)
 						SearchState.popState()
 						//SearchState.tt.storeEntry(posHash, depth, ply, move, score, BetaFlag)
 						SearchState.cutStats.ProbCutCutoffs++
+						if captureHistoryMove {
+							SearchState.cutStats.CaptureHistoryProbCutCutoffs++
+							recordCutoffOrdinal(&SearchState.cutStats.CaptureHistoryProbCutByMove, probCutCaptureOrdinal)
+						}
 						return score
 					}
 					// The taken branch returns, so reaching here means qsearch
@@ -647,28 +675,6 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		}
 	}
 
-	/*
-	   ====== INTERNAL ITERATIVE DEEPENING ======
-	   When we have no TT move at sufficient depth, do a reduced search to find one.
-	   This is much better than searching blind.
-	*/
-	if ttMove == 0 && depth >= 5 && !didNull && !isExtended {
-		reducedDepth := depth - 2
-		if depth >= 8 {
-			reducedDepth = depth - depth/4
-		}
-
-		SearchState.cutStats.IIDCalls++
-		var iidPV PVLine
-		alphabeta(b, alpha, beta, reducedDepth, ply, &iidPV, prevMove, false, true, 0, rootIndex)
-
-		iidEntry, _ := SearchState.tt.ProbeEntry(posHash)
-		if iidEntry.Move != 0 {
-			ttMove = iidEntry.Move
-			bestMove = ttMove
-		}
-	}
-
 	var score int32 = -MaxScore
 	var bestScore int32 = -MaxScore
 	picker := newMovePicker(b, depth, ply, bestMove, prevMove)
@@ -676,9 +682,10 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	legalMoves := 0
 
 	quietMovesTried := make([]gm.Move, 0, 16)
+	captureMovesTried := captureMovesTriedPool[movePickerPoolIndex(ply)][:0]
 
 	for {
-		picked, index, hasMove := picker.Next()
+		picked, _, hasMove := picker.Next()
 		if !hasMove {
 			break
 		}
@@ -702,6 +709,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 
 		isCapture := gm.IsCapture(move, b)
 		isPromotion := move.PromotionPieceType() != gm.PieceTypeNone
+		captureHistoryMove := isCapture && !isPromotion
 		moveGivesCheck := false
 		if !isCapture && !isPromotion {
 			moveGivesCheck = b.GivesCheck(move)
@@ -743,6 +751,29 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			}
 		}
 
+		if captureFutilityEligible(isPVNode, isRoot, inCheck, depth, legalMoves, bestScore, alpha, isCapture, isPromotion) {
+			moveGivesCheck = b.GivesCheck(move)
+			if !moveGivesCheck {
+				SearchState.cutStats.CaptureFutilityAttempts++
+				pruned, basePruned, refined := captureFutilityDecision(rawStaticEval, alpha, depth, captureFutilityVictimValue(move), captureHistoryScore(move))
+				if refined {
+					SearchState.cutStats.CaptureFutilityHistoryRefinements++
+					switch {
+					case !basePruned && pruned:
+						SearchState.cutStats.CaptureFutilityHistoryEnabled++
+					case basePruned && !pruned:
+						SearchState.cutStats.CaptureFutilityHistorySuppressed++
+					default:
+						SearchState.cutStats.CaptureFutilityHistoryUnchanged++
+					}
+				}
+				if pruned {
+					SearchState.cutStats.CaptureFutilityPrunes++
+					continue
+				}
+			}
+		}
+
 		if seePruningEligible(isPVNode, isRoot, inCheck, depth, legalMoves, bestScore, alpha, move, ttMove) {
 			kind := seePruningMoveKind(move, isCapture, isQuiet)
 			if seePruningLowPriority(picked.score) {
@@ -750,7 +781,19 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 				case seePruningNoisy:
 					if picked.seeScore < 0 {
 						SearchState.cutStats.SEENoisyAttempts++
-						if noisySEEPruned(picked.seeScore, depth) {
+						pruned, basePruned, refined := noisySEEPruningDecision(picked.seeScore, depth, captureHistoryScore(move))
+						if refined {
+							SearchState.cutStats.SEENoisyHistoryRefinements++
+							switch {
+							case !basePruned && pruned:
+								SearchState.cutStats.SEENoisyHistoryEnabled++
+							case basePruned && !pruned:
+								SearchState.cutStats.SEENoisyHistorySuppressed++
+							default:
+								SearchState.cutStats.SEENoisyHistoryUnchanged++
+							}
+						}
+						if pruned {
 							SearchState.cutStats.SEENoisyPrunes++
 							continue
 						}
@@ -777,6 +820,9 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			SearchState.cutStats.MakeMoveRejects++
 			continue
 		}
+		if captureHistoryMove {
+			captureMovesTried = append(captureMovesTried, move)
+		}
 		SearchState.pushState(b)
 		SearchState.ContHistPushMove(ply, move)
 
@@ -792,40 +838,111 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 		if legalMoves == 1 {
 			// First move: search with full window, no reduction
 			nextDepth := calculateSearchDepth(depth-1, 0, extendMove)
-			score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, rootIndex)
+			score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, false, rootIndex)
 		} else {
-			moveHistoryScore := HistoryCombinedScore(sideIdx, move, ply)
+			moveHistoryScore := 0
+			if !isCapture {
+				moveHistoryScore = HistoryCombinedScore(sideIdx, move, ply)
+			}
 
 			var reduct int8 = 0
-			if depth >= LMRDepthLimit && legalMoves >= LMRMoveLimit && !moveGivesCheck && !tactical {
-				reduct = computeLMRReduction(
-					depth, legalMoves, int(index), isPVNode, tactical,
-					moveHistoryScore, improving,
+			if lmrEligible(depth, legalMoves, isPromotion) {
+				captureHistoryValue := 0
+				if isCapture {
+					moveGivesCheck = b.OurKingInCheck()
+					captureHistoryValue = captureHistoryScore(move)
+				}
+				badCapture := lmrBadCapture(isCapture, picked.seeScore)
+				SearchState.cutStats.LMREligible++
+				if isCapture {
+					SearchState.cutStats.LMRNoisyEligible++
+				} else {
+					SearchState.cutStats.LMRQuietEligible++
+				}
+				if moveGivesCheck {
+					SearchState.cutStats.LMRCheckEligible++
+				}
+				if cutnode {
+					SearchState.cutStats.LMRCutnodeAdjustments++
+				}
+				if !ttPv {
+					SearchState.cutStats.LMRTTPvAdjustments++
+				}
+				if badCapture {
+					SearchState.cutStats.LMRBadCaptureAdjustments++
+				}
+				var baseReduction int8
+				reduct, baseReduction = computeLMRReduction(
+					depth, legalMoves, isPVNode, cutnode, ttPv, isCapture, badCapture, moveGivesCheck,
+					moveHistoryScore, captureHistoryValue, improving,
 					IsKiller(move, ply, &SearchState.killer), extendMove,
 				)
-				// Nested inside the eligibility test so the extra compare only
-				// runs for LMR candidates, and counts actual reductions rather
-				// than candidacy: computeLMRReduction may still return 0.
+				if isCapture {
+					switch {
+					case captureHistoryValue > 0:
+						SearchState.cutStats.LMRCaptureHistoryPositive++
+					case captureHistoryValue < 0:
+						SearchState.cutStats.LMRCaptureHistoryNegative++
+					default:
+						SearchState.cutStats.LMRCaptureHistoryZero++
+					}
+					switch {
+					case reduct > baseReduction:
+						SearchState.cutStats.LMRCaptureHistoryDeeper++
+					case reduct < baseReduction:
+						SearchState.cutStats.LMRCaptureHistoryShallower++
+					default:
+						SearchState.cutStats.LMRCaptureHistoryUnchanged++
+					}
+				}
 				if reduct > 0 {
 					SearchState.cutStats.LMRReduced++
+					if isCapture {
+						SearchState.cutStats.LMRNoisyReduced++
+					} else {
+						SearchState.cutStats.LMRQuietReduced++
+					}
+					if moveGivesCheck {
+						SearchState.cutStats.LMRCheckReduced++
+					}
 				}
 			}
 
 			// Stage 1: Search with (possibly reduced) depth using null window
 			nextDepth := calculateSearchDepth(depth-1, reduct, extendMove)
-			score = -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, rootIndex)
+			scoutCutnode := isPVNode || !cutnode
+			score = -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, scoutCutnode, rootIndex)
 
 			// Stage 2: If we had a reduction and score beats alpha, re-search at full depth with null window
 			if score > alpha && reduct > 0 {
 				SearchState.cutStats.LMRResearched++
-				nextDepth = calculateSearchDepth(depth-1, 0, extendMove)
-				score = -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, rootIndex)
+				var adjustment int8
+				nextDepth, adjustment = lmrResearchDepth(depth, bestScore, score, extendMove)
+				switch adjustment {
+				case lmrResearchDeeper:
+					SearchState.cutStats.LMRResearchDeeper++
+				case lmrResearchShallower:
+					SearchState.cutStats.LMRResearchShallower++
+				default:
+					SearchState.cutStats.LMRResearchNominal++
+				}
+				score = -alphabeta(b, -(alpha + 1), -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, !scoutCutnode, rootIndex)
+				if isQuiet {
+					prev1Ply, prev2Ply := SearchState.ContHistContext(ply)
+					if score > alpha {
+						ContHistUpdateGood(sideIdx, move, prev1Ply, prev2Ply, depth)
+						SearchState.cutStats.LMRContHistBonuses++
+					} else {
+						ContHistUpdateBad(sideIdx, move, prev1Ply, prev2Ply, depth)
+						SearchState.cutStats.LMRContHistMaluses++
+					}
+				}
 			}
 
 			// Stage 3: If score is within window (alpha, beta), do full window search
 			if score > alpha && score < beta {
 				nextDepth = calculateSearchDepth(depth-1, 0, extendMove)
-				score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, rootIndex)
+				score = -alphabeta(b, -beta, -alpha, nextDepth, ply+1, &childPVLine, move, false, nextExtended, 0, false, rootIndex)
 			}
 		}
 
@@ -843,6 +960,19 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 			// search that produced this score. Bucket 3 absorbs move 4 onward.
 			SearchState.cutStats.BetaCutoffByMove[Min(legalMoves, 4)-1]++
 			nodeBound = BetaFlag
+			if captureHistoryMove {
+				bonus := captureHistoryBonus(depth)
+				if captureHistoryUpdate(move, bonus) {
+					SearchState.cutStats.CaptureHistoryRewards++
+				}
+				SearchState.cutStats.CaptureHistoryMainCutoffs++
+				recordCutoffOrdinal(&SearchState.cutStats.CaptureHistoryMainCutoffByMove, len(captureMovesTried))
+				for _, failedMove := range captureMovesTried[:len(captureMovesTried)-1] {
+					if captureHistoryUpdate(failedMove, -bonus) {
+						SearchState.cutStats.CaptureHistoryPenalties++
+					}
+				}
+			}
 			if isQuiet {
 				InsertKiller(move, ply, &SearchState.killer)
 				HistoryUpdateAllGood(b.Wtomove, move, prevMove, ply, depth)
@@ -863,6 +993,10 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 
 			if isQuiet {
 				HistoryUpdateGood(b.Wtomove, move, depth)
+			} else if captureHistoryMove {
+				if captureHistoryUpdate(move, captureHistoryBonus(depth)) {
+					SearchState.cutStats.CaptureHistoryRewards++
+				}
 			}
 		}
 		childPVLine.Clear()
@@ -879,7 +1013,7 @@ func alphabeta(b *gm.Board, alpha int32, beta int32, depth int8, ply int8, pvLin
 	}
 
 	if !SearchState.ShouldStopNoClock() {
-		SearchState.tt.storeEntry(posHash, depth, ply, bestMove, bestScore, storedStaticEval, nodeBound, false)
+		SearchState.tt.storeEntry(posHash, depth, ply, bestMove, bestScore, storedStaticEval, nodeBound, ttPv)
 	}
 
 	return bestScore
@@ -915,6 +1049,7 @@ func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8
 	posHash := b.Hash()
 	ttEntry, ttHit := SearchState.tt.ProbeEntry(posHash)
 	usable, ttScore := SearchState.tt.useEntry(ttEntry, posHash, 0, alpha, beta, ply, 0)
+	ttPv := nodeTTPv(isPVNode, ttHit, ttEntry.Flag)
 	SearchState.cutStats.QTTProbes++
 	if ttHit {
 		SearchState.cutStats.QTTHits++
@@ -959,7 +1094,7 @@ func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8
 		if standpat >= beta {
 			SearchState.cutStats.QStandPatCutoffs++
 			if !SearchState.ShouldStopNoClock() {
-				SearchState.tt.storeEntry(posHash, 0, ply, 0, standpat, rawStaticEval, BetaFlag, false)
+				SearchState.tt.storeEntry(posHash, 0, ply, 0, standpat, rawStaticEval, BetaFlag, ttPv)
 			}
 			return standpat
 		}
@@ -978,10 +1113,12 @@ func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8
 		moveList, _ = scoreMovesListTacticals(moves, ply, ttMove)
 	}
 	var bestMove gm.Move
+	captureOrdinal := 0
 
 	for index := uint8(0); index < uint8(len(moveList.moves)); index++ {
 		orderNextMove(index, &moveList)
 		move := moveList.moves[index].move
+		captureHistoryMove := isCaptureHistoryMove(move)
 
 		/*
 			====== DELTA PRUNING ======
@@ -1016,6 +1153,9 @@ func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8
 		if !ok {
 			continue
 		}
+		if captureHistoryMove {
+			captureOrdinal++
+		}
 		SearchState.pushState(b)
 		SearchState.ContHistPushMove(ply, move)
 
@@ -1030,9 +1170,13 @@ func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8
 
 		if score >= beta {
 			SearchState.cutStats.QBetaCutoffs++
+			if captureHistoryMove {
+				SearchState.cutStats.CaptureHistoryQCutoffs++
+				recordCutoffOrdinal(&SearchState.cutStats.CaptureHistoryQCutoffByMove, captureOrdinal)
+			}
 			bestMove = move
 			if !SearchState.ShouldStopNoClock() {
-				SearchState.tt.storeEntry(posHash, 0, ply, bestMove, score, rawStaticEval, BetaFlag, false)
+				SearchState.tt.storeEntry(posHash, 0, ply, bestMove, score, rawStaticEval, BetaFlag, ttPv)
 			}
 			return score // Return score, not beta (more accurate)
 		}
@@ -1050,7 +1194,7 @@ func quiescence(b *gm.Board, alpha int32, beta int32, pvLine *PVLine, depth int8
 		nodeBound = ExactFlag
 	}
 	if !SearchState.ShouldStopNoClock() {
-		SearchState.tt.storeEntry(posHash, 0, ply, bestMove, bestScore, rawStaticEval, nodeBound, false)
+		SearchState.tt.storeEntry(posHash, 0, ply, bestMove, bestScore, rawStaticEval, nodeBound, ttPv)
 	}
 
 	return bestScore
@@ -1063,6 +1207,13 @@ func calculateSearchDepth(baseDepth int8, reduction int8, extendMove bool) int8 
 		depth++
 	}
 	return depth
+}
+
+func iirDepth(depth int8, ttMove gm.Move, inCheck bool) (int8, bool) {
+	if depth < IIRMinDepth || ttMove != 0 || inCheck {
+		return depth, false
+	}
+	return depth - 1, true
 }
 
 func ttCorrectedPruningEval(rawEval, ttScore int32, flag int8) int32 {
@@ -1084,6 +1235,10 @@ func ttCorrectedPruningEval(rawEval, ttScore int32, flag int8) int32 {
 	}
 
 	return rawEval
+}
+
+func nodeTTPv(isPVNode, ttHit bool, flag int8) bool {
+	return isPVNode || (ttHit && ttPV(flag))
 }
 
 const (
@@ -1116,6 +1271,39 @@ func seePruningLowPriority(score int32) bool {
 	return score < scoreSEEPruningCutoff
 }
 
-func noisySEEPruned(score int32, depth int8) bool {
-	return score < -int32(SEENoisyScale)*int32(depth)*int32(depth)
+func noisySEEPruningDecision(score int32, depth int8, captureHistory int) (pruned, basePruned, refined bool) {
+	baseThreshold := -int32(SEENoisyScale) * int32(depth) * int32(depth)
+	threshold := baseThreshold
+	if SEENoisyHistoryDivisor > 0 {
+		threshold -= int32(captureHistory / SEENoisyHistoryDivisor)
+	}
+	return score < threshold, score < baseThreshold, threshold != baseThreshold
+}
+
+func captureFutilityEligible(isPVNode, isRoot, inCheck bool, depth int8, legalMoves int, bestScore, alpha int32, isCapture, isPromotion bool) bool {
+	return !isPVNode && !isRoot && !inCheck && isCapture && !isPromotion &&
+		depth >= 1 && depth <= CaptureFutilityMaxDepth && legalMoves >= 1 &&
+		bestScore > -Checkmate && abs32(alpha) < Checkmate
+}
+
+func captureFutilityVictimValue(move gm.Move) int32 {
+	captured := move.CapturedPiece().Type()
+	if move.Flags() == gm.FlagEnPassant {
+		captured = gm.PieceTypePawn
+	}
+	if captured == gm.PieceTypeNone || int(captured) >= len(SeePieceValue) {
+		return 0
+	}
+	return int32(SeePieceValue[captured])
+}
+
+func captureFutilityDecision(rawStaticEval, alpha int32, depth int8, victimValue int32, captureHistory int) (pruned, basePruned, refined bool) {
+	margin := CaptureFutilityBase + CaptureFutilityScale*int32(depth)
+	baseEstimate := rawStaticEval + victimValue + margin
+	estimate := baseEstimate
+	if CaptureFutilityHistoryDivisor > 0 {
+		captureHistory = Max(-captureHistoryMax, Min(captureHistory, captureHistoryMax))
+		estimate += int32(captureHistory / CaptureFutilityHistoryDivisor)
+	}
+	return estimate <= alpha, baseEstimate <= alpha, estimate != baseEstimate
 }

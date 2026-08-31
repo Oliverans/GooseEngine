@@ -99,6 +99,7 @@ var movePickerRawPool [MaxPlyMoveList][MaxMovesPerPosition]gm.Move
 var movePickerCapturePool [MaxPlyMoveList][MaxMovesPerPosition]move
 var movePickerQuietPool [MaxPlyMoveList][MaxMovesPerPosition]move
 var movePickerBadCapturePool [MaxPlyMoveList][MaxMovesPerPosition]move
+var captureMovesTriedPool [MaxPlyMoveList][MaxMovesPerPosition]gm.Move
 
 var qMoveRawPool [MaxPlyMoveList][MaxMovesPerPosition]gm.Move
 var qMoveListPool [MaxPlyMoveList][MaxMovesPerPosition]move
@@ -153,7 +154,7 @@ func (p *movePicker) Next() (move, uint8, bool) {
 				if entry.move == p.ttMove {
 					continue
 				}
-				if entry.score >= scoreEqualCapture {
+				if isGoodTactical(entry) {
 					movePickerCapturePool[poolIndex][goodCount] = entry
 					goodCount++
 				} else {
@@ -276,6 +277,11 @@ func orderNextMove(currIndex uint8, moves *moveList) {
 	moves.moves[currIndex], moves.moves[bestIndex] = moves.moves[bestIndex], moves.moves[currIndex]
 }
 
+func isGoodTactical(entry move) bool {
+	promotion := entry.move.PromotionPieceType()
+	return promotion == gm.PieceTypeQueen || (promotion == gm.PieceTypeNone && entry.seeScore >= 0)
+}
+
 func scoreMovesList(board *gm.Board, moves []gm.Move, depth int8, ply int8, pvMove gm.Move, prevMove gm.Move) (movesList moveList) {
 	return scoreMovesListInto(board, moves, depth, ply, pvMove, prevMove, GetMoveListForPly(ply, len(moves)))
 }
@@ -360,6 +366,7 @@ func scoreMovesListInto(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMo
 					negativeSEE = int32(seeScore)
 				}
 			}
+			moveEval += int32(captureHistoryScore(mv))
 
 		} else if SearchState.killer.KillerMoves[killerIdx][0] == mv {
 			// First killer - high priority quiet move
@@ -427,6 +434,8 @@ func scoreMovesListTacticals(moves []gm.Move, ply int8, ttMove gm.Move) (movesLi
 					if isCapture {
 						score += mvvLva[capturedType][gm.PieceTypePawn]
 					}
+				} else if isCapture {
+					score += int32(captureHistoryScore(mv))
 				}
 			}
 

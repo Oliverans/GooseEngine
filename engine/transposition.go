@@ -230,6 +230,9 @@ func (TT *TransTable) storeEntry(hash uint64, depth int8, ply int8, move gm.Move
 			} else if move != 0 && existing.Move == 0 {
 				existing.Move = move
 			}
+			if pv {
+				existing.Flag |= ttPvFlag
+			}
 			if existing.StaticEval == int16(-MaxScore) && staticEval != -MaxScore {
 				existing.StaticEval = storedStaticEval
 			}

@@ -245,12 +245,19 @@ var uciOptionSetters = map[string]uciOption{
 	"razoringscale":    {100, 200, func(v int) { engine.RazoringScale = int32(v) }},
 	"razoringmaxdepth": {0, 6, func(v int) { engine.RazoringMaxDepth = int8(v) }},
 
-	"lmpoffset":       {1, 6, func(v int) { engine.LMPOffset = v }},
-	"lmpmaxdepth":     {0, 12, func(v int) { engine.LMPMaxDepth = int8(v) }},
-	"lmrdepthlimit":   {2, 20, func(v int) { engine.LMRDepthLimit = int8(v) }},
-	"lmrmovelimit":    {2, 8, func(v int) { engine.LMRMoveLimit = v }},
-	"lmrhistorybonus": {450, 550, func(v int) { engine.LMRHistoryBonus = v }},
-	"lmrhistorymalus": {-150, -50, func(v int) { engine.LMRHistoryMalus = v }},
+	"lmpoffset":                {1, 6, func(v int) { engine.LMPOffset = v }},
+	"lmpmaxdepth":              {0, 12, func(v int) { engine.LMPMaxDepth = int8(v) }},
+	"lmrdepthlimit":            {2, 20, func(v int) { engine.LMRDepthLimit = int8(v) }},
+	"lmrmovelimit":             {2, 8, func(v int) { engine.LMRMoveLimit = v }},
+	"lmrhistorybonus":          {450, 550, func(v int) { engine.LMRHistoryBonus = v }},
+	"lmrhistorymalus":          {-150, -50, func(v int) { engine.LMRHistoryMalus = v }},
+	"lmrcutnode":               {0, 200, func(v int) { engine.LMRCutnode = v }},
+	"lmrttpv":                  {0, 100, func(v int) { engine.LMRTTPv = v }},
+	"lmrnoisyoffset":           {-200, 0, func(v int) { engine.LMRNoisyOffset = v }},
+	"lmrcheckbonus":            {-200, 0, func(v int) { engine.LMRCheckBonus = v }},
+	"lmrdeeperbase":            {0, 120, func(v int) { engine.LMRDeeperBase = int32(v) }},
+	"lmrcapturehistorydivisor": {20, 100, func(v int) { engine.LMRCaptureHistoryDivisor = v }},
+	"iirmindepth":              {2, 20, func(v int) { engine.IIRMinDepth = int8(v) }},
 
 	"nullmovemindepth":              {0, 10, func(v int) { engine.NullMoveMinDepth = int8(v) }},
 	"nmmarginbase":                  {120, 250, func(v int) { engine.NMMarginBase = int32(v) }},
@@ -265,15 +272,20 @@ var uciOptionSetters = map[string]uciOption{
 	"singularreductionbase":         {1, 6, func(v int) { engine.SingularReductionBase = int8(v) }},
 	"singularreductiondepthdivisor": {2, 8, func(v int) { engine.SingularReductionDepthDivisor = int8(v) }},
 
-	"quiescenceseemargin": {100, 200, func(v int) { engine.QuiescenceSeeMargin = v }},
-	"seenoisyscale":       {50, 200, func(v int) { engine.SEENoisyScale = v }},
-	"seequietscale":       {20, 80, func(v int) { engine.SEEQuietScale = v }},
-	"seeprunemaxdepth":    {0, 12, func(v int) { engine.SEEPruneMaxDepth = int8(v) }},
-	"probcutseemargin":    {100, 200, func(v int) { engine.ProbCutSeeMargin = v }},
-	"probcutmindepth":     {3, 12, func(v int) { engine.ProbCutMinDepth = int8(v) }},
-	"probcutbetamargin":   {50, 400, func(v int) { engine.ProbCutBetaMargin = int32(v) }},
-	"probcutreduction":    {1, 8, func(v int) { engine.ProbCutReduction = int8(v) }},
-	"probcutmaxcaptures":  {1, 32, func(v int) { engine.ProbCutMaxCaptures = v }},
+	"quiescenceseemargin":           {100, 200, func(v int) { engine.QuiescenceSeeMargin = v }},
+	"seenoisyscale":                 {50, 200, func(v int) { engine.SEENoisyScale = v }},
+	"seenoisyhistorydivisor":        {64, 256, func(v int) { engine.SEENoisyHistoryDivisor = v }},
+	"seequietscale":                 {20, 80, func(v int) { engine.SEEQuietScale = v }},
+	"seeprunemaxdepth":              {0, 12, func(v int) { engine.SEEPruneMaxDepth = int8(v) }},
+	"capturefutilitybase":           {0, 400, func(v int) { engine.CaptureFutilityBase = int32(v) }},
+	"capturefutilityscale":          {25, 300, func(v int) { engine.CaptureFutilityScale = int32(v) }},
+	"capturefutilitymaxdepth":       {0, 8, func(v int) { engine.CaptureFutilityMaxDepth = int8(v) }},
+	"capturefutilityhistorydivisor": {64, 256, func(v int) { engine.CaptureFutilityHistoryDivisor = v }},
+	"probcutseemargin":              {100, 200, func(v int) { engine.ProbCutSeeMargin = v }},
+	"probcutmindepth":               {3, 12, func(v int) { engine.ProbCutMinDepth = int8(v) }},
+	"probcutbetamargin":             {50, 400, func(v int) { engine.ProbCutBetaMargin = int32(v) }},
+	"probcutreduction":              {1, 8, func(v int) { engine.ProbCutReduction = int8(v) }},
+	"probcutmaxcaptures":            {1, 32, func(v int) { engine.ProbCutMaxCaptures = v }},
 
 	"deltamargin":          {100, 300, func(v int) { engine.DeltaMargin = int32(v) }},
 	"aspirationwindowsize": {10, 100, func(v int) { engine.AspirationWindowSize = int32(v) }},
@@ -443,12 +455,24 @@ func uciLoop() {
 			fmt.Printf("option name LMRMoveLimit type spin default %d min 2 max 8\n", engine.LMRMoveLimit)
 			fmt.Printf("option name LMRHistoryBonus type spin default %d min 450 max 550\n", engine.LMRHistoryBonus)
 			fmt.Printf("option name LMRHistoryMalus type spin default %d min -150 max -50\n", engine.LMRHistoryMalus)
+			fmt.Printf("option name LMRCutnode type spin default %d min 0 max 200\n", engine.LMRCutnode)
+			fmt.Printf("option name LMRTTPv type spin default %d min 0 max 100\n", engine.LMRTTPv)
+			fmt.Printf("option name LMRNoisyOffset type spin default %d min -200 max 0\n", engine.LMRNoisyOffset)
+			fmt.Printf("option name LMRCheckBonus type spin default %d min -200 max 0\n", engine.LMRCheckBonus)
+			fmt.Printf("option name LMRDeeperBase type spin default %d min 0 max 120\n", engine.LMRDeeperBase)
+			fmt.Printf("option name LMRCaptureHistoryDivisor type spin default %d min 20 max 100\n", engine.LMRCaptureHistoryDivisor)
+			fmt.Printf("option name IIRMinDepth type spin default %d min 2 max 20\n", engine.IIRMinDepth)
 
 			// SEE pruning parameters
 			fmt.Printf("option name QuiescenceSeeMargin type spin default %d min 100 max 200\n", engine.QuiescenceSeeMargin)
 			fmt.Printf("option name SEENoisyScale type spin default %d min 50 max 200\n", engine.SEENoisyScale)
+			fmt.Printf("option name SEENoisyHistoryDivisor type spin default %d min 64 max 256\n", engine.SEENoisyHistoryDivisor)
 			fmt.Printf("option name SEEQuietScale type spin default %d min 20 max 80\n", engine.SEEQuietScale)
 			fmt.Printf("option name SEEPruneMaxDepth type spin default %d min 0 max 12\n", engine.SEEPruneMaxDepth)
+			fmt.Printf("option name CaptureFutilityBase type spin default %d min 0 max 400\n", engine.CaptureFutilityBase)
+			fmt.Printf("option name CaptureFutilityScale type spin default %d min 25 max 300\n", engine.CaptureFutilityScale)
+			fmt.Printf("option name CaptureFutilityMaxDepth type spin default %d min 0 max 8\n", engine.CaptureFutilityMaxDepth)
+			fmt.Printf("option name CaptureFutilityHistoryDivisor type spin default %d min 64 max 256\n", engine.CaptureFutilityHistoryDivisor)
 			fmt.Printf("option name ProbCutSeeMargin type spin default %d min 100 max 200\n", engine.ProbCutSeeMargin)
 			fmt.Printf("option name ProbCutMinDepth type spin default %d min 3 max 12\n", engine.ProbCutMinDepth)
 			fmt.Printf("option name ProbCutBetaMargin type spin default %d min 50 max 400\n", engine.ProbCutBetaMargin)
