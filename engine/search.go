@@ -24,9 +24,9 @@ const (
 // MARGINS
 // =============================================================================
 var FutilityBase int32 = 21
-var FutilityScale int32 = 114
+var FutilityScale int32 = 115
 var FutilityMaxDepth int8 = 7
-var RFPScale int32 = 83
+var RFPScale int32 = 84
 var RFPMaxDepth int8 = 7
 var RazoringScale int32 = 155
 var RazoringMaxDepth int8 = 3
@@ -110,10 +110,10 @@ var SingularReductionDepthDivisor int8 = 4
 // =============================================================================
 var ProbCutSeeMargin int = 140
 var ProbCutMinDepth int8 = 5
-var ProbCutBetaMargin int32 = 200
+var ProbCutBetaMargin int32 = 197
 var ProbCutReduction int8 = 4
 var ProbCutMaxCaptures = 10
-var DeltaMargin int32 = 210
+var DeltaMargin int32 = 206
 var QuiescenceSeeMargin int = 150
 
 func StartSearch(board *gm.Board, limits SearchLimits, evalOnly bool, moveOrderingOnly bool, printSearchInformation bool) string {
