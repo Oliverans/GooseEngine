@@ -157,6 +157,97 @@ func TestMovePickerCarriesPriorityScores(t *testing.T) {
 	}
 }
 
+func TestMovePickerCarriesHistoryScore(t *testing.T) {
+	ResetForNewGame()
+	b := gm.ParseFen(gm.FENStartPos)
+	quiet := seeTestMove(t, &b, "e2e4")
+	killer := seeTestMove(t, &b, "g1f3")
+	prevMove := gm.NewMove(57, 42, gm.BlackKnight, gm.NoPiece, gm.NoPiece, gm.FlagNone)
+	prevEntry := ContHistEntryFromMove(prevMove)
+
+	SearchState.historyMoves[0][quiet.From()][quiet.To()] = 700
+	SearchState.contHist1Ply[0][prevEntry.Piece][prevEntry.To][quiet.MovedPiece().Type()-1][quiet.To()] = 400
+	SearchState.historyMoves[0][killer.From()][killer.To()] = -600
+	SearchState.moveStack[1] = prevMove
+	SearchState.killer.KillerMoves[0][0] = killer
+
+	found := 0
+	picker := newMovePicker(&b, 1, 0, 0, prevMove)
+	for {
+		picked, _, ok := picker.Next()
+		if !ok {
+			break
+		}
+		switch picked.move {
+		case quiet:
+			if picked.historyScore != 900 {
+				t.Fatalf("quiet history = %d, want 900", picked.historyScore)
+			}
+			found++
+		case killer:
+			if picked.score != scoreKiller1 || picked.historyScore != -600 {
+				t.Fatalf("killer score/history = %d/%d", picked.score, picked.historyScore)
+			}
+			found++
+		}
+	}
+
+	if found != 2 {
+		t.Fatalf("found %d moves, want 2", found)
+	}
+}
+
+func TestMovePickerSkipQuietsKeepsBadCaptures(t *testing.T) {
+	ResetForNewGame()
+	InitPositionBB()
+	b := gm.ParseFen("4k3/8/2p5/3p4/8/8/8/3QK3 w - - 0 1")
+	picker := newMovePicker(&b, 3, 0, 0, 0)
+
+	for {
+		picked, _, ok := picker.Next()
+		if !ok {
+			t.Fatal("missing quiet move")
+		}
+		if !gm.IsCapture(picked.move, &b) && picked.move.PromotionPieceType() == gm.PieceTypeNone {
+			if skipped := picker.SkipQuiets(); skipped == 0 {
+				t.Fatal("no remaining quiets skipped")
+			}
+			break
+		}
+	}
+
+	picked, _, ok := picker.Next()
+	if !ok || picked.move.String() != "d1d5" {
+		t.Fatalf("got move=%s ok=%v, want deferred d1d5", picked.move.String(), ok)
+	}
+}
+
+func TestMovePickerSkipQuietsKeepsUnderpromotions(t *testing.T) {
+	ResetForNewGame()
+	b := gm.ParseFen("1n5k/P7/8/8/8/8/8/7K w - - 0 1")
+	picker := newMovePicker(&b, 3, 0, 0, 0)
+	picker.SkipQuiets()
+
+	underpromotions := 0
+	for {
+		picked, _, ok := picker.Next()
+		if !ok {
+			break
+		}
+		promotion := picked.move.PromotionPieceType()
+		if promotion == gm.PieceTypeNone {
+			t.Fatalf("ordinary quiet %s was not skipped", picked.move.String())
+		}
+		if promotion != gm.PieceTypeQueen {
+			underpromotions++
+		}
+	}
+
+	if underpromotions == 0 {
+		t.Fatal("underpromotions were skipped")
+	}
+}
+
 func TestStagedPickerTerminalScores(t *testing.T) {
 	tests := []struct {
 		fen  string

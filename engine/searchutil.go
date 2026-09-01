@@ -230,6 +230,7 @@ type searchState struct {
 	counterMoves     [2][64][64]gm.Move
 	historyMoves     [2][64][64]int
 	evalStack        [MaxDepth]int32
+	rawEvalStack     [MaxDepth]int32
 	prevSearchScore  int32
 	searchShouldStop bool
 	globalStop       atomic.Bool
@@ -244,6 +245,7 @@ type searchState struct {
 	contHist1Ply   [2][6][64][6][64]int16
 	contHist2Ply   [2][6][64][6][64]int16
 	captureHistory [15][64][6]int16
+	correction     correctionHistory
 
 	// Root moves to skip in the current search pass (multi-PV).
 	// Only consulted at the root node (ply == 0).
@@ -348,6 +350,7 @@ func ResetForNewGame() {
 	HistoryClear()
 	ContHistClear()
 	captureHistoryClear()
+	SearchState.correction.clear()
 	SearchState.stateStack = SearchState.stateStack[:0]
 	var nilMove gm.Move
 	for i := 0; i < 64; i++ {

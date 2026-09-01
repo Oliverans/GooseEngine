@@ -30,6 +30,31 @@ type CutStatistics struct {
 	QTTHits    uint64
 	QTTCutoffs uint64
 
+	CorrectionHistoryReads                    uint64
+	CorrectionHistoryPawnContributors         uint64
+	CorrectionHistoryMinorContributors        uint64
+	CorrectionHistoryWhiteNonPawnContributors uint64
+	CorrectionHistoryBlackNonPawnContributors uint64
+	CorrectionHistoryContributorNodes         [5]uint64
+	CorrectionHistoryAbsoluteApplied          uint64
+	CorrectionHistoryUpdates                  uint64
+	CorrectionHistoryPositiveUpdates          uint64
+	CorrectionHistoryNegativeUpdates          uint64
+	CorrectionHistoryZeroUpdates              uint64
+	CorrectionHistorySaturations              uint64
+	CorrectionImprovingEnabled                uint64
+	CorrectionImprovingSuppressed             uint64
+	CorrectionRFPEnabled                      uint64
+	CorrectionRFPSuppressed                   uint64
+	CorrectionNullMoveEnabled                 uint64
+	CorrectionNullMoveSuppressed              uint64
+	CorrectionRazoringEnabled                 uint64
+	CorrectionRazoringSuppressed              uint64
+	CorrectionFutilityEnabled                 uint64
+	CorrectionFutilitySuppressed              uint64
+	CorrectionCaptureFutilityEnabled          uint64
+	CorrectionCaptureFutilitySuppressed       uint64
+
 	// Reverse futility pruning (static null).
 	RFPEligible       uint64
 	RFPRefinements    uint64
@@ -101,6 +126,9 @@ type CutStatistics struct {
 	MakeMoveRejects                   uint64
 	FutilityPrunes                    uint64
 	LateMovePrunes                    uint64
+	HistoryPruneAttempts              uint64
+	HistoryPruneTriggers              uint64
+	HistoryPrunes                     uint64
 	SEENoisyAttempts                  uint64
 	SEENoisyPrunes                    uint64
 	SEENoisyHistoryRefinements        uint64
@@ -155,6 +183,65 @@ func recordCutoffOrdinal(buckets *[4]uint64, ordinal int) {
 	}
 }
 
+func recordCorrectionHistoryRead(read correctionHistoryRead) {
+	c := &SearchState.cutStats
+	c.CorrectionHistoryReads++
+	contributors := 0
+	if read.pawn != 0 {
+		c.CorrectionHistoryPawnContributors++
+		contributors++
+	}
+	if read.minor != 0 {
+		c.CorrectionHistoryMinorContributors++
+		contributors++
+	}
+	if read.whiteNonPawn != 0 {
+		c.CorrectionHistoryWhiteNonPawnContributors++
+		contributors++
+	}
+	if read.blackNonPawn != 0 {
+		c.CorrectionHistoryBlackNonPawnContributors++
+		contributors++
+	}
+	c.CorrectionHistoryContributorNodes[contributors]++
+	applied := read.correction
+	if applied < 0 {
+		applied = -applied
+	}
+	c.CorrectionHistoryAbsoluteApplied += uint64(applied)
+}
+
+func recordCorrectionHistoryUpdate(update correctionHistoryUpdate) {
+	c := &SearchState.cutStats
+	c.CorrectionHistoryUpdates++
+	switch {
+	case update.direction > 0:
+		c.CorrectionHistoryPositiveUpdates++
+	case update.direction < 0:
+		c.CorrectionHistoryNegativeUpdates++
+	default:
+		c.CorrectionHistoryZeroUpdates++
+	}
+	if update.saturated {
+		c.CorrectionHistorySaturations++
+	}
+}
+
+func recordCorrectionGate(before, after bool, enabled, suppressed *uint64) {
+	if !before && after {
+		(*enabled)++
+	} else if before && !after {
+		(*suppressed)++
+	}
+}
+
+func average(sum, count uint64) string {
+	if count == 0 {
+		return "n/a"
+	}
+	return fmt.Sprintf("%.2f", float64(sum)/float64(count))
+}
+
 func dumpCutStats() {
 	c := SearchState.cutStats
 	total := uint64(SearchState.nodesChecked)
@@ -170,6 +257,22 @@ func dumpCutStats() {
 	fmt.Printf("info string   QTT: %d probes, %d hits (%s), %d cutoffs (%s of hits)\n",
 		c.QTTProbes, c.QTTHits, pct(c.QTTHits, c.QTTProbes),
 		c.QTTCutoffs, pct(c.QTTCutoffs, c.QTTHits))
+	fmt.Printf("info string   Correction history: %d reads, %d updates (+%d/-%d/%d zero), %d saturated, %s cp avg |applied|\n",
+		c.CorrectionHistoryReads, c.CorrectionHistoryUpdates,
+		c.CorrectionHistoryPositiveUpdates, c.CorrectionHistoryNegativeUpdates, c.CorrectionHistoryZeroUpdates,
+		c.CorrectionHistorySaturations, average(c.CorrectionHistoryAbsoluteApplied, c.CorrectionHistoryReads))
+	fmt.Printf("info string   Correction contributors: pawn %d, minor %d, white non-pawn %d, black non-pawn %d | nodes 0/1/2/3/4: %d/%d/%d/%d/%d\n",
+		c.CorrectionHistoryPawnContributors, c.CorrectionHistoryMinorContributors,
+		c.CorrectionHistoryWhiteNonPawnContributors, c.CorrectionHistoryBlackNonPawnContributors,
+		c.CorrectionHistoryContributorNodes[0], c.CorrectionHistoryContributorNodes[1], c.CorrectionHistoryContributorNodes[2],
+		c.CorrectionHistoryContributorNodes[3], c.CorrectionHistoryContributorNodes[4])
+	fmt.Printf("info string   Correction gates: improving +%d/-%d, RFP +%d/-%d, null +%d/-%d, razoring +%d/-%d, futility +%d/-%d, capture futility +%d/-%d\n",
+		c.CorrectionImprovingEnabled, c.CorrectionImprovingSuppressed,
+		c.CorrectionRFPEnabled, c.CorrectionRFPSuppressed,
+		c.CorrectionNullMoveEnabled, c.CorrectionNullMoveSuppressed,
+		c.CorrectionRazoringEnabled, c.CorrectionRazoringSuppressed,
+		c.CorrectionFutilityEnabled, c.CorrectionFutilitySuppressed,
+		c.CorrectionCaptureFutilityEnabled, c.CorrectionCaptureFutilitySuppressed)
 	fmt.Printf("info string   RFP: %d eligible, %d TT refinements (%s), %d enabled, %d suppressed, %d cutoffs (%s)\n",
 		c.RFPEligible, c.RFPRefinements, pct(c.RFPRefinements, c.RFPEligible),
 		c.RFPEnabledByTT, c.RFPSuppressedByTT,
@@ -225,6 +328,8 @@ func dumpCutStats() {
 	fmt.Printf("info string   Moves: %d generated, %d searched (%s), %d make rejects\n",
 		c.MovesGenerated, c.MovesSearched, pct(c.MovesSearched, c.MovesGenerated), c.MakeMoveRejects)
 	fmt.Printf("info string   Pruned: %d futility, %d late move\n", c.FutilityPrunes, c.LateMovePrunes)
+	fmt.Printf("info string   History pruning: %d attempts, %d triggers (%s), %d quiets pruned\n",
+		c.HistoryPruneAttempts, c.HistoryPruneTriggers, pct(c.HistoryPruneTriggers, c.HistoryPruneAttempts), c.HistoryPrunes)
 	fmt.Printf("info string   SEE pruning: noisy %d attempts, %d pruned (%s); quiet %d attempts, %d pruned (%s), %d priority protected\n",
 		c.SEENoisyAttempts, c.SEENoisyPrunes, pct(c.SEENoisyPrunes, c.SEENoisyAttempts),
 		c.SEEQuietAttempts, c.SEEQuietPrunes, pct(c.SEEQuietPrunes, c.SEEQuietAttempts), c.SEEQuietPriorityProtected)

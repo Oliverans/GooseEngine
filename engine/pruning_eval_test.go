@@ -17,6 +17,8 @@ func prepareAlphaBetaTest(t *testing.T, b *gm.Board, tt TransTable) {
 	SearchState.searchShouldStop = false
 	SearchState.timeHandler.stopSearch = false
 	SearchState.nodesChecked = 0
+	SearchState.correction.clear()
+	t.Cleanup(func() { SearchState.correction.clear() })
 	ResetCutStats()
 }
 

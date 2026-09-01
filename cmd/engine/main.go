@@ -247,6 +247,8 @@ var uciOptionSetters = map[string]uciOption{
 
 	"lmpoffset":                {1, 6, func(v int) { engine.LMPOffset = v }},
 	"lmpmaxdepth":              {0, 12, func(v int) { engine.LMPMaxDepth = int8(v) }},
+	"histprunemargin":          {-4000, 0, func(v int) { engine.HistPruneMargin = v }},
+	"histprunemaxdepth":        {0, 8, func(v int) { engine.HistPruneMaxDepth = int8(v) }},
 	"lmrdepthlimit":            {2, 20, func(v int) { engine.LMRDepthLimit = int8(v) }},
 	"lmrmovelimit":             {2, 8, func(v int) { engine.LMRMoveLimit = v }},
 	"lmrhistorybonus":          {450, 550, func(v int) { engine.LMRHistoryBonus = v }},
@@ -450,6 +452,8 @@ func uciLoop() {
 			// Additional LMP margins - base ±3
 			fmt.Printf("option name LMPOffset type spin default %d min 1 max 6\n", engine.LMPOffset)
 			fmt.Printf("option name LMPMaxDepth type spin default %d min 0 max 12\n", engine.LMPMaxDepth)
+			fmt.Printf("option name HistPruneMargin type spin default %d min -4000 max 0\n", engine.HistPruneMargin)
+			fmt.Printf("option name HistPruneMaxDepth type spin default %d min 0 max 8\n", engine.HistPruneMaxDepth)
 
 			// LMR parameters - base ±50 for history values
 			fmt.Printf("option name LMRMoveLimit type spin default %d min 2 max 8\n", engine.LMRMoveLimit)

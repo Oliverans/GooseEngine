@@ -208,13 +208,17 @@ type PawnHashEntry struct {
 var PawnHashTable [PawnHashSize]PawnHashEntry
 
 // Compute index into pawn hash table from pawn bitboards (mix bits for distribution)
-func pawnHashIndex(whitePawns, blackPawns uint64) uint64 {
+func pawnStructureKey(whitePawns, blackPawns uint64) uint64 {
 	const goldenRatio = 0x9E3779B97F4A7C15
 	hash := whitePawns ^ (blackPawns * goldenRatio)
 	hash ^= hash >> 33
 	hash *= 0xFF51AFD7ED558CCD
 	hash ^= hash >> 33
-	return hash & (PawnHashSize - 1)
+	return hash
+}
+
+func pawnHashIndex(whitePawns, blackPawns uint64) uint64 {
+	return pawnStructureKey(whitePawns, blackPawns) & (PawnHashSize - 1)
 }
 
 // ProbePawnHash returns pawn entry and a hit flag if found

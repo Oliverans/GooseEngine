@@ -5,9 +5,10 @@ import (
 )
 
 type move struct {
-	move     gm.Move
-	score    int32
-	seeScore int32
+	move         gm.Move
+	score        int32
+	seeScore     int32
+	historyScore int32
 }
 
 type moveList struct {
@@ -75,17 +76,17 @@ var SortingNormal int
 // 10. Under-promos:     50,000 + piece value
 
 const (
-	scorePVMove           int32 = 2_000_000_000
-	scoreQueenPromo       int32 = 1_000_000
-	scoreWinningCapture   int32 = 900_000
-	scoreEqualCapture     int32 = 800_000
-	scoreKiller1          int32 = 700_000
-	scoreKiller2          int32 = 690_000
-	scoreCounterMove      int32 = 600_000
-	scoreQuietBase        int32 = 500_000
-	scoreSEEPruningCutoff int32 = (scoreCounterMove + scoreQuietBase) / 2
-	scoreLosingCapture    int32 = 100_000
-	scoreUnderPromo       int32 = 50_000
+	scorePVMove              int32 = 2_000_000_000
+	scoreQueenPromo          int32 = 1_000_000
+	scoreWinningCapture      int32 = 900_000
+	scoreEqualCapture        int32 = 800_000
+	scoreKiller1             int32 = 700_000
+	scoreKiller2             int32 = 690_000
+	scoreCounterMove         int32 = 600_000
+	scoreQuietBase           int32 = 500_000
+	scoreQuietPriorityCutoff int32 = (scoreCounterMove + scoreQuietBase) / 2
+	scoreLosingCapture       int32 = 100_000
+	scoreUnderPromo          int32 = 50_000
 )
 
 const MaxPlyMoveList = 128
@@ -181,11 +182,6 @@ func (p *movePicker) Next() (move, uint8, bool) {
 			return entry, index, true
 
 		case movePickerStageGenerateQuiets:
-			if p.skipQuiets {
-				p.stage = movePickerStageBadCaptures
-				continue
-			}
-
 			poolIndex := movePickerPoolIndex(p.ply)
 			rawMoves := p.board.GenerateQuietsInto(movePickerRawPool[poolIndex][:0])
 			SearchState.cutStats.MovesGenerated += uint64(len(rawMoves))
@@ -218,6 +214,11 @@ func (p *movePicker) Next() (move, uint8, bool) {
 			p.stage = movePickerStageQuiets
 
 		case movePickerStageQuiets:
+			if p.skipQuiets {
+				p.stage = movePickerStageBadCaptures
+				continue
+			}
+
 			cursor := &p.quiets
 			if int(cursor.index) >= len(cursor.list.moves) {
 				p.stage = movePickerStageBadCaptures
@@ -249,6 +250,17 @@ func (p *movePicker) Next() (move, uint8, bool) {
 			return move{}, 0, false
 		}
 	}
+}
+
+func (p *movePicker) SkipQuiets() int {
+	if p.skipQuiets {
+		return 0
+	}
+	p.skipQuiets = true
+	if p.stage != movePickerStageQuiets {
+		return 0
+	}
+	return len(p.quiets.list.moves) - int(p.quiets.index)
 }
 
 func movePickerPoolIndex(ply int8) int {
@@ -309,6 +321,7 @@ func scoreMovesListInto(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMo
 		mv := moves[i]
 		var moveEval int32
 		var negativeSEE int32
+		var historyScore int32
 
 		capturedPiece := mv.CapturedPiece()
 		capturedType := capturedPiece.Type()
@@ -321,6 +334,11 @@ func scoreMovesListInto(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMo
 
 		promotePiece := mv.PromotionPieceType()
 		isPVMove := (mv == pvMove)
+		if !isCapture && promotePiece == gm.PieceTypeNone {
+			mainHistory := int32(SearchState.historyMoves[side][mv.From()][mv.To()])
+			continuationHistory := int32(ContHistScore(side, mv, prev1Ply, prev2Ply))
+			historyScore = mainHistory + continuationHistory/2
+		}
 
 		if isPVMove {
 			// PV/TT move: always searched first
@@ -377,24 +395,17 @@ func scoreMovesListInto(board *gm.Board, moves []gm.Move, _ int8, ply int8, pvMo
 			moveEval = scoreKiller2
 
 		} else {
-			// Regular quiet move: combine main history + continuation history
-			histScore := int32(SearchState.historyMoves[side][mv.From()][mv.To()])
+			moveEval = scoreQuietBase + historyScore
 
-			// NEW: Add continuation history score (weighted at 50%)
-			contScore := int32(ContHistScore(side, mv, prev1Ply, prev2Ply))
-			combinedHist := histScore + contScore/2
-
-			moveEval = scoreQuietBase + combinedHist
-
-			// Counter move bonus (still uses combined history for tie-breaking)
 			if prevMove != 0 && SearchState.counterMoves[side][prevMove.From()][prevMove.To()] == mv {
-				moveEval = scoreCounterMove + combinedHist
+				moveEval = scoreCounterMove + historyScore
 			}
 		}
 
 		movesList.moves[i].move = mv
 		movesList.moves[i].score = moveEval
 		movesList.moves[i].seeScore = negativeSEE
+		movesList.moves[i].historyScore = historyScore
 	}
 
 	return movesList
@@ -457,13 +468,4 @@ func IsKiller(move gm.Move, ply int8, k *KillerStruct) bool {
 		index = len(k.KillerMoves) - 1
 	}
 	return move == k.KillerMoves[index][0] || move == k.KillerMoves[index][1]
-}
-
-// HistoryCombinedScore returns the combined history + continuation history score
-// Useful for LMR decisions in search
-func HistoryCombinedScore(side int, move gm.Move, ply int8) int {
-	mainHist := SearchState.historyMoves[side][move.From()][move.To()]
-	prev1Ply, prev2Ply := SearchState.ContHistContext(ply)
-	contHist := ContHistScore(side, move, prev1Ply, prev2Ply)
-	return mainHist + contHist/2
 }

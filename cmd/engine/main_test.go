@@ -129,6 +129,33 @@ func TestSetSEENoisyHistoryDivisorBounds(t *testing.T) {
 	}
 }
 
+func TestSetHistoryPruningOptions(t *testing.T) {
+	oldMargin := engine.HistPruneMargin
+	oldMaxDepth := engine.HistPruneMaxDepth
+	t.Cleanup(func() {
+		engine.HistPruneMargin = oldMargin
+		engine.HistPruneMaxDepth = oldMaxDepth
+	})
+
+	handleSetOption("setoption name HistPruneMargin value -4000")
+	handleSetOption("setoption name HistPruneMaxDepth value 8")
+	if engine.HistPruneMargin != -4000 || engine.HistPruneMaxDepth != 8 {
+		t.Fatalf("history pruning options = %d/%d", engine.HistPruneMargin, engine.HistPruneMaxDepth)
+	}
+
+	handleSetOption("setoption name HistPruneMargin value -4001")
+	handleSetOption("setoption name HistPruneMaxDepth value 9")
+	if engine.HistPruneMargin != -4000 || engine.HistPruneMaxDepth != 8 {
+		t.Fatal("out-of-range values changed history pruning options")
+	}
+
+	handleSetOption("setoption name HistPruneMargin value 0")
+	handleSetOption("setoption name HistPruneMaxDepth value 0")
+	if engine.HistPruneMargin != 0 || engine.HistPruneMaxDepth != 0 {
+		t.Fatalf("history pruning boundary options = %d/%d", engine.HistPruneMargin, engine.HistPruneMaxDepth)
+	}
+}
+
 func TestSetCaptureFutilityOptions(t *testing.T) {
 	oldBase := engine.CaptureFutilityBase
 	oldScale := engine.CaptureFutilityScale

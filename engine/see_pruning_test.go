@@ -97,8 +97,8 @@ func TestSEEPruningOrderingPriority(t *testing.T) {
 	}{
 		{"losing capture", scoreLosingCapture + 505, true},
 		{"ordinary quiet ceiling", scoreQuietBase + historyRange, true},
-		{"below cutoff", scoreSEEPruningCutoff - 1, true},
-		{"at cutoff", scoreSEEPruningCutoff, false},
+		{"below cutoff", scoreQuietPriorityCutoff - 1, true},
+		{"at cutoff", scoreQuietPriorityCutoff, false},
 		{"countermove floor", scoreCounterMove - historyRange, false},
 		{"second killer", scoreKiller2, false},
 		{"first killer", scoreKiller1, false},
